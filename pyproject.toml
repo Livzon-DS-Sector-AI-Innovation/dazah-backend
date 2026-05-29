@@ -1,10 +1,10 @@
 [project]
 name = "dazah-backend"
 version = "0.1.0"
-description = "原料药事业部工厂数字化基座系统"
+description = "原料药事业部工厂系统"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115.0",
+    "fastapi[standard]>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.30.0",

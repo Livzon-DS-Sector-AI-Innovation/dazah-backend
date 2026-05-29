@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 EventHandler = Callable[..., Coroutine[Any, Any, None]]
 
 
+# 基于内存事件总线（初期）
 class EventBus:
     def __init__(self) -> None:
         self._handlers: dict[str, list[EventHandler]] = defaultdict(list)

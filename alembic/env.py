@@ -1,19 +1,22 @@
 import asyncio
+from collections.abc import MutableMapping
+from importlib import import_module
 from logging.config import fileConfig
+from typing import Literal
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
 from app.core.config import get_settings
-from app.models.base import Base
+from app.shared.base_model import Base
+from app.shared.module_registry import BUSINESS_MODULES, BUSINESS_SCHEMAS
 
-# Import all models so Alembic can detect them
-# from app.models.production import *  # noqa: F401, F403
-# from app.models.equipment import *  # noqa: F401, F403
-# from app.models.environment import *  # noqa: F401, F403
-# from app.models.hr import *  # noqa: F401, F403
-# from app.models.procurement import *  # noqa: F401, F403
+# Import platform and module models so Alembic can detect them.
+import_module("app.platform.audit.models")
+import_module("app.platform.identity.models")
+for module in BUSINESS_MODULES:
+    import_module(f"app.modules.{module.code}.models")
 
 config = context.config
 if config.config_file_name is not None:
@@ -22,7 +25,32 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
+
+PROJECT_SCHEMAS = frozenset(("identity", "audit", *BUSINESS_SCHEMAS))
+
+
+def include_name(
+    name: str | None,
+    type_: Literal[
+        "schema",
+        "table",
+        "column",
+        "index",
+        "unique_constraint",
+        "foreign_key_constraint",
+    ],
+    parent_names: MutableMapping[
+        Literal["schema_name", "table_name", "schema_qualified_table_name"],
+        str | None,
+    ],
+) -> bool:
+    """Limit autogenerate to schemas owned by this application."""
+    if type_ == "schema":
+        return name in PROJECT_SCHEMAS
+    if type_ == "table":
+        return parent_names.get("schema_name") in PROJECT_SCHEMAS
+    return True
 
 
 def run_migrations_offline() -> None:
@@ -30,6 +58,10 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_schemas=True,
+        include_name=include_name,
+        compare_type=True,
+        compare_server_default=True,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -38,7 +70,14 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:  # type: ignore[no-untyped-def]
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_schemas=True,
+        include_name=include_name,
+        compare_type=True,
+        compare_server_default=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

@@ -1,14 +1,8 @@
 from typing import Any
 
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
-
-class ApiResponse(BaseModel):
-    code: int = 200
-    message: str = "success"
-    data: Any = None
-    meta: dict[str, Any] | None = None
+from app.shared.schemas import ApiResponse
 
 
 def success_response(
