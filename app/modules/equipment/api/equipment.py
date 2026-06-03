@@ -1,8 +1,8 @@
-"""Equipment API routes."""
+"""设备台账 API 路由."""
 
 import uuid
 
-from fastapi import Depends, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,10 +24,8 @@ from app.modules.equipment.schemas import (
     LocationTree,
     LocationUpdate,
 )
-from app.shared.module_api import create_module_router
-from app.shared.module_registry import MODULES_BY_CODE
 
-router = create_module_router(MODULES_BY_CODE["equipment"])
+router = APIRouter()
 
 
 # ==================== 设备分类 ====================
