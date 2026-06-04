@@ -48,7 +48,9 @@ from app.modules.equipment.repository.failure_code import (
 )
 from app.modules.equipment.repository.work_order import (
     count_open_work_orders_by_equipment,
+    create_material_consumption,
     create_work_order,
+    get_material_consumptions,
     get_max_work_order_no,
     get_work_order_by_id,
     get_work_order_statistics,
@@ -75,6 +77,7 @@ __all__ = [
     "create_equipment_category",
     "create_failure_code",
     "create_location",
+    "create_material_consumption",
     "create_work_order",
     "delete_equipment",
     "delete_equipment_category",
@@ -95,6 +98,7 @@ __all__ = [
     "get_location_by_id",
     "get_location_tree",
     "get_locations",
+    "get_material_consumptions",
     "get_max_equipment_no_by_category",
     "get_max_work_order_no",
     "get_work_order_by_id",

@@ -12,6 +12,8 @@ from app.core.exceptions import AppException
 from app.core.response import paginated_response, success_response
 from app.modules.equipment import service
 from app.modules.equipment.schemas import (
+    MaterialConsumeRequest,
+    MaterialConsumeResponse,
     WorkOrderAssign,
     WorkOrderComplete,
     WorkOrderCreate,
@@ -131,3 +133,30 @@ async def close_work_order(
 ) -> JSONResponse:
     wo = await service.close_work_order(db, work_order_id)
     return success_response(data=WorkOrderResponse.model_validate(wo))
+
+
+@router.post("/{work_order_id}/materials", summary="领料")
+async def consume_materials(
+    work_order_id: uuid.UUID,
+    data: MaterialConsumeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    items = [item.model_dump() for item in data.items]
+    transactions = await service.consume_materials(db, work_order_id, items)
+    return success_response(
+        data=[MaterialConsumeResponse.model_validate(t) for t in transactions]
+    )
+
+
+@router.get("/{work_order_id}/materials", summary="工单领料记录")
+async def get_material_consumptions(
+    work_order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    from app.modules.equipment import repository as repo
+
+    transactions = await repo.get_material_consumptions(db, work_order_id)
+    return success_response(
+        data=[MaterialConsumeResponse.model_validate(t) for t in transactions]
+    )

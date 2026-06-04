@@ -135,3 +135,34 @@ async def get_work_order_statistics(db: AsyncSession) -> dict[str, Any]:
         "by_type": by_type,
         "by_priority": by_priority,
     }
+
+
+async def create_material_consumption(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> "SparePartTransaction":  # noqa: F821
+    """创建领料记录"""
+    from app.modules.equipment.models.spare_part import SparePartTransaction
+
+    transaction = SparePartTransaction(**data)
+    db.add(transaction)
+    await db.flush()
+    return transaction
+
+
+async def get_material_consumptions(
+    db: AsyncSession,
+    work_order_id: uuid.UUID,
+) -> list["SparePartTransaction"]:  # noqa: F821
+    """获取工单领料记录"""
+    from app.modules.equipment.models.spare_part import SparePartTransaction
+
+    result = await db.execute(
+        select(SparePartTransaction)
+        .where(
+            SparePartTransaction.work_order_id == work_order_id,
+            SparePartTransaction.is_deleted == False,  # noqa: E712
+        )
+        .order_by(SparePartTransaction.created_at.desc())
+    )
+    return list(result.scalars().all())

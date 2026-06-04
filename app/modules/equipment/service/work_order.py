@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -276,3 +277,60 @@ async def get_work_order_by_id(
 ) -> WorkOrder:
     """获取工单"""
     return await _get_work_order(db, work_order_id)
+
+
+async def consume_materials(
+    db: AsyncSession,
+    work_order_id: uuid.UUID,
+    items: list[dict[str, Any]],
+) -> list[Any]:
+    """工单领料"""
+    wo = await _get_work_order(db, work_order_id)
+
+    if wo.status in ("已完成", "已关闭"):
+        raise AppException(message="工单已完成或已关闭，不能领料")
+
+    from app.modules.equipment.service.spare_part import (
+        get_spare_part_by_id,
+        get_stock_by_spare_part_id,
+        outbound_stock,
+    )
+
+    total_cost = 0.0
+    transactions = []
+
+    for item in items:
+        spare_part = await get_spare_part_by_id(db, item["spare_part_id"])
+        stock = await get_stock_by_spare_part_id(db, item["spare_part_id"])
+
+        if not stock or stock.current_qty < item["quantity"]:
+            raise AppException(
+                message=f"备件 '{spare_part.name}' 库存不足"
+            )
+
+        # 扣减库存
+        await outbound_stock(db, item["spare_part_id"], item["quantity"])
+
+        # 创建流水记录
+        transaction = await repo.create_material_consumption(
+            db,
+            {
+                "spare_part_id": item["spare_part_id"],
+                "work_order_id": work_order_id,
+                "transaction_type": "出库",
+                "quantity": -item["quantity"],
+                "remark": f"工单 {wo.work_order_no} 领料",
+            },
+        )
+        transactions.append(transaction)
+
+        # 累加费用
+        if spare_part.unit_price:
+            total_cost += spare_part.unit_price * item["quantity"]
+
+    # 更新工单备件费用
+    current_cost = wo.spare_parts_cost or 0.0
+    wo.spare_parts_cost = current_cost + total_cost
+    await db.flush()
+
+    return transactions
