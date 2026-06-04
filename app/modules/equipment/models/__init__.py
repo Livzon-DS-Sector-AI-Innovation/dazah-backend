@@ -16,6 +16,12 @@ from app.modules.equipment.models.failure_code import (
     FailureCause,
     FailureSymptom,
 )
+from app.modules.equipment.models.spare_part import (
+    EquipmentSparePart,
+    SparePart,
+    SparePartStock,
+    SparePartTransaction,
+)
 from app.modules.equipment.models.work_order import WorkOrder
 from app.shared.base_model import Base
 
@@ -51,5 +57,9 @@ __all__ = [
     "FailureCause",
     "FailureSymptom",
     "Location",
+    "EquipmentSparePart",
+    "SparePart",
+    "SparePartStock",
+    "SparePartTransaction",
     "WorkOrder",
 ]

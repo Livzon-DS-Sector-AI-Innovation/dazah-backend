@@ -31,6 +31,17 @@ from app.modules.equipment.schemas.failure_code import (
     FailureCodeType,
     FailureCodeUpdate,
 )
+from app.modules.equipment.schemas.spare_part import (
+    EquipmentSparePartCreate,
+    EquipmentSparePartResponse,
+    SparePartCreate,
+    SparePartResponse,
+    SparePartUpdate,
+    StockAdjustRequest,
+    StockInboundRequest,
+    StockResponse,
+    StockWarningResponse,
+)
 from app.modules.equipment.schemas.work_order import (
     MaterialConsumeItem,
     MaterialConsumeRequest,
@@ -91,4 +102,14 @@ __all__ = [
     "MaterialConsumeItem",
     "MaterialConsumeRequest",
     "MaterialConsumeResponse",
+    # spare part
+    "SparePartCreate",
+    "SparePartUpdate",
+    "SparePartResponse",
+    "StockResponse",
+    "StockInboundRequest",
+    "StockAdjustRequest",
+    "StockWarningResponse",
+    "EquipmentSparePartCreate",
+    "EquipmentSparePartResponse",
 ]
