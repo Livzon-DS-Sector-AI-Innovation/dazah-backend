@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     String,
@@ -39,7 +40,7 @@ class WorkOrder(BaseModel):
             name="uq_work_orders_work_order_no",
         ),
         CheckConstraint(
-            "order_type IN ('故障维修', '校准')",
+            "order_type IN ('故障维修', '计划维护', '巡检', '校准')",
             name="ck_work_orders_order_type",
         ),
         CheckConstraint(
@@ -153,6 +154,25 @@ class WorkOrder(BaseModel):
         String(20),
         nullable=True,
         comment="创建工单时的设备原始状态",
+    )
+    maintenance_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("equipment.maintenance_plans.id"),
+        nullable=True,
+        comment="关联维护计划ID",
+    )
+    planned_start_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="计划执行日期"
+    )
+    checklist_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("equipment.inspection_templates.id"),
+        nullable=True,
+        comment="关联巡检模板ID",
+    )
+    check_result: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, comment="巡检结果：正常/异常"
+    )
+    spare_parts_cost: Mapped[float | None] = mapped_column(
+        nullable=True, comment="备件费用汇总"
     )
 
     # 关系
