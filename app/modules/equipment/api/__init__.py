@@ -29,6 +29,9 @@ router = create_module_router(MODULES_BY_CODE["equipment"])
 # 设备台账路由
 router.include_router(equipment_router)
 
+# 备件管理路由
+router.include_router(spare_parts_router, prefix="/spare-parts")
+
 # 维护模块路由
 router.include_router(
     failure_codes_router, prefix="/maintenance/failure-codes"
@@ -38,9 +41,6 @@ router.include_router(
 )
 router.include_router(
     calibration_router, prefix="/maintenance/calibration"
-)
-router.include_router(
-    spare_parts_router, prefix="/maintenance/spare-parts"
 )
 router.include_router(
     maintenance_plans_router, prefix="/maintenance/plans"
