@@ -40,6 +40,18 @@ from app.modules.equipment.service.failure_code import (
     get_failure_codes,
     update_failure_code,
 )
+from app.modules.equipment.service.spare_part import (
+    adjust_stock,
+    create_spare_part,
+    delete_spare_part,
+    get_spare_part_by_id,
+    get_spare_parts,
+    get_stock_by_spare_part_id,
+    get_stock_warnings,
+    inbound_stock,
+    outbound_stock,
+    update_spare_part,
+)
 from app.modules.equipment.service.work_order import (
     assign_work_order,
     close_work_order,
@@ -92,6 +104,17 @@ __all__ = [
     "get_failure_code_by_id",
     "get_failure_codes",
     "update_failure_code",
+    # spare part
+    "adjust_stock",
+    "create_spare_part",
+    "delete_spare_part",
+    "get_spare_part_by_id",
+    "get_spare_parts",
+    "get_stock_by_spare_part_id",
+    "get_stock_warnings",
+    "inbound_stock",
+    "outbound_stock",
+    "update_spare_part",
     # work order
     "assign_work_order",
     "close_work_order",
