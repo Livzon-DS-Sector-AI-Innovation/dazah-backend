@@ -17,11 +17,19 @@ from app.modules.equipment.schemas import (
 
 _MAX_RETRIES = 3
 
-VALID_TRANSITIONS: dict[str, list[str]] = {
+_REPAIR_VALID_TRANSITIONS: dict[str, list[str]] = {
     "待处理": ["已指派"],
     "已指派": ["维修中"],
     "维修中": ["待验收"],
     "待验收": ["已完成", "维修中"],
+    "已完成": ["已关闭"],
+    "已关闭": [],
+}
+
+_MAINTENANCE_VALID_TRANSITIONS: dict[str, list[str]] = {
+    "待执行": ["已指派", "执行中"],
+    "已指派": ["执行中"],
+    "执行中": ["已完成"],
     "已完成": ["已关闭"],
     "已关闭": [],
 }
@@ -39,9 +47,17 @@ async def generate_work_order_no(db: AsyncSession) -> str:
     return f"WO-{today}-{seq:04d}"
 
 
-def _validate_transition(current: str, target: str) -> None:
+def _get_transitions(order_type: str) -> dict[str, list[str]]:
+    """根据工单类型获取状态转换规则"""
+    if order_type in ("计划维护", "巡检"):
+        return _MAINTENANCE_VALID_TRANSITIONS
+    return _REPAIR_VALID_TRANSITIONS
+
+
+def _validate_transition(current: str, target: str, order_type: str) -> None:
     """校验状态转换是否合法"""
-    allowed = VALID_TRANSITIONS.get(current, [])
+    transitions = _get_transitions(order_type)
+    allowed = transitions.get(current, [])
     if target not in allowed:
         raise AppException(
             message=f"状态不允许从 '{current}' 转换到 '{target}'"
@@ -94,7 +110,13 @@ async def create_work_order(
         wo_data = data.model_dump()
         wo_data["work_order_no"] = wo_no
         wo_data["reporter_id"] = reporter_id
-        wo_data["status"] = "待处理"
+        # 根据工单类型设置初始状态
+        if data.order_type in ("计划维护", "巡检"):
+            initial_status = "待执行"
+        else:
+            initial_status = "待处理"
+
+        wo_data["status"] = initial_status
         wo_data["original_equipment_status"] = original_status
 
         try:
@@ -118,7 +140,7 @@ async def assign_work_order(
 ) -> WorkOrder:
     """指派维修人"""
     wo = await _get_work_order(db, work_order_id)
-    _validate_transition(wo.status, "已指派")
+    _validate_transition(wo.status, "已指派", wo.order_type)
 
     wo.assignee_id = assignee_id
     wo.assigned_at = datetime.now(UTC)
@@ -132,11 +154,12 @@ async def start_work_order(
     db: AsyncSession,
     work_order_id: uuid.UUID,
 ) -> WorkOrder:
-    """开始维修"""
+    """开始执行"""
     wo = await _get_work_order(db, work_order_id)
-    _validate_transition(wo.status, "维修中")
+    target = "维修中" if wo.order_type in ("故障维修", "校准") else "执行中"
+    _validate_transition(wo.status, target, wo.order_type)
 
-    wo.status = "维修中"
+    wo.status = target
     wo.started_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(wo)
@@ -150,10 +173,13 @@ async def complete_work_order(
 ) -> WorkOrder:
     """提交完成"""
     wo = await _get_work_order(db, work_order_id)
-    _validate_transition(wo.status, "待验收")
+
+    is_repair = wo.order_type in ("故障维修", "校准")
+    target = "待验收" if is_repair else "已完成"
+    _validate_transition(wo.status, target, wo.order_type)
 
     now = datetime.now(UTC)
-    wo.status = "待验收"
+    wo.status = target
     wo.completed_at = now
     wo.repair_detail = data.repair_detail
 
@@ -175,6 +201,8 @@ async def verify_work_order(
 ) -> WorkOrder:
     """验收工单"""
     wo = await _get_work_order(db, work_order_id)
+    if wo.order_type not in ("故障维修", "校准"):
+        raise AppException(message=f"工单类型 '{wo.order_type}' 不支持验收")
 
     wo.verified_by = verifier_id
     wo.verified_at = datetime.now(UTC)
@@ -182,11 +210,11 @@ async def verify_work_order(
     wo.verification_remark = data.remark
 
     if data.result == "合格":
-        _validate_transition(wo.status, "已完成")
+        _validate_transition(wo.status, "已完成", wo.order_type)
         wo.status = "已完成"
     else:
         # 打回重修
-        _validate_transition(wo.status, "维修中")
+        _validate_transition(wo.status, "维修中", wo.order_type)
         wo.status = "维修中"
         wo.started_at = None
         wo.completed_at = None
@@ -203,7 +231,7 @@ async def close_work_order(
 ) -> WorkOrder:
     """关闭工单"""
     wo = await _get_work_order(db, work_order_id)
-    _validate_transition(wo.status, "已关闭")
+    _validate_transition(wo.status, "已关闭", wo.order_type)
 
     wo.status = "已关闭"
     await db.flush()
