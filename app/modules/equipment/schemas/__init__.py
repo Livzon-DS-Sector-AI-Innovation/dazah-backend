@@ -32,6 +32,9 @@ from app.modules.equipment.schemas.failure_code import (
     FailureCodeUpdate,
 )
 from app.modules.equipment.schemas.work_order import (
+    MaterialConsumeItem,
+    MaterialConsumeRequest,
+    MaterialConsumeResponse,
     VerificationResult,
     WorkOrderAssign,
     WorkOrderComplete,
@@ -84,4 +87,8 @@ __all__ = [
     "CalibrationPlanResponse",
     "CalibrationRecordCreate",
     "CalibrationRecordResponse",
+    # material consume
+    "MaterialConsumeItem",
+    "MaterialConsumeRequest",
+    "MaterialConsumeResponse",
 ]
