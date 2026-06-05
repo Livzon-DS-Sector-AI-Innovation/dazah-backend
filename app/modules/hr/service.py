@@ -1,0 +1,623 @@
+"""HR business workflows live here."""
+
+import logging
+from datetime import date, datetime
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.exceptions import DuplicateException, NotFoundException
+from app.modules.hr.models import Department, Employee, OffboardingRecord, Team
+from app.modules.hr.repository import (
+    DepartmentRepository,
+    EmployeeRepository,
+    OffboardingRecordRepository,
+    TeamRepository,
+)
+from app.modules.hr.schemas import (
+    DepartmentCreate,
+    DepartmentUpdate,
+    EmployeeCreate,
+    EmployeeUpdate,
+    OffboardingRecordCreate,
+    OffboardingRecordUpdate,
+    SyncStatusResponse,
+    TeamCreate,
+    TeamUpdate,
+)
+from app.platform.integrations.feishu import FeishuBitableSync
+from app.platform.integrations.feishu.employee_datasource import (
+    EmployeeBitableDataSource,
+)
+
+logger = logging.getLogger(__name__)
+
+# ─── Feishu field mapping helpers ───
+
+def _extract_text(value) -> str:
+    """Extract text from Feishu array format or plain string."""
+    if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+        return value[0].get("text", "")
+    if isinstance(value, dict):
+        if "text" in value:
+            return value["text"]
+        if "value" in value and isinstance(value["value"], list):
+            inner = value["value"]
+            if len(inner) > 0 and isinstance(inner[0], dict):
+                return inner[0].get("text", "")
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _extract_number(value) -> int | None:
+    """Extract number from Feishu format."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, dict):
+        if "value" in value and isinstance(value["value"], list) and len(value["value"]) > 0:
+            return int(value["value"][0])
+    return None
+
+
+def _ms_to_date(value) -> date | None:
+    """Convert Feishu millisecond timestamp to Python date."""
+    if isinstance(value, (int, float)) and value > 0:
+        return datetime.fromtimestamp(value / 1000).date()
+    return None
+
+
+def _parse_feishu_record(record: dict) -> dict:
+    """Convert a raw Feishu record into Employee constructor kwargs."""
+    fields = record.get("fields", {})
+    rid = record.get("record_id", "")
+    updated_time = record.get("updated_time", "")
+
+    def gt(key: str):
+        return fields.get(key)
+
+    data = {
+        "feishu_record_id": rid,
+        "employee_number": _extract_text(gt("工号")),
+        "name": _extract_text(gt("姓名")),
+        "domain_account": _extract_text(gt("域账号")),
+        "department": gt("部门") or "",
+        "team": gt("班组") or "",
+        "position": _extract_text(gt("职位")),
+        "job_category": gt("职类") or "",
+        "level": gt("级别") or "",
+        "qualifications": gt("职称／职业资格") if isinstance(gt("职称／职业资格"), list) else None,
+        "qualification_type": gt("职称类型") or "",
+        "gender": gt("性别") or "",
+        "native_place": _extract_text(gt("籍贯")),
+        "political_status": gt("政治面貌") or "",
+        "marital_status": gt("婚姻状况") or "",
+        "household_type": gt("户籍类型") or "",
+        "status_category": gt("统计类别") or "",
+        "birth_year": _extract_number(gt("年")),
+        "birth_month": _extract_number(gt("月")),
+        "birth_day": _extract_number(gt("日")),
+        "age": _extract_number(gt("年龄")),
+        "work_start_date": _ms_to_date(gt("参加工作时间")),
+        "factory_entry_date": _ms_to_date(gt("进厂时间")),
+        "livo_entry_date": _ms_to_date(gt("入丽珠时间")),
+        "hire_date": _ms_to_date(gt("进厂时间")) or date.today(),
+        "graduation_date": _ms_to_date(gt("毕业时间")),
+        "work_years": _extract_number(gt("工作年限")),
+        "factory_tenure": _extract_text(gt("厂龄")),
+        "company_tenure": _extract_text(gt("司龄")),
+        "education": gt("学历") or "",
+        "classification": gt("分类") or "",
+        "school": _extract_text(gt("毕业学校")),
+        "major": _extract_text(gt("专业")),
+        "id_card": _extract_text(gt("身份证号")),
+        "id_card_expiry": _extract_text(gt("身份证到期日")),
+        "id_card_address": _extract_text(gt("身份证地址|家庭地址")),
+        "current_address": _extract_text(gt("现住址")),
+        "contract_type": gt("合同期限") or "",
+        "contract_start_date": _ms_to_date(gt("第一次合同起点时间")),
+        "contract_end_date": _ms_to_date(gt("第一次合同终止时间")),
+        "contract_start_2": _ms_to_date(gt("第二次合同起点时间")),
+        "contract_end_2": _ms_to_date(gt("第二次合同终止时间")),
+        "contract_start_3": _ms_to_date(gt("第三次合同起点时间")),
+        "contract_end_3": _ms_to_date(gt("第三次合同终止时间")),
+        "contract_start_4": _ms_to_date(gt("第四次合同起点时间")),
+        "contract_end_4": _ms_to_date(gt("第四次合同终止时间")),
+        "phone": _extract_text(gt("手机")),
+        "email": _extract_text(gt("邮箱地址")),
+        "emergency_contact_name": "",
+        "emergency_contact_phone": _extract_text(gt("紧急联系人电话")),
+        "emergency_contact_relation": _extract_text(gt("紧急联系人|关系")),
+        "bank_account": _extract_text(gt("银行卡号")),
+        "training_id": _extract_text(gt("培训档案编号")),
+        "transfer_history": _extract_text(gt("异动（含曾经工作部门、岗位)")),
+        "remarks": gt("备注") if isinstance(gt("备注"), list) else None,
+        "status": "在职",
+    }
+    # Parse updated_time for sync tracking
+    if updated_time:
+        try:
+            # Feishu returns ISO format string like "2024-01-15T08:30:00.000000Z"
+            dt = datetime.fromisoformat(updated_time.replace("Z", "+00:00"))
+            data["feishu_synced_at"] = dt.date()
+        except Exception:
+            data["feishu_synced_at"] = date.today()
+    else:
+        data["feishu_synced_at"] = date.today()
+
+    # Remove empty strings for optional text fields to avoid overwriting existing data
+    cleaned = {k: v for k, v in data.items() if v != "" or k in ("department", "name", "employee_number", "status")}
+    return cleaned
+
+
+# ─── Services ───
+
+class EmployeeService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = EmployeeRepository(session)
+        self.feishu = FeishuBitableSync()
+        self.bitable = EmployeeBitableDataSource()
+
+    async def get_employee(self, employee_id: UUID) -> Employee:
+        employee = await self.repo.get_by_id(employee_id)
+        if not employee:
+            raise NotFoundException("员工", str(employee_id))
+        return employee
+
+    async def create_employee(self, data: EmployeeCreate) -> Employee:
+        existing = await self.repo.get_by_employee_number(data.employee_number)
+        if existing:
+            raise DuplicateException("工号", data.employee_number)
+
+        employee = Employee(**data.model_dump())
+        employee.status = "在职"
+        result = await self.repo.create(employee)
+
+        # Sync to Feishu
+        rid = await self.bitable.create(self._to_bitable_fields(result))
+        if rid:
+            result.feishu_record_id = rid
+            result.feishu_synced_at = date.today()
+            await self.repo.update(result)
+
+        return result
+
+    async def approve_employee(self, employee_number: str) -> Employee:
+        employee = await self.repo.get_by_employee_number(employee_number)
+        if not employee:
+            raise NotFoundException("员工", employee_number)
+        if employee.status != "待审批":
+            raise DuplicateException("审批", "该员工已审批完成")
+
+        employee.status = "在职"
+        result = await self.repo.update(employee)
+
+        try:
+            await self._sync_single_to_feishu(result)
+        except Exception as e:
+            logger.warning("Feishu sync failed for employee approved: %s", e)
+
+        return result
+
+    async def update_employee(self, employee_id: UUID, data: EmployeeUpdate) -> Employee:
+        employee = await self.get_employee(employee_id)
+        update_data = data.model_dump(exclude_unset=True)
+
+        if "employee_number" in update_data:
+            existing = await self.repo.get_by_employee_number(update_data["employee_number"])
+            if existing and existing.id != employee_id:
+                raise DuplicateException("工号", update_data["employee_number"])
+
+        for field, value in update_data.items():
+            setattr(employee, field, value)
+
+        result = await self.repo.update(employee)
+
+        try:
+            await self._sync_single_to_feishu(result)
+        except Exception as e:
+            logger.warning("Feishu sync failed for employee updated: %s", e)
+
+        return result
+
+    async def delete_employee(self, employee_id: UUID) -> None:
+        employee = await self.get_employee(employee_id)
+        employee_number = employee.employee_number
+        await self.repo.soft_delete(employee)
+
+        try:
+            if employee.feishu_record_id:
+                await self.bitable.delete(employee.feishu_record_id)
+            else:
+                await self.feishu.sync_employee_deleted(employee_number)
+        except Exception as e:
+            logger.warning("Feishu sync failed for employee deleted: %s", e)
+
+    async def list_employees(
+        self,
+        *,
+        department: str | None = None,
+        status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[Employee], int]:
+        return await self.repo.list_employees(
+            department=department,
+            status=status,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+    # ─── Bi-directional sync ───
+
+    async def sync_from_feishu(self) -> dict:
+        """Pull all records from Feishu Bitable and upsert into local PG.
+
+        Returns:
+            {"created": N, "updated": N, "failed": N, "total": N}
+        """
+        # Use raw client to get original dicts instead of EmployeeRecord wrappers
+        raw_records = await self.bitable.client.search_records(
+            self.bitable.table_id,
+            page_size=500,
+        )
+        stats = {"created": 0, "updated": 0, "failed": 0, "total": len(raw_records)}
+
+        for rec in raw_records:
+            try:
+                parsed = _parse_feishu_record(rec)
+                emp_no = parsed.get("employee_number")
+                if not emp_no:
+                    stats["failed"] += 1
+                    continue
+
+                await self.repo.upsert_by_employee_number(parsed)
+                existing = await self.repo.get_by_employee_number(emp_no)
+                if existing and existing.created_at and (datetime.utcnow() - existing.created_at.replace(tzinfo=None)).total_seconds() < 60:
+                    stats["created"] += 1
+                else:
+                    stats["updated"] += 1
+            except Exception as e:
+                logger.error("Failed to sync Feishu record %s: %s", rec.get("record_id"), e)
+                stats["failed"] += 1
+
+        return stats
+
+    async def sync_to_feishu(self, employee_id: UUID) -> str:
+        """Force-sync a single employee to Feishu.
+
+        Returns the Feishu record_id.
+        """
+        employee = await self.get_employee(employee_id)
+        return await self._sync_single_to_feishu(employee)
+
+    async def get_sync_status(self) -> SyncStatusResponse:
+        local_total = await self.repo.count_total()
+        synced_count = await self.repo.count_synced()
+        unsynced_count = local_total - synced_count
+
+        # Count Feishu records
+        try:
+            feishu_items = await self.bitable.query(page_size=1)
+            # We don't have a direct count API, so estimate from first query
+            # In practice, we fetch all to count, but that's expensive.
+            # For now, we just return what we know.
+            feishu_total = len(await self.bitable.query(page_size=500))
+        except Exception:
+            feishu_total = 0
+
+        return SyncStatusResponse(
+            local_total=local_total,
+            feishu_total=feishu_total,
+            synced_count=synced_count,
+            unsynced_count=unsynced_count,
+            conflict_count=0,  # TODO: implement conflict detection
+            last_sync_at=None,
+        )
+
+    # ─── Internal helpers ───
+
+    async def _sync_single_to_feishu(self, employee: Employee) -> str:
+        """Sync one employee to Feishu, creating or updating as needed."""
+        fields = self._to_bitable_fields(employee)
+        if employee.feishu_record_id:
+            await self.bitable.update(employee.feishu_record_id, fields)
+            return employee.feishu_record_id
+        else:
+            rid = await self.bitable.create(fields)
+            employee.feishu_record_id = rid
+            employee.feishu_synced_at = date.today()
+            await self.repo.update(employee)
+            return rid
+
+    def _to_bitable_fields(self, employee: Employee) -> dict:
+        """Convert Employee ORM object to Feishu Bitable field dict.
+
+        Filters out empty values to avoid Feishu validation errors
+        (especially for phone fields which reject empty strings).
+        """
+        from app.platform.integrations.feishu.bitable import _to_ms_timestamp
+
+        # Build raw fields, keeping None/empty filtering for later
+        raw: dict = {
+            "姓名": employee.name,
+            "工号": employee.employee_number,
+            "部门": employee.department,
+            "职位": employee.position,
+            "手机": employee.phone,
+            "邮箱地址": employee.email,
+            "性别": employee.gender,
+            "籍贯": employee.native_place,
+            "政治面貌": employee.political_status,
+            "婚姻状况": employee.marital_status,
+            "学历": employee.education,
+            "分类": employee.classification,
+            "专业": employee.major,
+            "身份证号": employee.id_card,
+            "银行卡号": employee.bank_account,
+            "培训档案编号": employee.training_id,
+            "域账号": employee.domain_account,
+            "班组": employee.team,
+            "职类": employee.job_category,
+            "级别": employee.level,
+            "职称类型": employee.qualification_type,
+            "户籍类型": employee.household_type,
+            "统计类别": employee.status_category,
+            "身份证到期日": employee.id_card_expiry,
+            "合同期限": employee.contract_type,
+            "身份证地址|家庭地址": employee.id_card_address,
+            "现住址": employee.current_address,
+            "紧急联系人电话": employee.emergency_contact_phone,
+            "紧急联系人|关系": employee.emergency_contact_relation,
+            "异动（含曾经工作部门、岗位)": employee.transfer_history,
+        }
+        # Filter out empty strings / None / empty lists
+        fields = {k: v for k, v in raw.items() if v not in (None, "", [])}
+
+        if employee.qualifications:
+            fields["职称／职业资格"] = employee.qualifications
+        if employee.remarks:
+            fields["备注"] = employee.remarks
+
+        # Dates
+        if employee.work_start_date:
+            fields["参加工作时间"] = _to_ms_timestamp(employee.work_start_date)
+        if employee.factory_entry_date:
+            fields["进厂时间"] = _to_ms_timestamp(employee.factory_entry_date)
+        if employee.livo_entry_date:
+            fields["入丽珠时间"] = _to_ms_timestamp(employee.livo_entry_date)
+        if employee.graduation_date:
+            fields["毕业时间"] = _to_ms_timestamp(employee.graduation_date)
+        if employee.contract_start_date:
+            fields["第一次合同起点时间"] = _to_ms_timestamp(employee.contract_start_date)
+        if employee.contract_end_date:
+            fields["第一次合同终止时间"] = _to_ms_timestamp(employee.contract_end_date)
+        if employee.contract_start_2:
+            fields["第二次合同起点时间"] = _to_ms_timestamp(employee.contract_start_2)
+        if employee.contract_end_2:
+            fields["第二次合同终止时间"] = _to_ms_timestamp(employee.contract_end_2)
+        if employee.contract_start_3:
+            fields["第三次合同起点时间"] = _to_ms_timestamp(employee.contract_start_3)
+        if employee.contract_end_3:
+            fields["第三次合同终止时间"] = _to_ms_timestamp(employee.contract_end_3)
+        if employee.contract_start_4:
+            fields["第四次合同起点时间"] = _to_ms_timestamp(employee.contract_start_4)
+        if employee.contract_end_4:
+            fields["第四次合同终止时间"] = _to_ms_timestamp(employee.contract_end_4)
+
+        # Birth date
+        if employee.birth_year:
+            fields["年"] = employee.birth_year
+        if employee.birth_month:
+            fields["月"] = employee.birth_month
+        if employee.birth_day:
+            fields["日"] = employee.birth_day
+
+        return fields
+
+
+class DepartmentService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = DepartmentRepository(session)
+        self.feishu = FeishuBitableSync()
+
+    async def get_department(self, department_id: UUID) -> Department:
+        department = await self.repo.get_by_id(department_id)
+        if not department:
+            raise NotFoundException("部门", str(department_id))
+        return department
+
+    async def create_department(self, data: DepartmentCreate) -> Department:
+        existing = await self.repo.get_by_code(data.code)
+        if existing:
+            raise DuplicateException("部门编码", data.code)
+
+        department = Department(**data.model_dump())
+        result = await self.repo.create(department)
+
+        try:
+            await self.feishu.sync_department_created(result.__dict__)
+        except Exception as e:
+            logger.warning("Feishu sync failed for department created: %s", e)
+
+        return result
+
+    async def update_department(self, department_id: UUID, data: DepartmentUpdate) -> Department:
+        department = await self.get_department(department_id)
+        update_data = data.model_dump(exclude_unset=True)
+
+        if "code" in update_data:
+            existing = await self.repo.get_by_code(update_data["code"])
+            if existing and existing.id != department_id:
+                raise DuplicateException("部门编码", update_data["code"])
+
+        for field, value in update_data.items():
+            setattr(department, field, value)
+
+        result = await self.repo.update(department)
+
+        try:
+            await self.feishu.sync_department_updated(result.__dict__)
+        except Exception as e:
+            logger.warning("Feishu sync failed for department updated: %s", e)
+
+        return result
+
+    async def delete_department(self, department_id: UUID) -> None:
+        department = await self.get_department(department_id)
+        code = department.code
+        await self.repo.soft_delete(department)
+
+        try:
+            await self.feishu.sync_department_deleted(code)
+        except Exception as e:
+            logger.warning("Feishu sync failed for department deleted: %s", e)
+
+    async def list_departments(
+        self,
+        *,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[Department], int]:
+        return await self.repo.list_departments(
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+        )
+
+
+class TeamService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = TeamRepository(session)
+        self.department_repo = DepartmentRepository(session)
+
+    async def get_team(self, team_id: UUID) -> Team:
+        team = await self.repo.get_by_id(team_id)
+        if not team:
+            raise NotFoundException("班组", str(team_id))
+        return team
+
+    async def create_team(self, data: TeamCreate) -> Team:
+        department = await self.department_repo.get_by_id(data.department_id)
+        if not department:
+            raise NotFoundException("部门", str(data.department_id))
+
+        team = Team(**data.model_dump())
+        result = await self.repo.create(team)
+        return result
+
+    async def update_team(self, team_id: UUID, data: TeamUpdate) -> Team:
+        team = await self.get_team(team_id)
+        update_data = data.model_dump(exclude_unset=True)
+
+        if "department_id" in update_data:
+            department = await self.department_repo.get_by_id(update_data["department_id"])
+            if not department:
+                raise NotFoundException("部门", str(update_data["department_id"]))
+
+        for field, value in update_data.items():
+            setattr(team, field, value)
+
+        result = await self.repo.update(team)
+        return result
+
+    async def delete_team(self, team_id: UUID) -> None:
+        team = await self.get_team(team_id)
+        await self.repo.soft_delete(team)
+
+    async def list_teams(
+        self,
+        *,
+        department_id: UUID | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[Team], int]:
+        return await self.repo.list_teams(
+            department_id=department_id,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+        )
+
+
+class OffboardingRecordService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = OffboardingRecordRepository(session)
+        self.employee_repo = EmployeeRepository(session)
+        self.feishu = FeishuBitableSync()
+
+    async def get_record(self, record_id: UUID) -> OffboardingRecord:
+        record = await self.repo.get_by_id(record_id)
+        if not record:
+            raise NotFoundException("离职记录", str(record_id))
+        return record
+
+    async def create_record(self, data: OffboardingRecordCreate) -> OffboardingRecord:
+        employee = await self.employee_repo.get_by_id(data.employee_id)
+        if not employee:
+            raise NotFoundException("员工", str(data.employee_id))
+
+        record = OffboardingRecord(**data.model_dump())
+        record = await self.repo.create(record)
+
+        # 自动将员工状态更新为离职
+        employee.status = "离职"
+        await self.employee_repo.update(employee)
+
+        # 同步到飞书
+        try:
+            record_dict = {
+                **record.__dict__,
+                "employee": {
+                    "name": employee.name,
+                    "employee_number": employee.employee_number,
+                },
+            }
+            await self.feishu.sync_offboarding_created(record_dict)
+        except Exception as e:
+            logger.warning("Feishu sync failed for offboarding created: %s", e)
+
+        return record
+
+    async def update_record(self, record_id: UUID, data: OffboardingRecordUpdate) -> OffboardingRecord:
+        record = await self.get_record(record_id)
+        update_data = data.model_dump(exclude_unset=True)
+
+        for field, value in update_data.items():
+            setattr(record, field, value)
+
+        result = await self.repo.update(record)
+
+        try:
+            await self.feishu.sync_offboarding_updated(result.__dict__)
+        except Exception as e:
+            logger.warning("Feishu sync failed for offboarding updated: %s", e)
+
+        return result
+
+    async def delete_record(self, record_id: UUID) -> None:
+        record = await self.get_record(record_id)
+        await self.repo.soft_delete(record)
+
+    async def list_records(
+        self,
+        *,
+        employee_id: UUID | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[OffboardingRecord], int]:
+        return await self.repo.list_records(
+            employee_id=employee_id,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+        )
