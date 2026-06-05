@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -12,6 +13,10 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.response import error_response
 from app.platform.audit import AuditMiddleware
+
+# Ensure platform models are registered in SQLAlchemy metadata
+import app.platform.identity.models  # noqa: F401
+import app.platform.audit.models  # noqa: F401
 
 settings = get_settings()
 
@@ -39,6 +44,14 @@ app = FastAPI(
 )
 
 app.add_middleware(AuditMiddleware)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 

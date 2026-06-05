@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
 
+    # Audit
+    AUDIT_RETENTION_DAYS: int = 7
+
+    # Feishu
+    FEISHU_APP_ID: str = ""
+    FEISHU_APP_SECRET: str = ""
+    FEISHU_BITABLE_APP_TOKEN: str = ""
+    FEISHU_BITABLE_EMPLOYEE_TABLE_ID: str = ""
+    FEISHU_BITABLE_DEPARTMENT_TABLE_ID: str = ""
+    FEISHU_BITABLE_OFFBOARDING_TABLE_ID: str = ""
+    FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
+
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
