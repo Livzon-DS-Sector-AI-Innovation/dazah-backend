@@ -6,7 +6,7 @@ from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.modules.hr.models import Department, Employee, OffboardingRecord
+from app.modules.hr.models import Department, Employee, OffboardingRecord, Team
 
 
 class EmployeeRepository:
@@ -179,6 +179,60 @@ class DepartmentRepository:
 
     async def soft_delete(self, department: Department) -> None:
         department.is_deleted = True
+        await self.session.flush()
+
+
+class TeamRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, team_id: UUID) -> Team | None:
+        result = await self.session.execute(
+            select(Team).where(Team.id == team_id, Team.is_deleted.is_(False))
+        )
+        return result.scalar_one_or_none()
+
+    async def list_teams(
+        self,
+        *,
+        department_id: UUID | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[Team], int]:
+        stmt = select(Team).where(Team.is_deleted.is_(False))
+
+        if department_id:
+            stmt = stmt.where(Team.department_id == department_id)
+        if keyword:
+            stmt = stmt.where(
+                Team.name.ilike(f"%{keyword}%")
+                | Team.code.ilike(f"%{keyword}%")
+            )
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        stmt = stmt.order_by(asc(Team.created_at))
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def create(self, team: Team) -> Team:
+        self.session.add(team)
+        await self.session.flush()
+        await self.session.refresh(team)
+        return team
+
+    async def update(self, team: Team) -> Team:
+        await self.session.flush()
+        await self.session.refresh(team)
+        return team
+
+    async def soft_delete(self, team: Team) -> None:
+        team.is_deleted = True
         await self.session.flush()
 
 
