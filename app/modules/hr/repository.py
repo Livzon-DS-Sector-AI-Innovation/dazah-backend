@@ -188,7 +188,9 @@ class TeamRepository:
 
     async def get_by_id(self, team_id: UUID) -> Team | None:
         result = await self.session.execute(
-            select(Team).where(Team.id == team_id, Team.is_deleted.is_(False))
+            select(Team)
+            .where(Team.id == team_id, Team.is_deleted.is_(False))
+            .options(selectinload(Team.department))
         )
         return result.scalar_one_or_none()
 
@@ -200,7 +202,9 @@ class TeamRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Team], int]:
-        stmt = select(Team).where(Team.is_deleted.is_(False))
+        stmt = select(Team).where(Team.is_deleted.is_(False)).options(
+            selectinload(Team.department)
+        )
 
         if department_id:
             stmt = stmt.where(Team.department_id == department_id)
