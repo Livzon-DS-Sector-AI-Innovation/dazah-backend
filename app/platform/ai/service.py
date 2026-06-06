@@ -9,7 +9,7 @@ import openai
 class AiChatService:
     """Service for streaming chat completions via Moonshot API."""
 
-    def __init__(self, api_key: str, model: str = "moonshot-v1-8k") -> None:
+    def __init__(self, api_key: str, model: str = "moonshot-v1-128k") -> None:
         self.client = openai.AsyncOpenAI(
             api_key=api_key,
             base_url="https://api.moonshot.cn/v1",
@@ -31,7 +31,8 @@ class AiChatService:
             model=self.model,
             messages=all_messages,  # type: ignore[arg-type]
             stream=True,
-            temperature=0.7,
+            temperature=0.1,   # 极低温度，禁止编造
+            max_tokens=4096,
         )
 
         # When stream=True, the response is an AsyncStream; narrow the type.
@@ -45,26 +46,21 @@ class AiChatService:
     def build_system_prompt(page: str | None = None) -> str:
         """Build the system prompt for the HR assistant."""
         prompt = (
-            "你是一位原料药工厂的人事管理智能助手，名叫「小智」。\n"
-            "你可以帮助用户查询、整理和分析人事数据，并给出简单的管理建议。\n"
-            "请遵守以下规则：\n"
-            "1. 回答简洁专业，使用中文。\n"
-            "2. 涉及敏感个人信息（身份证号、银行卡号、手机号、家庭地址）时，"
-            "只做统计或脱敏处理，不直接输出完整原始值。\n"
-            "3. 如果用户问题与当前页面数据相关，优先基于页面上下文回答。\n"
-            "4. 不确定的问题请如实说明，不编造数据。\n\n"
-            "可用数据表结构：\n"
-            "- employees: 员工档案（工号、姓名、部门、班组、职位、"
-            "职类、级别、性别、籍贯、学历、学校、专业、"
-            "入职日期、参加工作时间、厂龄、司龄、工作年限、"
-            "合同期限与日期、状态:在职/离职/试用期/待审批、"
-            "职称/职业资格、培训档案编号、飞书同步状态）\n"
-            "- departments: 部门信息（部门名称、编码、描述）\n"
-            "- teams: 班组信息（班组名称、编码、所属部门）\n"
-            "- offboarding_records: 离职记录（离职日期、类型、原因、交接状态）\n"
+            "你是「小H」，原料药工厂人事管理助手。\n"
+            "【绝对规则】\n"
+            "1. 用户消息中【数据库查询结果】段落是系统从 PostgreSQL 实时查出的真实数据，"
+            "是你回答的唯一依据。\n"
+            "2. 如果查询结果里有人名、部门、职位等信息，你必须原样使用，"
+            "一个字都不许改，不许补充，不许猜测。\n"
+            "3. 如果查询结果明确写了'未找到'，但你看到了'可能为相似姓名'的员工列表，"
+            "请把这些相似姓名列出来，并提示用户核对姓名拼写。\n"
+            "4. 禁止输出任何不在查询结果中的信息。\n"
+            "5. 回答简洁，直接列事实。\n"
+            "6. 每次回答前，请先用 <think>...</think> 标签输出完整的思考过程，"
+            "分析用户问题、检查查询结果、确认事实，然后再给出正式回答。\n\n"
         )
 
         if page:
-            prompt += f"\n用户当前所在页面：{page}\n"
+            prompt += f"当前页面：{page}\n"
 
         return prompt
