@@ -13,6 +13,7 @@ class Department(BaseModel):
     __tablename__ = "departments"
     __table_args__ = (
         Index("ix_departments_code", "code"),
+        {"schema": "hr"},
     )
 
     name: Mapped[str] = mapped_column(String(64), nullable=False, comment="部门名称")
@@ -33,6 +34,7 @@ class Team(BaseModel):
     __table_args__ = (
         Index("ix_teams_department_id", "department_id"),
         Index("ix_teams_name", "name"),
+        {"schema": "hr"},
     )
 
     name: Mapped[str] = mapped_column(String(64), nullable=False, comment="班组名称")
@@ -43,7 +45,7 @@ class Team(BaseModel):
         String(256), nullable=True, comment="班组描述"
     )
     department_id: Mapped[UUID] = mapped_column(
-        ForeignKey("departments.id"), nullable=False, comment="所属部门ID"
+        ForeignKey("hr.departments.id"), nullable=False, comment="所属部门ID"
     )
 
     department: Mapped["Department"] = relationship(
@@ -58,6 +60,7 @@ class Employee(BaseModel):
         Index("ix_employees_status", "status"),
         Index("ix_employees_employee_number", "employee_number"),
         Index("ix_employees_feishu_record_id", "feishu_record_id"),
+        {"schema": "hr"},
     )
 
     # ─── Core identifiers ───
@@ -257,10 +260,11 @@ class OffboardingRecord(BaseModel):
     __table_args__ = (
         Index("ix_offboarding_employee_id", "employee_id"),
         Index("ix_offboarding_date", "offboarding_date"),
+        {"schema": "hr"},
     )
 
     employee_id: Mapped[UUID] = mapped_column(
-        ForeignKey("employees.id"),
+        ForeignKey("hr.employees.id"),
         nullable=False,
         comment="员工ID",
     )

@@ -54,13 +54,14 @@ class WorkOrder(BaseModel):
             "verification_result IS NULL OR verification_result IN ('合格', '不合格')",
             name="ck_work_orders_verification_result",
         ),
+        {"schema": "equipment"},
     )
 
     work_order_no: Mapped[str] = mapped_column(
         String(50), comment="工单编号"
     )
     equipment_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("equipments.id"),
+        ForeignKey("equipment.equipments.id"),
         comment="设备ID",
     )
     order_type: Mapped[str] = mapped_column(
@@ -77,17 +78,17 @@ class WorkOrder(BaseModel):
         comment="状态：待处理/已指派/维修中/待验收/已完成/已关闭",
     )
     fault_symptom_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("failure_symptoms.id"),
+        ForeignKey("equipment.failure_symptoms.id"),
         nullable=True,
         comment="故障现象ID",
     )
     fault_cause_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("failure_causes.id"),
+        ForeignKey("equipment.failure_causes.id"),
         nullable=True,
         comment="故障原因ID",
     )
     fault_action_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("failure_actions.id"),
+        ForeignKey("equipment.failure_actions.id"),
         nullable=True,
         comment="维修措施ID",
     )
@@ -95,16 +96,16 @@ class WorkOrder(BaseModel):
         Text, nullable=True, comment="故障描述"
     )
     reporter_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id"),
+        ForeignKey("identity.users.id"),
         comment="报修人ID",
     )
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id"),
+        ForeignKey("identity.users.id"),
         nullable=True,
         comment="指派人ID",
     )
     verified_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id"),
+        ForeignKey("identity.users.id"),
         nullable=True,
         comment="验收人ID",
     )

@@ -9,6 +9,7 @@ class User(BaseModel):
     __table_args__ = (
         UniqueConstraint("employee_no", name="uq_identity_users_employee_no"),
         UniqueConstraint("feishu_user_id", name="uq_identity_users_feishu_user_id"),
+        {"schema": "identity"},
     )
 
     name: Mapped[str] = mapped_column(String(100))

@@ -28,10 +28,11 @@ class CalibrationPlan(BaseModel):
             "status IN ('启用', '停用')",
             name="ck_calibration_plans_status",
         ),
+        {"schema": "equipment"},
     )
 
     equipment_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("equipments.id"),
+        ForeignKey("equipment.equipments.id"),
         comment="设备ID",
     )
     calibration_type: Mapped[str] = mapped_column(
@@ -47,7 +48,7 @@ class CalibrationPlan(BaseModel):
         Date, nullable=True, comment="下次校准日期"
     )
     responsible_person_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id"),
+        ForeignKey("identity.users.id"),
         nullable=True,
         comment="负责人ID",
     )
@@ -80,14 +81,15 @@ class CalibrationRecord(BaseModel):
             "result IN ('合格', '不合格')",
             name="ck_calibration_records_result",
         ),
+        {"schema": "equipment"},
     )
 
     calibration_plan_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("calibration_plans.id"),
+        ForeignKey("equipment.calibration_plans.id"),
         comment="校准计划ID",
     )
     equipment_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("equipments.id"),
+        ForeignKey("equipment.equipments.id"),
         comment="设备ID",
     )
     calibration_date: Mapped[date] = mapped_column(

@@ -14,6 +14,7 @@ class FailureSymptom(BaseModel):
         UniqueConstraint(
             "code", "is_deleted", name="uq_failure_symptoms_code"
         ),
+        {"schema": "equipment"},
     )
 
     code: Mapped[str] = mapped_column(
@@ -44,6 +45,7 @@ class FailureCause(BaseModel):
         UniqueConstraint(
             "code", "is_deleted", name="uq_failure_causes_code"
         ),
+        {"schema": "equipment"},
     )
 
     code: Mapped[str] = mapped_column(
@@ -74,6 +76,7 @@ class FailureAction(BaseModel):
         UniqueConstraint(
             "code", "is_deleted", name="uq_failure_actions_code"
         ),
+        {"schema": "equipment"},
     )
 
     code: Mapped[str] = mapped_column(
