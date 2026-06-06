@@ -17,6 +17,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from app.core.config import get_settings
 from app.modules.hr.models import Department, Team
 
+# Import identity models so BaseModel FK references resolve
+from app.platform.identity import models as _identity_models  # noqa: F401
+
 settings = get_settings()
 engine = create_async_engine(settings.DATABASE_URL)
 async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

@@ -17,7 +17,6 @@ class EquipmentCategory(BaseModel):
         UniqueConstraint(
             "code", "is_deleted", name="uq_equipment_categories_code"
         ),
-        {"schema": "equipment"},
     )
 
     name: Mapped[str] = mapped_column(
@@ -27,7 +26,7 @@ class EquipmentCategory(BaseModel):
         String(50), comment="分类代码"
     )
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("equipment.equipment_categories.id"),
+        ForeignKey("equipment_categories.id"),
         nullable=True,
         comment="父分类ID",
     )
@@ -55,7 +54,6 @@ class Location(BaseModel):
         UniqueConstraint(
             "code", "is_deleted", name="uq_locations_code"
         ),
-        {"schema": "equipment"},
     )
 
     name: Mapped[str] = mapped_column(
@@ -65,7 +63,7 @@ class Location(BaseModel):
         String(50), comment="位置代码"
     )
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("equipment.locations.id"),
+        ForeignKey("locations.id"),
         nullable=True,
         comment="父位置ID",
     )
@@ -97,7 +95,6 @@ class Equipment(BaseModel):
             "status IN ('在用', '备用', '维修中', '停用', '报废')",
             name="ck_equipments_status",
         ),
-        {"schema": "equipment"},
     )
 
     equipment_no: Mapped[str] = mapped_column(
@@ -107,11 +104,11 @@ class Equipment(BaseModel):
         String(200), comment="设备名称"
     )
     category_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("equipment.equipment_categories.id"),
+        ForeignKey("equipment_categories.id"),
         comment="设备分类",
     )
     location_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("equipment.locations.id"),
+        ForeignKey("locations.id"),
         comment="设备位置",
     )
     status: Mapped[str] = mapped_column(

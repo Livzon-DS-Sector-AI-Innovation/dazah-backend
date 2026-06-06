@@ -25,7 +25,6 @@ class AuditLog(Base):
         Index("idx_audit_logs_user_id", "user_id"),
         Index("idx_audit_logs_resource", "resource_type", "resource_id"),
         Index("idx_audit_logs_created_at", "created_at"),
-        {"schema": "audit"},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -35,7 +34,7 @@ class AuditLog(Base):
     )
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("identity.users.id"),
+        ForeignKey("users.id"),
         nullable=True,
     )
     method: Mapped[str | None] = mapped_column(String(16), nullable=True)

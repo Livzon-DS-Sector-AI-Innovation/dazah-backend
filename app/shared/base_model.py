@@ -18,20 +18,20 @@ class BaseModel(Base):
         default=uuid.uuid4,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        DateTime(),
         server_default=func.now(),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        DateTime(),
         server_default=func.now(),
         onupdate=func.now(),
     )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("identity.users.id"),
+        ForeignKey("users.id"),
         nullable=True,
     )
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("identity.users.id"),
+        ForeignKey("users.id"),
         nullable=True,
     )
     is_deleted: Mapped[bool] = mapped_column(

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/dazah"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./dazah.db"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
