@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field
 class ChatMessage(BaseModel):
     role: str = Field(..., description="消息角色: system, user, assistant")
     content: str = Field(..., description="消息内容")
+    reasoning_content: str | None = Field(
+        None, description="思考过程内容（仅 assistant 消息）"
+    )
 
 
 class HrPageContext(BaseModel):

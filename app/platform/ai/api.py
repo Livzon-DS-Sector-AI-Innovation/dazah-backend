@@ -216,11 +216,28 @@ async def chat_stream(
             )
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        async for token in service.stream_chat(messages, system_prompt):
-            payload = json.dumps({"content": token}, ensure_ascii=False)
-            yield f"data: {payload}\n\n"
-        done_payload = json.dumps({"done": True}, ensure_ascii=False)
-        yield f"data: {done_payload}\n\n"
+        try:
+            async for chunk in service.stream_chat(messages, system_prompt):
+                if chunk["type"] == "reasoning":
+                    payload = json.dumps(
+                        {"reasoning_content": chunk["text"]}, ensure_ascii=False
+                    )
+                else:
+                    payload = json.dumps({"content": chunk["text"]}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+            done_payload = json.dumps({"done": True}, ensure_ascii=False)
+            yield f"data: {done_payload}\n\n"
+        except Exception as exc:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("AI stream chat failed")
+            error_payload = json.dumps(
+                {"error": True, "message": "AI 服务暂时不可用，请稍后重试"},
+                ensure_ascii=False,
+            )
+            yield f"data: {error_payload}\n\n"
+            done_payload = json.dumps({"done": True}, ensure_ascii=False)
+            yield f"data: {done_payload}\n\n"
 
     return StreamingResponse(
         event_generator(),

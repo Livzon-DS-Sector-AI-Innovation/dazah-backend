@@ -146,7 +146,7 @@ def _parse_feishu_record(record: dict) -> dict:
         data["feishu_synced_at"] = date.today()
 
     # Remove empty strings for optional text fields to avoid overwriting existing data
-    cleaned = {k: v for k, v in data.items() if v != "" or k in ("department", "name", "employee_number", "status")}
+    cleaned = {k: v for k, v in data.items() if v != "" or k in ("department", "name", "employee_number", "status", "position")}
     return cleaned
 
 

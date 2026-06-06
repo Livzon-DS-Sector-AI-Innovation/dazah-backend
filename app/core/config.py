@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     # AI
     MOONSHOT_API_KEY: str = ""
+    AI_MODEL: str = "kimi-k2.5"
 
     @property
     def is_production(self) -> bool:
