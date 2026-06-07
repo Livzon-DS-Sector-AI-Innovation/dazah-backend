@@ -1552,6 +1552,102 @@ class SafetyRepository:
         result = await self.session.execute(query)
         return result.rowcount > 0
 
+    # ── 特殊作业台账查询 ──
+
+    async def get_special_operation_ledger(
+        self,
+        skip: int = 0,
+        limit: int = 20,
+        status_list: list[str] | None = None,
+        operation_type: str | None = None,
+        operation_level: str | None = None,
+        risk_level: str | None = None,
+        department: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        keyword: str | None = None,
+        is_critical: bool | None = None,
+    ) -> tuple[list[SpecialOperationReport], int]:
+        """获取特殊作业台账列表（审批中+已审批的报备记录）"""
+        if status_list is None:
+            status_list = ["submitted", "approved"]
+
+        query = select(SpecialOperationReport).where(
+            SpecialOperationReport.is_deleted == False,
+            SpecialOperationReport.status.in_(status_list),
+        )
+        count_query = select(func.count(SpecialOperationReport.id)).where(
+            SpecialOperationReport.is_deleted == False,
+            SpecialOperationReport.status.in_(status_list),
+        )
+
+        if operation_type:
+            query = query.where(SpecialOperationReport.operation_type == operation_type)
+            count_query = count_query.where(SpecialOperationReport.operation_type == operation_type)
+        if operation_level:
+            query = query.where(SpecialOperationReport.operation_level == operation_level)
+            count_query = count_query.where(SpecialOperationReport.operation_level == operation_level)
+        if risk_level:
+            query = query.where(SpecialOperationReport.risk_level == risk_level)
+            count_query = count_query.where(SpecialOperationReport.risk_level == risk_level)
+        if department:
+            query = query.where(SpecialOperationReport.department == department)
+            count_query = count_query.where(SpecialOperationReport.department == department)
+        if date_from:
+            query = query.where(SpecialOperationReport.planned_start_time >= date_from)
+            count_query = count_query.where(SpecialOperationReport.planned_start_time >= date_from)
+        if date_to:
+            query = query.where(SpecialOperationReport.planned_end_time <= date_to)
+            count_query = count_query.where(SpecialOperationReport.planned_end_time <= date_to)
+        if is_critical is not None:
+            query = query.where(SpecialOperationReport.is_critical == is_critical)
+            count_query = count_query.where(SpecialOperationReport.is_critical == is_critical)
+        if keyword:
+            like = f"%{keyword}%"
+            query = query.where(
+                SpecialOperationReport.report_no.ilike(like)
+                | SpecialOperationReport.work_description.ilike(like)
+                | SpecialOperationReport.location.ilike(like)
+            )
+            count_query = count_query.where(
+                SpecialOperationReport.report_no.ilike(like)
+                | SpecialOperationReport.work_description.ilike(like)
+                | SpecialOperationReport.location.ilike(like)
+            )
+
+        total = await self.session.scalar(count_query)
+        query = query.offset(skip).limit(limit).order_by(
+            SpecialOperationReport.created_at.desc()
+        )
+        result = await self.session.execute(query)
+        items = list(result.scalars().all())
+        return items, total or 0
+
+    async def get_special_operation_ledger_stats(
+        self, status_list: list[str] | None = None
+    ) -> list[dict]:
+        """按作业类型统计台账数量和关键作业数量"""
+        if status_list is None:
+            status_list = ["submitted", "approved"]
+
+        query = (
+            select(
+                SpecialOperationReport.operation_type,
+                func.count(SpecialOperationReport.id).label("count"),
+                func.sum(
+                    func.cast(SpecialOperationReport.is_critical, type_=func.integer())
+                ).label("critical_count"),
+            )
+            .where(
+                SpecialOperationReport.is_deleted == False,
+                SpecialOperationReport.status.in_(status_list),
+            )
+            .group_by(SpecialOperationReport.operation_type)
+            .order_by(func.count(SpecialOperationReport.id).desc())
+        )
+        result = await self.session.execute(query)
+        return [{"operation_type": r[0], "count": r[1], "critical_count": r[2] or 0} for r in result.all()]
+
     # ==================== 每日风险作业报备 Operations ====================
 
     async def get_daily_risk_reports(

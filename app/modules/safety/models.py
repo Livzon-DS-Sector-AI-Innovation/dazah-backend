@@ -1422,6 +1422,16 @@ class SpecialOperationReport(BaseModel):
         comment="状态: draft/submitted/approved/rejected"
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+    is_critical: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False,
+        comment="是否关键作业（AI自动判定+可手动修改）"
+    )
+    is_critical_reason: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="关键作业判定理由"
+    )
+    is_critical_updated_by: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="手动修改关键作业标记的操作人"
+    )
 
     # 关系
     permit: Mapped["SpecialOperationPermit | None"] = relationship(

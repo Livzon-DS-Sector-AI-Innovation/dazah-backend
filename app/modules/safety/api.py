@@ -34,9 +34,9 @@ from app.modules.safety.schemas import (
     DailyRiskReportResponse,
     DailyRiskReportUpdate,
     EhsChangeCreate,
-    EvaluateWorkRecordRequest,
     EhsChangeResponse,
     EhsChangeUpdate,
+    EvaluateWorkRecordRequest,
     ExtendDeadlineRequest,
     HazardIdentificationCreate,
     HazardIdentificationResponse,
@@ -52,6 +52,8 @@ from app.modules.safety.schemas import (
     HazardRevisionRecordCreate,
     HazardRevisionRecordResponse,
     HazardRevisionRecordUpdate,
+    LedgerExportParsedFilters,
+    LedgerExportRequest,
     OhHazardMonitorCreate,
     OhHazardMonitorResponse,
     OhHazardMonitorUpdate,
@@ -73,7 +75,9 @@ from app.modules.safety.schemas import (
     SafetyTrainingCreate,
     SafetyTrainingResponse,
     SafetyTrainingUpdate,
+    SetCriticalRequest,
     SetExamConclusionRequest,
+    SpecialOperationLedgerStats,
     SpecialOperationPermitCreate,
     SpecialOperationPermitResponse,
     SpecialOperationPermitUpdate,
@@ -2832,6 +2836,150 @@ async def reject_special_operation_report(
         return ApiResponse(code=400, message="无法驳回，当前状态不允许")
     await db.commit()
     return ApiResponse(data=SpecialOperationReportResponse.model_validate(item))
+
+
+@router.put(
+    "/special-operation-reports/{report_id}/critical",
+    response_model=ApiResponse,
+    summary="手动设置关键作业标记",
+)
+async def set_special_operation_report_critical(
+    report_id: uuid.UUID,
+    data: SetCriticalRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """手动修改特殊作业报备的关键作业标记"""
+    service = SpecialOperationReportService(db)
+    updated_by = current_user.name if current_user else None
+    item = await service.set_critical_manual(
+        report_id, data.is_critical, data.reason, updated_by
+    )
+    if not item:
+        return ApiResponse(code=404, message="报备不存在")
+    await db.commit()
+    return ApiResponse(data=SpecialOperationReportResponse.model_validate(item))
+
+
+# ==================== 特殊作业台账 Routes ====================
+
+
+@router.get(
+    "/special-operation-ledger",
+    response_model=ApiResponse,
+    summary="获取特殊作业台账列表",
+)
+async def get_special_operation_ledger(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    operation_type: str | None = None,
+    operation_level: str | None = None,
+    risk_level: str | None = None,
+    department: str | None = None,
+    date_from: str | None = Query(None, description="计划开始日期起 (YYYY-MM-DD)"),
+    date_to: str | None = Query(None, description="计划结束日期止 (YYYY-MM-DD)"),
+    keyword: str | None = None,
+    is_critical: bool | None = Query(None, description="是否关键作业"),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """获取特殊作业台账列表（审批中 + 已审批的报备记录）"""
+    service = SpecialOperationReportService(db)
+    skip = (page - 1) * page_size
+    items, total = await service.get_ledger(
+        skip=skip,
+        limit=page_size,
+        operation_type=operation_type,
+        operation_level=operation_level,
+        risk_level=risk_level,
+        department=department,
+        date_from=date_from,
+        date_to=date_to,
+        keyword=keyword,
+        is_critical=is_critical,
+    )
+    return ApiResponse(
+        data=[SpecialOperationReportResponse.model_validate(i) for i in items],
+        meta={"page": page, "page_size": page_size, "total": total},
+    )
+
+
+@router.get(
+    "/special-operation-ledger/stats",
+    response_model=ApiResponse,
+    summary="获取特殊作业台账统计",
+)
+async def get_special_operation_ledger_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """按作业类型统计台账数量和关键作业数量"""
+    service = SpecialOperationReportService(db)
+    stats = await service.get_ledger_stats()
+    return ApiResponse(
+        data=[SpecialOperationLedgerStats(**s) for s in stats]
+    )
+
+
+@router.post(
+    "/special-operation-ledger/parse-query",
+    response_model=ApiResponse,
+    summary="AI 解析自然语言筛选条件",
+)
+async def parse_ledger_query(
+    data: LedgerExportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """使用 AI 将自然语言查询解析为结构化的台账筛选条件"""
+    service = SpecialOperationReportService(db)
+    if not data.natural_query:
+        return ApiResponse(code=400, message="请提供自然语言查询")
+    result = await service.parse_natural_query(data.natural_query)
+    return ApiResponse(data=result)
+
+
+@router.post(
+    "/special-operation-ledger/export",
+    summary="导出特殊作业台账 Excel",
+)
+async def export_special_operation_ledger(
+    data: LedgerExportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """导出特殊作业台账为 Excel 文件，支持 AI 自然语言筛选"""
+    from fastapi.responses import Response
+
+    service = SpecialOperationReportService(db)
+
+    # 如果有自然语言查询，先用 AI 解析
+    filters: dict = {}
+    if data.natural_query:
+        parsed = await service.parse_natural_query(data.natural_query)
+        filters = {k: v for k, v in parsed.items() if k != "explanation"}
+    else:
+        filters = {
+            k: v for k, v in {
+                "operation_type": data.operation_type,
+                "operation_level": data.operation_level,
+                "risk_level": data.risk_level,
+                "department": data.department,
+                "date_from": data.date_from,
+                "date_to": data.date_to,
+                "keyword": data.keyword,
+                "is_critical": data.is_critical,
+            }.items() if v is not None
+        }
+
+    excel_bytes = await service.export_ledger_excel(**filters)
+
+    filename = f"特殊作业台账_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
 
 
 # ==================== 每日风险作业报备 Routes ====================
