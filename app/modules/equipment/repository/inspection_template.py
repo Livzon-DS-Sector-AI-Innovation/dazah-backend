@@ -28,7 +28,14 @@ async def create_inspection_template(
             db.add(item)
         await db.flush()
 
-    return template
+    # 用 eager re-fetch 加载 items，避免 relationship.__set__ 读取旧值或
+    # Pydantic model_validate 访问关系时触发惰性加载 → MissingGreenlet
+    result = await db.execute(
+        select(InspectionTemplate)
+        .options(selectinload(InspectionTemplate.items))
+        .where(InspectionTemplate.id == template.id)
+    )
+    return result.scalar_one()
 
 
 async def get_inspection_template_by_id(
@@ -94,8 +101,16 @@ async def update_inspection_template(
     for key, value in data.items():
         setattr(template, key, value)
     await db.flush()
-    await db.refresh(template)
-    return template
+    # 用 eager re-fetch 替代 db.refresh，避免 expire 已加载的 items 关系
+    result = await db.execute(
+        select(InspectionTemplate)
+        .options(selectinload(InspectionTemplate.items))
+        .where(
+            InspectionTemplate.id == template_id,
+            InspectionTemplate.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one()
 
 
 async def delete_inspection_template(

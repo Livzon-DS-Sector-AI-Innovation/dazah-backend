@@ -14,7 +14,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    and_,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -51,7 +50,7 @@ class WorkOrder(BaseModel):
             name="ck_work_orders_priority",
         ),
         CheckConstraint(
-            "status IN ('待处理', '待执行', '已指派', '维修中', '执行中', '待验收', '已完成', '已关闭')",
+            "status IN ('待处理', '执行中', '待验收', '已完成', '已关闭')",
             name="ck_work_orders_status",
         ),
         CheckConstraint(
@@ -79,7 +78,7 @@ class WorkOrder(BaseModel):
     status: Mapped[str] = mapped_column(
         String(20),
         default="待处理",
-        comment="状态：待处理/已指派/维修中/待验收/已完成/已关闭",
+        comment="状态：待处理/执行中/待验收/已完成/已关闭",
     )
     fault_symptom_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("equipment.failure_symptoms.id"),
@@ -195,15 +194,15 @@ class WorkOrder(BaseModel):
         "FailureAction",
         foreign_keys=[fault_action_id],
     )
-    reporter: Mapped["User"] = relationship(
+    reporter: Mapped[User] = relationship(
         "User",
         foreign_keys=[reporter_id],
     )
-    assignee: Mapped["User | None"] = relationship(
+    assignee: Mapped[User | None] = relationship(
         "User",
         foreign_keys=[assignee_id],
     )
-    images: Mapped[list["WorkOrderImage"]] = relationship(
+    images: Mapped[list[WorkOrderImage]] = relationship(
         "WorkOrderImage",
         foreign_keys="WorkOrderImage.work_order_id",
         primaryjoin="and_(WorkOrder.id == foreign(WorkOrderImage.work_order_id), WorkOrderImage.is_deleted == False)",

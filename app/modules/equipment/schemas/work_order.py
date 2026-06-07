@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 # ==================== 维修工单 ====================
 WorkOrderType = Literal["故障维修", "计划维护", "巡检", "校准"]
 WorkOrderPriority = Literal["紧急", "高", "中", "低"]
-WorkOrderStatus = Literal["待处理", "待执行", "已指派", "维修中", "执行中", "待验收", "已完成", "已关闭"]
+WorkOrderStatus = Literal["待处理", "执行中", "待验收", "已完成", "已关闭"]
 VerificationResult = Literal["合格", "不合格"]
 
 

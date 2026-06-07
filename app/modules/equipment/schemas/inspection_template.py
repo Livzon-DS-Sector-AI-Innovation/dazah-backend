@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ==================== 巡检模板 ====================
@@ -84,7 +84,9 @@ class InspectionTemplateResponse(BaseModel):
     name: str
     description: str | None
     equipment_category_id: uuid.UUID | None
+    equipment_category_name: str | None = None
     is_active: bool
+    items_count: int = 0
     items: list[InspectionTemplateItemResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -92,6 +94,12 @@ class InspectionTemplateResponse(BaseModel):
     updated_by: uuid.UUID | None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _set_items_count(self) -> "InspectionTemplateResponse":
+        if not self.items_count and self.items:
+            self.items_count = len(self.items)
+        return self
 
 
 # ==================== 巡检记录 ====================

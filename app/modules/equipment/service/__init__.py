@@ -40,6 +40,42 @@ from app.modules.equipment.service.failure_code import (
     get_failure_codes,
     update_failure_code,
 )
+from app.modules.equipment.service.inspection import (
+    close_task as close_inspection_task,
+)
+from app.modules.equipment.service.inspection import (
+    complete_task as complete_inspection_task,
+)
+from app.modules.equipment.service.inspection import (
+    create_route,
+    delete_route,
+    get_history,
+    get_route_by_id,
+    get_routes,
+    get_task_detail,
+    get_task_photos,
+    set_route_equipments,
+    submit_equipment_check,
+    update_route,
+)
+from app.modules.equipment.service.inspection import (
+    create_task as create_inspection_task,
+)
+from app.modules.equipment.service.inspection import (
+    delete_photo as delete_inspection_photo,
+)
+from app.modules.equipment.service.inspection import (
+    get_task_by_id as get_inspection_task_by_id,
+)
+from app.modules.equipment.service.inspection import (
+    get_tasks as get_inspection_tasks,
+)
+from app.modules.equipment.service.inspection import (
+    start_task as start_inspection_task,
+)
+from app.modules.equipment.service.inspection import (
+    upload_photo as upload_inspection_photo,
+)
 from app.modules.equipment.service.inspection_template import (
     add_template_item,
     complete_inspection,
@@ -51,6 +87,10 @@ from app.modules.equipment.service.inspection_template import (
     update_inspection_template,
     update_template_item,
 )
+from app.modules.equipment.service.maintenance_config import (
+    get_claim_timeout_config,
+    update_claim_timeout_config,
+)
 from app.modules.equipment.service.maintenance_plan import (
     create_maintenance_plan,
     delete_maintenance_plan,
@@ -58,10 +98,6 @@ from app.modules.equipment.service.maintenance_plan import (
     get_maintenance_plans,
     get_overdue_maintenance_plans,
     update_maintenance_plan,
-)
-from app.modules.equipment.service.maintenance_config import (
-    get_claim_timeout_config,
-    update_claim_timeout_config,
 )
 from app.modules.equipment.service.spare_part import (
     adjust_stock,
@@ -92,7 +128,11 @@ from app.modules.equipment.service.work_order import (
 )
 from app.modules.equipment.service.work_order_image import (
     delete_image as delete_work_order_image,
+)
+from app.modules.equipment.service.work_order_image import (
     get_images as get_work_order_images,
+)
+from app.modules.equipment.service.work_order_image import (
     upload_images,
 )
 

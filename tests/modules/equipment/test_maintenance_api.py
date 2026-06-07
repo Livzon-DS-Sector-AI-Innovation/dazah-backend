@@ -159,13 +159,13 @@ async def test_work_order_full_lifecycle(
         f"/api/v1/equipment/maintenance/work-orders/{wo_id}/assign",
         json={"assignee_id": str(test_assignee.id)},
     )
-    assert assign_resp.json()["data"]["status"] == "已指派"
+    assert assign_resp.json()["data"]["status"] == "待处理"
 
     # 开始
     start_resp = await client.put(
         f"/api/v1/equipment/maintenance/work-orders/{wo_id}/start",
     )
-    assert start_resp.json()["data"]["status"] == "维修中"
+    assert start_resp.json()["data"]["status"] == "执行中"
 
     # 完成
     complete_resp = await client.put(

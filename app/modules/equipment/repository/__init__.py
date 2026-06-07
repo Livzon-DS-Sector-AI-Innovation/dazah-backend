@@ -46,6 +46,29 @@ from app.modules.equipment.repository.failure_code import (
     get_failure_codes,
     update_failure_code,
 )
+from app.modules.equipment.repository.inspection import (
+    count_photos_by_task,
+    create_inspection_records,
+    create_photo,
+    create_route,
+    create_task,
+    delete_photo,
+    delete_route,
+    get_equipment_names_by_ids,
+    get_max_task_no,
+    get_photo_by_id,
+    get_photos_by_task,
+    get_photos_by_task_and_equipment,
+    get_records_by_task,
+    get_route_by_id,
+    get_route_equipments,
+    get_routes,
+    get_task_by_id,
+    get_task_equipment_completed_ids,
+    get_tasks,
+    set_route_equipments,
+    update_route,
+)
 from app.modules.equipment.repository.inspection_template import (
     create_inspection_template,
     create_template_item,
@@ -56,6 +79,10 @@ from app.modules.equipment.repository.inspection_template import (
     get_template_item_by_id,
     update_inspection_template,
     update_template_item,
+)
+from app.modules.equipment.repository.maintenance_config import (
+    get_configs,
+    upsert_configs,
 )
 from app.modules.equipment.repository.maintenance_plan import (
     create_maintenance_plan,
@@ -80,10 +107,6 @@ from app.modules.equipment.repository.spare_part import (
     get_stock_warnings,
     update_spare_part,
     update_stock_qty,
-)
-from app.modules.equipment.repository.maintenance_config import (
-    get_configs,
-    upsert_configs,
 )
 from app.modules.equipment.repository.work_order import (
     count_open_work_orders_by_equipment,
@@ -138,6 +161,7 @@ __all__ = [
     "exists_location_by_code",
     "get_equipment_by_id",
     "get_equipment_by_no",
+    "get_equipment_names_by_ids",
     "get_equipment_categories",
     "get_equipment_category_by_id",
     "get_equipment_category_tree",

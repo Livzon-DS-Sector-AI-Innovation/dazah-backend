@@ -36,6 +36,7 @@ async def get_work_order_by_id(
             selectinload(WorkOrder.fault_symptom),
             selectinload(WorkOrder.fault_cause),
             selectinload(WorkOrder.fault_action),
+            selectinload(WorkOrder.images),
         )
         .where(
             WorkOrder.id == work_order_id,
@@ -97,6 +98,7 @@ async def get_work_orders(
             selectinload(WorkOrder.fault_symptom),
             selectinload(WorkOrder.fault_cause),
             selectinload(WorkOrder.fault_action),
+            selectinload(WorkOrder.images),
         )
         .where(WorkOrder.is_deleted == False)  # noqa: E712
     )

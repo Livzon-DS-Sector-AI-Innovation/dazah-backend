@@ -19,19 +19,10 @@ from app.modules.equipment.schemas import (
 
 _MAX_RETRIES = 3
 
-_REPAIR_VALID_TRANSITIONS: dict[str, list[str]] = {
-    "待处理": ["已指派"],
-    "已指派": ["维修中"],
-    "维修中": ["待验收"],
-    "待验收": ["已完成", "维修中"],
-    "已完成": ["已关闭"],
-    "已关闭": [],
-}
-
-_MAINTENANCE_VALID_TRANSITIONS: dict[str, list[str]] = {
-    "待执行": ["已指派", "执行中"],
-    "已指派": ["执行中"],
-    "执行中": ["已完成"],
+_VALID_TRANSITIONS: dict[str, list[str]] = {
+    "待处理": ["执行中"],
+    "执行中": ["待验收", "已完成"],
+    "待验收": ["已完成", "执行中"],
     "已完成": ["已关闭"],
     "已关闭": [],
 }
@@ -49,17 +40,9 @@ async def generate_work_order_no(db: AsyncSession) -> str:
     return f"WO-{today}-{seq:04d}"
 
 
-def _get_transitions(order_type: str) -> dict[str, list[str]]:
-    """根据工单类型获取状态转换规则"""
-    if order_type in ("计划维护", "巡检"):
-        return _MAINTENANCE_VALID_TRANSITIONS
-    return _REPAIR_VALID_TRANSITIONS
-
-
-def _validate_transition(current: str, target: str, order_type: str) -> None:
+def _validate_transition(current: str, target: str) -> None:
     """校验状态转换是否合法"""
-    transitions = _get_transitions(order_type)
-    allowed = transitions.get(current, [])
+    allowed = _VALID_TRANSITIONS.get(current, [])
     if target not in allowed:
         raise AppException(
             message=f"状态不允许从 '{current}' 转换到 '{target}'"
@@ -112,13 +95,7 @@ async def create_work_order(
         wo_data = data.model_dump()
         wo_data["work_order_no"] = wo_no
         wo_data["reporter_id"] = reporter_id
-        # 根据工单类型设置初始状态
-        if data.order_type in ("计划维护", "巡检"):
-            initial_status = "待执行"
-        else:
-            initial_status = "待处理"
-
-        wo_data["status"] = initial_status
+        wo_data["status"] = "待处理"
         wo_data["original_equipment_status"] = original_status
 
         try:
@@ -160,13 +137,11 @@ async def assign_work_order(
     work_order_id: uuid.UUID,
     assignee_id: uuid.UUID,
 ) -> WorkOrder:
-    """指派维修人"""
+    """指派维修人（不改变工单状态，仅记录指派人）"""
     wo = await _get_work_order(db, work_order_id)
-    _validate_transition(wo.status, "已指派", wo.order_type)
 
     wo.assignee_id = assignee_id
     wo.assigned_at = datetime.now(UTC)
-    wo.status = "已指派"
     await db.flush()
     await db.refresh(wo)
     return wo
@@ -178,10 +153,9 @@ async def start_work_order(
 ) -> WorkOrder:
     """开始执行"""
     wo = await _get_work_order(db, work_order_id)
-    target = "维修中" if wo.order_type in ("故障维修", "校准") else "执行中"
-    _validate_transition(wo.status, target, wo.order_type)
+    _validate_transition(wo.status, "执行中")
 
-    wo.status = target
+    wo.status = "执行中"
     wo.started_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(wo)
@@ -198,7 +172,7 @@ async def complete_work_order(
 
     is_repair = wo.order_type in ("故障维修", "校准")
     target = "待验收" if is_repair else "已完成"
-    _validate_transition(wo.status, target, wo.order_type)
+    _validate_transition(wo.status, target)
 
     now = datetime.now(UTC)
     wo.status = target
@@ -232,12 +206,12 @@ async def verify_work_order(
     wo.verification_remark = data.remark
 
     if data.result == "合格":
-        _validate_transition(wo.status, "已完成", wo.order_type)
+        _validate_transition(wo.status, "已完成")
         wo.status = "已完成"
     else:
         # 打回重修
-        _validate_transition(wo.status, "维修中", wo.order_type)
-        wo.status = "维修中"
+        _validate_transition(wo.status, "执行中")
+        wo.status = "执行中"
         wo.started_at = None
         wo.completed_at = None
         wo.actual_duration = None
@@ -253,7 +227,7 @@ async def close_work_order(
 ) -> WorkOrder:
     """关闭工单"""
     wo = await _get_work_order(db, work_order_id)
-    _validate_transition(wo.status, "已关闭", wo.order_type)
+    _validate_transition(wo.status, "已关闭")
 
     wo.status = "已关闭"
     await db.flush()
@@ -305,7 +279,7 @@ async def claim_work_order(
     work_order_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> WorkOrder:
-    """维修人员自主抢单"""
+    """维修人员自主抢单（不改变工单状态，仅记录指派人）"""
     wo = await _get_work_order(db, work_order_id)
 
     if wo.status != "待处理":
@@ -315,7 +289,6 @@ async def claim_work_order(
 
     wo.assignee_id = user_id
     wo.assigned_at = datetime.now(UTC)
-    wo.status = "已指派"
     await db.flush()
     await db.refresh(wo)
     return wo

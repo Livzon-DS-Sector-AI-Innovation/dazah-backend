@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.base_model import BaseModel
 
 if TYPE_CHECKING:
-    from app.modules.equipment.models.work_order import WorkOrder
+    pass
 
 
 class InspectionTemplate(BaseModel):
@@ -90,9 +90,14 @@ class InspectionRecord(BaseModel):
         {"schema": "equipment"},
     )
 
-    work_order_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("equipment.work_orders.id"),
-        comment="关联巡检工单ID",
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("equipment.inspection_tasks.id"),
+        comment="关联巡检任务ID",
+    )
+    equipment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("equipment.equipments.id"),
+        nullable=True,
+        comment="关联设备ID",
     )
     template_item_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("equipment.inspection_template_items.id"),
@@ -109,7 +114,6 @@ class InspectionRecord(BaseModel):
     )
 
     # 关系
-    work_order: Mapped[WorkOrder] = relationship("WorkOrder")
     template_item: Mapped[InspectionTemplateItem] = relationship(
         "InspectionTemplateItem"
     )

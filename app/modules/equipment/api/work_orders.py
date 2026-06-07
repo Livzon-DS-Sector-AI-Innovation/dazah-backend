@@ -4,7 +4,10 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import NO_VALUE
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
@@ -33,6 +36,15 @@ def _require_user(current_user: CurrentUser) -> uuid.UUID:
 
 def _to_response(wo) -> WorkOrderResponse:
     """将 ORM WorkOrder 转为响应对象，填充关联名称"""
+    # 异步环境下写操作返回的对象未 eager load images 关系
+    # 提前检测并填充空列表，避免 model_validate 触发懒加载报 MissingGreenlet
+    try:
+        insp = sa_inspect(wo)
+        if insp.attrs.images.loaded_value is NO_VALUE:
+            wo.images = []
+    except MissingGreenlet:
+        wo.images = []
+
     resp = WorkOrderResponse.model_validate(wo)
     if wo.reporter:
         resp.reporter_name = wo.reporter.name

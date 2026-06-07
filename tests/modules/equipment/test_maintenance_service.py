@@ -243,12 +243,12 @@ async def test_work_order_lifecycle(
 
     # 指派
     wo = await assign_work_order(db_session, wo.id, assignee.id)
-    assert wo.status == "已指派"
+    assert wo.status == "待处理"
     assert wo.assignee_id == assignee.id
 
     # 开始
     wo = await start_work_order(db_session, wo.id)
-    assert wo.status == "维修中"
+    assert wo.status == "执行中"
     assert wo.started_at is not None
 
     # 完成
@@ -297,7 +297,7 @@ async def test_work_order_verify_reject(
         verifier.id,
         WorkOrderVerify(result="不合格", remark="问题未解决"),
     )
-    assert wo.status == "维修中"
+    assert wo.status == "执行中"
     assert wo.verification_result == "不合格"
 
 
@@ -447,11 +447,11 @@ async def test_maintenance_work_order_lifecycle(
         planned_start_date=date(2026, 6, 10),
     )
     wo = await create_work_order(db_session, data, sample_user.id)
-    assert wo.status == "待执行"
+    assert wo.status == "待处理"
 
     # 指派
     wo = await assign_work_order(db_session, wo.id, assignee.id)
-    assert wo.status == "已指派"
+    assert wo.status == "待处理"
 
     # 开始执行
     wo = await start_work_order(db_session, wo.id)
@@ -479,7 +479,7 @@ async def test_inspection_work_order_lifecycle(
         order_type="巡检",
     )
     wo = await create_work_order(db_session, data, sample_user.id)
-    assert wo.status == "待执行"
+    assert wo.status == "待处理"
 
     wo = await start_work_order(db_session, wo.id)
     assert wo.status == "执行中"
