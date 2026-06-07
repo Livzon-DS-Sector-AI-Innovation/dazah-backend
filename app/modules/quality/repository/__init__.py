@@ -8,6 +8,7 @@ from app.modules.quality.repository.cpv_product import (
     update_product,
 )
 from app.modules.quality.repository.cpv_parameter import (
+    count_parameters,
     create_parameter,
     delete_parameter,
     get_parameter_by_id,
@@ -15,12 +16,21 @@ from app.modules.quality.repository.cpv_parameter import (
     update_parameter,
 )
 from app.modules.quality.repository.cpv_batch import (
+    count_batches,
+    create_batch,
+    delete_batches_by_product,
+    get_batch_by_id,
+    get_batch_by_no,
     get_batches,
-    get_batches_wide,
 )
 from app.modules.quality.repository.cpv_value import (
-    create_values,
+    create_value,
+    create_values_bulk,
+    delete_values_by_batch_id,
+    get_value,
     get_values_by_batch_id,
+    get_values_by_batch_ids,
+    update_value,
 )
 from app.modules.quality.repository.cpv_import_task import (
     create_import_task,
@@ -68,17 +78,27 @@ __all__ = [
     "update_product",
     "delete_product",
     # CPV Parameter
+    "count_parameters",
     "create_parameter",
     "get_parameter_by_id",
     "get_parameters",
     "update_parameter",
     "delete_parameter",
     # CPV Batch
+    "count_batches",
+    "create_batch",
+    "delete_batches_by_product",
+    "get_batch_by_id",
+    "get_batch_by_no",
     "get_batches",
-    "get_batches_wide",
     # CPV Value
-    "create_values",
+    "create_value",
+    "create_values_bulk",
+    "delete_values_by_batch_id",
+    "get_value",
     "get_values_by_batch_id",
+    "get_values_by_batch_ids",
+    "update_value",
     # CPV Import Task
     "create_import_task",
     "get_import_task_by_id",

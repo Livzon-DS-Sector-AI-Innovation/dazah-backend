@@ -34,7 +34,6 @@ from app.modules.quality.schemas import (
     UpdateDeviationRequest,
 )
 
-
 # Workflow constants
 APPROVAL_STEP_ORDER = [
     "ai_analysis",
@@ -96,7 +95,6 @@ STATUS_TO_PENDING = {
     "quality_head_review": "pending_quality_head_review",
 }
 
-
 # ============ Deviation Service ============
 async def get_deviation_list(
     db: AsyncSession,
@@ -137,14 +135,12 @@ async def get_deviation_list(
         "page_size": page_size,
     }
 
-
 async def get_deviation_detail(db: AsyncSession, deviation_id: uuid.UUID) -> DeviationDetail:
     result = await db.execute(select(Deviation).where(Deviation.id == deviation_id, Deviation.is_deleted == False))
     deviation = result.scalar_one_or_none()
     if not deviation:
         raise ValueError(f"Deviation {deviation_id} not found")
     return DeviationDetail.model_validate(deviation)
-
 
 async def create_deviation(db: AsyncSession, data: CreateDeviationRequest, user_id: str) -> dict[str, str]:
     deviation = Deviation(
@@ -168,10 +164,17 @@ async def create_deviation(db: AsyncSession, data: CreateDeviationRequest, user_
         status_updated_at=datetime.now(timezone.utc),
     )
     db.add(deviation)
-    await db.commit()
+    try:
+
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
     await db.refresh(deviation)
     return {"id": str(deviation.id), "code": deviation.deviation_code}
-
 
 async def update_deviation(db: AsyncSession, deviation_id: uuid.UUID, data: UpdateDeviationRequest, user_id: str) -> dict[str, bool]:
     result = await db.execute(select(Deviation).where(Deviation.id == deviation_id, Deviation.is_deleted == False))
@@ -192,9 +195,16 @@ async def update_deviation(db: AsyncSession, deviation_id: uuid.UUID, data: Upda
     if data.status:
         deviation.status_updated_at = datetime.now(timezone.utc)
 
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 async def delete_deviation(db: AsyncSession, deviation_id: uuid.UUID) -> dict[str, bool]:
     result = await db.execute(select(Deviation).where(Deviation.id == deviation_id, Deviation.is_deleted == False))
@@ -203,9 +213,16 @@ async def delete_deviation(db: AsyncSession, deviation_id: uuid.UUID) -> dict[st
         raise ValueError(f"Deviation {deviation_id} not found")
     deviation.is_deleted = True
     deviation.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 async def submit_investigation(db: AsyncSession, deviation_id: uuid.UUID, data: SubmitInvestigationRequest, user_id: str) -> dict[str, bool]:
     result = await db.execute(select(Deviation).where(Deviation.id == deviation_id, Deviation.is_deleted == False))
@@ -223,9 +240,16 @@ async def submit_investigation(db: AsyncSession, deviation_id: uuid.UUID, data: 
     deviation.status = "pending_dept_head_review"
     deviation.status_updated_at = datetime.now(timezone.utc)
     deviation.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 async def submit_review(db: AsyncSession, deviation_id: uuid.UUID, data: SubmitReviewRequest, user_id: str) -> dict[str, bool]:
     result = await db.execute(select(Deviation).where(Deviation.id == deviation_id, Deviation.is_deleted == False))
@@ -255,7 +279,15 @@ async def submit_review(db: AsyncSession, deviation_id: uuid.UUID, data: SubmitR
         deviation.review_opinions = review_opinions
         deviation.status_updated_at = datetime.now(timezone.utc)
         deviation.updated_at = datetime.now(timezone.utc)
-        await db.commit()
+        try:
+
+            await db.commit()
+
+        except Exception:
+
+            await db.rollback()
+
+            raise
         return {"success": True}
 
     next_status = STEP_TO_NEXT_STATUS.get(data.step)
@@ -271,9 +303,16 @@ async def submit_review(db: AsyncSession, deviation_id: uuid.UUID, data: SubmitR
     deviation.review_opinions = review_opinions
     deviation.status_updated_at = datetime.now(timezone.utc)
     deviation.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 async def submit_final_code(db: AsyncSession, deviation_id: uuid.UUID, final_code: str, user_id: str) -> dict[str, bool]:
     result = await db.execute(select(Deviation).where(Deviation.id == deviation_id, Deviation.is_deleted == False))
@@ -289,9 +328,16 @@ async def submit_final_code(db: AsyncSession, deviation_id: uuid.UUID, final_cod
     deviation.status = "closed"
     deviation.status_updated_at = datetime.now(timezone.utc)
     deviation.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 async def resubmit_deviation(db: AsyncSession, deviation_id: uuid.UUID, user_id: str) -> dict[str, bool]:
     result = await db.execute(select(Deviation).where(Deviation.id == deviation_id, Deviation.is_deleted == False))
@@ -308,9 +354,16 @@ async def resubmit_deviation(db: AsyncSession, deviation_id: uuid.UUID, user_id:
     deviation.returned_step = None
     deviation.status_updated_at = datetime.now(timezone.utc)
     deviation.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 # ============ CAPA Service ============
 async def get_capa_list(
@@ -352,14 +405,12 @@ async def get_capa_list(
         "page_size": page_size,
     }
 
-
 async def get_capa_detail(db: AsyncSession, capa_id: uuid.UUID) -> CapaDetail:
     result = await db.execute(select(CAPA).where(CAPA.id == capa_id, CAPA.is_deleted == False))
     capa = result.scalar_one_or_none()
     if not capa:
         raise ValueError(f"CAPA {capa_id} not found")
     return CapaDetail.model_validate(capa)
-
 
 async def create_capa(db: AsyncSession, data: CreateCapaRequest, user_id: str) -> dict[str, str]:
     capa = CAPA(
@@ -381,10 +432,17 @@ async def create_capa(db: AsyncSession, data: CreateCapaRequest, user_id: str) -
         status_updated_at=datetime.now(timezone.utc),
     )
     db.add(capa)
-    await db.commit()
+    try:
+
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
     await db.refresh(capa)
     return {"id": str(capa.id), "code": capa.capa_code}
-
 
 async def update_capa(db: AsyncSession, capa_id: uuid.UUID, data: UpdateCapaRequest, user_id: str) -> dict[str, bool]:
     result = await db.execute(select(CAPA).where(CAPA.id == capa_id, CAPA.is_deleted == False))
@@ -405,9 +463,16 @@ async def update_capa(db: AsyncSession, capa_id: uuid.UUID, data: UpdateCapaRequ
     if data.status:
         capa.status_updated_at = datetime.now(timezone.utc)
 
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 async def delete_capa(db: AsyncSession, capa_id: uuid.UUID) -> dict[str, bool]:
     result = await db.execute(select(CAPA).where(CAPA.id == capa_id, CAPA.is_deleted == False))
@@ -416,9 +481,16 @@ async def delete_capa(db: AsyncSession, capa_id: uuid.UUID) -> dict[str, bool]:
         raise ValueError(f"CAPA {capa_id} not found")
     capa.is_deleted = True
     capa.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 # ============ Department Contact Service ============
 async def get_department_contact_list(db: AsyncSession, page: int = 1, page_size: int = 20) -> dict[str, Any]:
@@ -439,7 +511,6 @@ async def get_department_contact_list(db: AsyncSession, page: int = 1, page_size
         "page_size": page_size,
     }
 
-
 async def upsert_department_contact(db: AsyncSession, data: CreateDepartmentContactRequest | UpdateDepartmentContactRequest, department: str | None, user_id: str) -> dict[str, bool]:
     if department:
         result = await db.execute(select(DepartmentContact).where(DepartmentContact.department == department, DepartmentContact.is_deleted == False))
@@ -449,7 +520,15 @@ async def upsert_department_contact(db: AsyncSession, data: CreateDepartmentCont
             for field, value in update_data.items():
                 setattr(contact, field, value)
             contact.updated_at = datetime.now(timezone.utc)
-            await db.commit()
+            try:
+
+                await db.commit()
+
+            except Exception:
+
+                await db.rollback()
+
+                raise
             return {"success": True}
 
     contact = DepartmentContact(
@@ -463,9 +542,16 @@ async def upsert_department_contact(db: AsyncSession, data: CreateDepartmentCont
         is_production_workshop=data.is_production_workshop if hasattr(data, 'is_production_workshop') else False,
     )
     db.add(contact)
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 async def delete_department_contact(db: AsyncSession, contact_id: uuid.UUID) -> dict[str, bool]:
     result = await db.execute(select(DepartmentContact).where(DepartmentContact.id == contact_id, DepartmentContact.is_deleted == False))
@@ -474,9 +560,16 @@ async def delete_department_contact(db: AsyncSession, contact_id: uuid.UUID) -> 
         raise ValueError(f"DepartmentContact {contact_id} not found")
     contact.is_deleted = True
     contact.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    return {"success": True}
+    try:
 
+        await db.commit()
+
+    except Exception:
+
+        await db.rollback()
+
+        raise
+    return {"success": True}
 
 # ============ Statistics ============
 async def get_deviation_statistics(db: AsyncSession) -> DeviationStatistics:
@@ -523,7 +616,6 @@ async def get_deviation_statistics(db: AsyncSession) -> DeviationStatistics:
         stepBreakdown=step_breakdown,
     )
 
-
 async def get_capa_statistics(db: AsyncSession) -> CapaStatistics:
     total_result = await db.execute(select(func.count()).select_from(CAPA).where(CAPA.is_deleted == False))
     total = total_result.scalar_one()
@@ -548,7 +640,6 @@ async def get_capa_statistics(db: AsyncSession) -> CapaStatistics:
         sourceDistribution=source_distribution,
     )
 
-
 # ============ Attachment Reviews ============
 async def list_attachment_reviews(
     db: AsyncSession,
@@ -570,7 +661,6 @@ async def list_attachment_reviews(
     items = result.scalars().all()
     return [AttachmentReviewOut.model_validate(item).model_dump() for item in items]
 
-
 async def create_attachment_review(
     db: AsyncSession,
     data,
@@ -589,7 +679,6 @@ async def create_attachment_review(
     await db.flush()
     await db.refresh(review)
     return AttachmentReviewOut.model_validate(review).model_dump()
-
 
 async def delete_attachment_review(db: AsyncSession, review_id: uuid.UUID) -> None:
     """Soft-delete an attachment review."""
