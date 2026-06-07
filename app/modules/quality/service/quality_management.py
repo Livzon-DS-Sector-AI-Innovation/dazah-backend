@@ -15,6 +15,7 @@ from app.modules.quality.models import (
     Deviation,
 )
 from app.modules.quality.schemas import (
+    AttachmentReviewOut,
     CapaApprovalRequest,
     CapaDetail,
     CapaListItem,
@@ -567,7 +568,7 @@ async def list_attachment_reviews(
     
     result = await db.execute(query)
     items = result.scalars().all()
-    return [_model_to_dict(item) for item in items]
+    return [AttachmentReviewOut.model_validate(item).model_dump() for item in items]
 
 
 async def create_attachment_review(
@@ -587,7 +588,7 @@ async def create_attachment_review(
     db.add(review)
     await db.flush()
     await db.refresh(review)
-    return _model_to_dict(review)
+    return AttachmentReviewOut.model_validate(review).model_dump()
 
 
 async def delete_attachment_review(db: AsyncSession, review_id: uuid.UUID) -> None:
