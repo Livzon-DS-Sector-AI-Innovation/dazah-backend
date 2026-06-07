@@ -8,7 +8,7 @@ services:
     environment:
       APP_NAME: ${APP_NAME:-dazah-backend}
       APP_ENV: ${APP_ENV:-development}
-      DEBUG: ${DEBUG:-true}
+      DEBUG: "true"
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://postgres:postgres@db:5432/dazah}
       REDIS_URL: ${APP_REDIS_URL:-redis://redis:6379/0}
