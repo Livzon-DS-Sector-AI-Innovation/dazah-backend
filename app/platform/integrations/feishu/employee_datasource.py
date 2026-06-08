@@ -91,9 +91,9 @@ class EmployeeBitableDataSource:
 
     def __init__(self) -> None:
         self.client = BitableClient()
-        # Override with the specific app/table from the shared link
-        self.client.app_token = _settings.FEISHU_BITABLE_APP_TOKEN or "RfEmb1WyzasCg4sn6tsc4LbWnjf"
-        self.table_id = _settings.FEISHU_BITABLE_EMPLOYEE_TABLE_ID or "tbllxa1JInvTuEoD"
+        # New employee base: https://j0eukrlohu.feishu.cn/base/KHLsboPBGaah6Vs3EpgcpvzsnuH
+        self.client.app_token = _settings.FEISHU_BITABLE_APP_TOKEN or "KHLsboPBGaah6Vs3EpgcpvzsnuH"
+        self.table_id = _settings.FEISHU_BITABLE_EMPLOYEE_TABLE_ID or "tblrcSHfS5ivun7e"
 
     def _is_enabled(self) -> bool:
         return bool(self.client.app_token)

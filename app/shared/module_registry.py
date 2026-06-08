@@ -92,7 +92,7 @@ BUSINESS_MODULES: tuple[ModuleDefinition, ...] = (
         path="/hr",
         db_schema="hr",
         owner_hint="人事负责人",
-        description="人员、岗位、培训、考勤等人事业务数据入口。",
+        description="人员、岗位、培训等人事业务数据入口。",
     ),
     ModuleDefinition(
         code="research",

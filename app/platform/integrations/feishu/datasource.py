@@ -18,8 +18,8 @@ class BitableDataSource:
 
     Example:
         ds = BitableDataSource(
-            app_token="RfEmb1WyzasCg4sn6tsc4LbWnjf",
-            table_id="tbllxa1JInvTuEoD",
+            app_token="KHLsboPBGaah6Vs3EpgcpvzsnuH",
+            table_id="tblrcSHfS5ivun7e",
         )
 
         # 查询
