@@ -23,6 +23,16 @@ def _employee_to_dict(emp: Any) -> dict[str, str | None]:
     }
 
 
+async def list_employees_by_department(
+    session: AsyncSession, department: str
+) -> tuple[list[dict[str, str | None]], int]:
+    """List employees by department name."""
+    repo = EmployeeRepository(session)
+    employees, total = await repo.list_employees(department=department, page=1, page_size=200)
+    data = [_employee_to_dict(e) for e in employees]
+    return data, total
+
+
 async def query_employees(
     session: AsyncSession,
     *,
