@@ -3,12 +3,20 @@
 import json
 import re
 from collections.abc import AsyncGenerator
+from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.modules.administration.models import VehicleRequest
+from app.modules.administration.public_api import (
+    count_vehicle_requests,
+    search_vehicle_requests,
+    search_vehicles,
+)
 from app.modules.hr.public_api import (
     count_employees,
     list_employees_by_department,
@@ -172,36 +180,231 @@ async def _build_db_context(
     return "\n".join(parts)
 
 
+def _extract_months(text: str) -> list[int] | None:
+    """Extract month numbers from text for vehicle request queries.
+
+    Supports patterns like:
+    - 5月, 6月 (single)
+    - 5-6月, 5~6月 (range)
+    - 5月和6月, 5月、6月, 5月，6月 (multiple)
+    - 5-6月份 (with 份 suffix)
+    """
+    # 1. Range pattern: 5-6月, 5~6月, 5到6月
+    range_match = re.search(r"(\d{1,2})[-~到](\d{1,2})月(?:份)?", text)
+    if range_match:
+        start, end = int(range_match.group(1)), int(range_match.group(2))
+        if 1 <= start <= 12 and 1 <= end <= 12:
+            if start <= end:
+                return list(range(start, end + 1))
+            else:
+                return list(range(end, start + 1))
+
+    # 2. Multiple months pattern: 5月和6月, 5月、6月, 5月，6月
+    # Find all "X月" occurrences and deduplicate
+    month_matches = re.findall(r"(\d{1,2})月(?:份)?", text)
+    if month_matches:
+        months = sorted(set(int(m) for m in month_matches if 1 <= int(m) <= 12))
+        return months
+
+    return None
+
+
+async def _build_vehicle_db_context(
+    session: AsyncSession, text: str
+) -> str:
+    """Query vehicle/administration database based on user intent."""
+    parts: list[str] = []
+
+    # 1. 按月份统计（支持单个月、多个月、范围）
+    months = _extract_months(text)
+    if months and re.search(r"(?:用车申请|申请).*?(?:多少|数量|总数|几个)", text):
+        total_count = 0
+        month_counts: list[tuple[int, int]] = []
+        for month in months:
+            count_stmt = (
+                select(func.count())
+                .select_from(VehicleRequest)
+                .where(
+                    extract("month", VehicleRequest.start_time) == month,
+                    VehicleRequest.is_deleted.is_(False),
+                )
+            )
+            count = await session.scalar(count_stmt) or 0
+            month_counts.append((month, count))
+            total_count += count
+
+        if len(months) == 1:
+            parts.append(f"【数据库查询结果】{months[0]}月用车申请总数：{total_count}条。")
+        else:
+            month_details = "，".join(f"{m}月{c}条" for m, c in month_counts)
+            parts.append(
+                f"【数据库查询结果】{month_details}，合计：{total_count}条。"
+            )
+    else:
+        # 2. 统计用车申请数量（按状态）
+        status_count_keywords = [
+            ("待审批", r"待审批.*?(?:多少|数量|几个)"),
+            ("已通过", r"已通过.*?(?:多少|数量|几个)"),
+            ("已拒绝", r"已拒绝.*?(?:多少|数量|几个)"),
+            ("已完成", r"已完成.*?(?:多少|数量|几个)"),
+        ]
+        for status, pattern in status_count_keywords:
+            if re.search(pattern, text):
+                total = await count_vehicle_requests(session, status=status)
+                parts.append(f"【数据库查询结果】状态为'{status}'的用车申请共有{total}条。")
+                break
+        else:
+            # 总数量
+            if re.search(r"(?:总共|一共|全部).*?(?:用车申请|申请).*?(?:多少|数量|几个)", text):
+                total = await count_vehicle_requests(session)
+                parts.append(f"【数据库查询结果】用车申请总数量：{total}条。")
+
+    # 2. 按申请人查询（只匹配纯中文人名，避免误匹配月份数字）
+    applicant_match = re.search(r"([一-龥]{2,10})(?:的用车申请|申请了车|申请用车)", text)
+    if applicant_match:
+        name = applicant_match.group(1)
+        requests, total = await search_vehicle_requests(
+            session, keyword=name, page=1, page_size=20
+        )
+        if requests:
+            parts.append(f"【数据库查询结果】申请人包含'{name}'的用车申请共{total}条：")
+            for r in requests:
+                parts.append(
+                    f"- 申请人:{r['applicant_name']}（{r['applicant_department']}）"
+                    f"，事由:{r['purpose'][:40]}"
+                    f"，目的地:{r['destination'] or '无'}"
+                    f"，时间:{r['start_time']} 至 {r['end_time']}"
+                    f"，状态:{r['status']}"
+                )
+        else:
+            parts.append(f"【数据库查询结果】未找到申请人包含'{name}'的用车申请。")
+
+    # 3. 按状态查询列表
+    status_list_keywords = [
+        ("待审批", r"(?:待审批|未审批|未处理).*?(?:申请|列表|记录)"),
+        ("已通过", r"(?:已通过|已批准).*?(?:申请|列表|记录)"),
+        ("已完成", r"(?:已完成|已结束).*?(?:申请|列表|记录)"),
+    ]
+    for status, pattern in status_list_keywords:
+        if re.search(pattern, text):
+            requests, total = await search_vehicle_requests(
+                session, status=status, page=1, page_size=20
+            )
+            if requests:
+                parts.append(f"【数据库查询结果】状态为'{status}'的用车申请共{total}条：")
+                for r in requests:
+                    parts.append(
+                        f"- 申请人:{r['applicant_name']}（{r['applicant_department']}）"
+                        f"，事由:{r['purpose'][:40]}"
+                        f"，目的地:{r['destination'] or '无'}"
+                        f"，时间:{r['start_time']} 至 {r['end_time']}"
+                    )
+            else:
+                parts.append(f"【数据库查询结果】暂无状态为'{status}'的用车申请。")
+            break
+
+    # 4. 车辆信息查询
+    if re.search(r"(?:车辆|车|车牌).*?(?:信息|列表|多少|状态)", text):
+        vehicles, total = await search_vehicles(session, page=1, page_size=50)
+        if vehicles:
+            parts.append(f"【数据库查询结果】车辆总数：{total}辆")
+            for v in vehicles:
+                parts.append(
+                    f"- 车牌:{v['plate_number']}，品牌:{v['brand'] or '无'}"
+                    f"，状态:{v['status']}，归属:{v['owner_department'] or '无'}"
+                )
+        else:
+            parts.append("【数据库查询结果】暂无车辆信息。")
+
+    return "\n".join(parts)
+
+
+def _convert_message_with_attachments(msg: dict[str, Any]) -> dict[str, Any]:
+    """Convert a message dict with attachments to multimodal format.
+
+    Moonshot / OpenAI compatible format:
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "..."},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+      ]
+    }
+    """
+    role = msg.get("role", "user")
+    content = msg.get("content", "")
+    attachments: list[dict[str, str]] = msg.get("attachments") or []
+
+    if not attachments:
+        return {"role": role, "content": content}
+
+    # Build multimodal content array
+    content_parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
+    for att in attachments:
+        mime = att.get("mime_type", "image/png")
+        data = att.get("data", "")
+        content_parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{data}"},
+            }
+        )
+
+    return {"role": role, "content": content_parts}
+
+
 @router.post("/chat/stream", summary="AI 流式对话")
 async def chat_stream(
     request: ChatRequest,
-    service: AiChatService = Depends(get_ai_chat_service),
+    service: AiChatService | None = Depends(get_ai_chat_service),
     session: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Receive a chat request and stream the AI response via SSE."""
 
+    page = request.page_context.page if request.page_context else None
+    is_vehicle_page = page and "用车" in page
+
     # 1. Build base system prompt
-    system_prompt = AiChatService.build_system_prompt(
-        page=request.page_context.page if request.page_context else None
-    )
+    if is_vehicle_page:
+        system_prompt = AiChatService.build_vehicle_system_prompt(page=page)
+    else:
+        system_prompt = AiChatService.build_system_prompt(page=page)
 
     # 2. Query database based on user intent
     db_context = ""
     if request.messages and request.messages[-1].role == "user":
         user_text = request.messages[-1].content
-        db_context = await _build_db_context(session, user_text)
+        if is_vehicle_page:
+            db_context = await _build_vehicle_db_context(session, user_text)
+        else:
+            db_context = await _build_db_context(session, user_text)
 
-    # 3. Build messages list
-    messages = [m.model_dump() for m in request.messages]
+    # 3. Build messages list and convert attachments
+    raw_messages = [m.model_dump() for m in request.messages]
+    messages: list[dict[str, Any]] = []
+    for raw in raw_messages:
+        converted = _convert_message_with_attachments(raw)
+        messages.append(converted)
 
     # Inject DB context directly into the last user message
     if db_context and messages and messages[-1]["role"] == "user":
         original = messages[-1]["content"]
-        messages[-1]["content"] = (
-            f"【数据库查询结果，请严格基于以下事实回答，禁止编造】\n"
-            f"{db_context}\n\n"
-            f"【用户原始问题】\n{original}"
-        )
+        # If content is a list (multimodal), inject text into the first text part
+        if isinstance(original, list):
+            for part in original:
+                if part.get("type") == "text":
+                    part["text"] = (
+                        f"【数据库查询结果，请严格基于以下事实回答，禁止编造】\n"
+                        f"{db_context}\n\n"
+                        f"【用户原始问题】\n{part['text']}"
+                    )
+                    break
+        else:
+            messages[-1]["content"] = (
+                f"【数据库查询结果，请严格基于以下事实回答，禁止编造】\n"
+                f"{db_context}\n\n"
+                f"【用户原始问题】\n{original}"
+            )
 
     # 4. Append page context as the last user message hint if provided
     if request.page_context and request.page_context.data_summary:
@@ -210,14 +413,39 @@ async def chat_stream(
         )
         if messages and messages[-1]["role"] == "user":
             original = messages[-1]["content"]
-            messages[-1]["content"] = (
-                f"[当前页面数据概览]\n{summary_text}\n\n"
-                f"[用户问题]\n{original}"
-            )
+            if isinstance(original, list):
+                for part in original:
+                    if part.get("type") == "text":
+                        part["text"] = (
+                            f"[当前页面数据概览]\n{summary_text}\n\n"
+                            f"[用户问题]\n{part['text']}"
+                        )
+                        break
+            else:
+                messages[-1]["content"] = (
+                    f"[当前页面数据概览]\n{summary_text}\n\n"
+                    f"[用户问题]\n{original}"
+                )
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        async for token in service.stream_chat(messages, system_prompt):
-            payload = json.dumps({"content": token}, ensure_ascii=False)
+        if service is None:
+            payload = json.dumps(
+                {"content": "\n\n[提示] Moonshot API Key 未配置，请在后端 .env 文件中设置 MOONSHOT_API_KEY"},
+                ensure_ascii=False,
+            )
+            yield f"data: {payload}\n\n"
+            done_payload = json.dumps({"done": True}, ensure_ascii=False)
+            yield f"data: {done_payload}\n\n"
+            return
+
+        try:
+            async for token in service.stream_chat(messages, system_prompt):
+                payload = json.dumps({"content": token}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+        except Exception as exc:
+            payload = json.dumps(
+                {"content": f"\n\n[错误] 服务异常: {exc}"}, ensure_ascii=False
+            )
             yield f"data: {payload}\n\n"
         done_payload = json.dumps({"done": True}, ensure_ascii=False)
         yield f"data: {done_payload}\n\n"

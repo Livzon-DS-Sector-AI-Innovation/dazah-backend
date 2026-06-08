@@ -3,9 +3,18 @@
 from pydantic import BaseModel, Field
 
 
+class ChatAttachment(BaseModel):
+    type: str = Field(..., description="附件类型: image")
+    mime_type: str = Field(..., description="MIME 类型, 如 image/png")
+    data: str = Field(..., description="Base64 编码的文件数据(不含 data URL 前缀)")
+
+
 class ChatMessage(BaseModel):
     role: str = Field(..., description="消息角色: system, user, assistant")
     content: str = Field(..., description="消息内容")
+    attachments: list[ChatAttachment] | None = Field(
+        None, description="附件列表(图片等)"
+    )
 
 
 class HrPageContext(BaseModel):

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     FEISHU_BITABLE_DEPARTMENT_TABLE_ID: str = ""
     FEISHU_BITABLE_OFFBOARDING_TABLE_ID: str = ""
     FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
+    FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID: str = ""
 
     # AI
     MOONSHOT_API_KEY: str = ""

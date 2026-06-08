@@ -1,7 +1,6 @@
 """AI chat service: build prompts and stream responses from Moonshot."""
 
 from collections.abc import AsyncGenerator
-from typing import Any
 
 import openai
 
@@ -18,11 +17,15 @@ class AiChatService:
 
     async def stream_chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, any]],
         system_prompt: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        """Stream chat completion tokens from the LLM."""
-        all_messages: list[dict[str, str]] = []
+        """Stream chat completion tokens from the LLM.
+
+        Messages may contain multimodal content (text + images) for models
+        that support vision.
+        """
+        all_messages: list[dict[str, any]] = []
         if system_prompt:
             all_messages.append({"role": "system", "content": system_prompt})
         all_messages.extend(messages)
@@ -36,8 +39,8 @@ class AiChatService:
         )
 
         # When stream=True, the response is an AsyncStream; narrow the type.
-        stream: Any = response
-        async for chunk in stream:
+        stream_resp: any = response
+        async for chunk in stream_resp:
             delta = chunk.choices[0].delta.content if chunk.choices else None
             if delta:
                 yield delta
@@ -57,6 +60,30 @@ class AiChatService:
             "4. 禁止输出任何不在查询结果中的信息。\n"
             "5. 回答简洁，直接列事实。\n"
             "6. 每次回答前，请先用 <think>...</think> 标签输出完整的思考过程，"
+            "分析用户问题、检查查询结果、确认事实，然后再给出正式回答。\n\n"
+        )
+
+        if page:
+            prompt += f"当前页面：{page}\n"
+
+        return prompt
+
+    @staticmethod
+    def build_vehicle_system_prompt(page: str | None = None) -> str:
+        """Build the system prompt for the vehicle assistant."""
+        prompt = (
+            "你是「小V」，原料药工厂车队管理智能助手。\n"
+            "【绝对规则】\n"
+            "1. 用户消息中【数据库查询结果】段落是系统从 PostgreSQL 实时查出的真实数据，"
+            "是你回答的唯一依据。\n"
+            "2. 如果查询结果中有用车申请、车辆信息等数据，你必须原样使用，"
+            "一个字都不许改，不许补充，不许猜测。\n"
+            "3. 如果查询结果明确写了'未找到'，请直接告知用户未找到相关记录。\n"
+            "4. 禁止输出任何不在查询结果中的信息。\n"
+            "5. 回答简洁，直接列事实。\n"
+            "6. 当用户上传图片时，请根据图片内容协助分析（如识别用车单据、"
+            "驾驶证、行驶证、车辆照片等），并结合数据库查询结果给出综合回答。\n"
+            "7. 每次回答前，请先用 <think>...</think> 标签输出完整的思考过程，"
             "分析用户问题、检查查询结果、确认事实，然后再给出正式回答。\n\n"
         )
 
