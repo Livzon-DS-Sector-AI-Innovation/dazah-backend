@@ -194,3 +194,41 @@ class TestEquipmentModel:
         assert equip.manufacturer is None
         assert equip.supplier is None
         assert equip.description is None
+        assert equip.warranty_expire_date is None
+        assert equip.asset_value is None
+        assert equip.depreciation_years is None
+        assert equip.technical_params is None
+
+    def test_new_fields_default_to_none(self) -> None:
+        """新字段默认为 None"""
+        cat = self._make_category()
+        loc = self._make_location()
+        equip = Equipment(
+            equipment_no="EQ-NEW-001",
+            name="测试设备",
+            category_id=cat.id,
+            location_id=loc.id,
+        )
+        assert equip.warranty_expire_date is None
+        assert equip.asset_value is None
+        assert equip.depreciation_years is None
+        assert equip.technical_params is None
+
+    def test_new_fields_accept_values(self) -> None:
+        """新字段可以赋值"""
+        cat = self._make_category()
+        loc = self._make_location()
+        equip = Equipment(
+            equipment_no="EQ-NEW-002",
+            name="测试设备",
+            category_id=cat.id,
+            location_id=loc.id,
+            warranty_expire_date=date(2027, 12, 31),
+            asset_value=150000.00,
+            depreciation_years=10,
+            technical_params={"power": "380V", "capacity": "500L"},
+        )
+        assert equip.warranty_expire_date == date(2027, 12, 31)
+        assert equip.asset_value == 150000.00
+        assert equip.depreciation_years == 10
+        assert equip.technical_params == {"power": "380V", "capacity": "500L"}

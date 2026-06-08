@@ -3,7 +3,15 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.base_model import BaseModel
@@ -97,6 +105,10 @@ class Equipment(BaseModel):
             "status IN ('在用', '备用', '维修中', '停用', '报废')",
             name="ck_equipments_status",
         ),
+        CheckConstraint(
+            "importance IN ('高', '中', '低')",
+            name="ck_equipments_importance",
+        ),
         {"schema": "equipment"},
     )
 
@@ -139,6 +151,23 @@ class Equipment(BaseModel):
     )
     description: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="设备描述"
+    )
+    importance: Mapped[str] = mapped_column(
+        String(10),
+        default="低",
+        comment="设备重要性：高/中/低",
+    )
+    warranty_expire_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="保修到期日"
+    )
+    asset_value: Mapped[float | None] = mapped_column(
+        nullable=True, comment="资产原值（元）"
+    )
+    depreciation_years: Mapped[int | None] = mapped_column(
+        nullable=True, comment="折旧年限"
+    )
+    technical_params: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="技术参数（JSON）"
     )
 
     # 关系

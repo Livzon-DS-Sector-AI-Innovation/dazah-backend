@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.modules.equipment.models import WorkOrder
 
@@ -27,7 +28,17 @@ async def get_work_order_by_id(
 ) -> WorkOrder | None:
     """根据ID获取工单"""
     result = await db.execute(
-        select(WorkOrder).where(
+        select(WorkOrder)
+        .options(
+            selectinload(WorkOrder.reporter),
+            selectinload(WorkOrder.assignee),
+            selectinload(WorkOrder.equipment),
+            selectinload(WorkOrder.fault_symptom),
+            selectinload(WorkOrder.fault_cause),
+            selectinload(WorkOrder.fault_action),
+            selectinload(WorkOrder.images),
+        )
+        .where(
             WorkOrder.id == work_order_id,
             WorkOrder.is_deleted == False,  # noqa: E712
         )
@@ -78,7 +89,19 @@ async def get_work_orders(
     page_size: int = 20,
 ) -> tuple[list[WorkOrder], int]:
     """获取工单列表"""
-    query = select(WorkOrder).where(WorkOrder.is_deleted == False)  # noqa: E712
+    query = (
+        select(WorkOrder)
+        .options(
+            selectinload(WorkOrder.reporter),
+            selectinload(WorkOrder.assignee),
+            selectinload(WorkOrder.equipment),
+            selectinload(WorkOrder.fault_symptom),
+            selectinload(WorkOrder.fault_cause),
+            selectinload(WorkOrder.fault_action),
+            selectinload(WorkOrder.images),
+        )
+        .where(WorkOrder.is_deleted == False)  # noqa: E712
+    )
 
     if status:
         query = query.where(WorkOrder.status == status)
@@ -135,3 +158,34 @@ async def get_work_order_statistics(db: AsyncSession) -> dict[str, Any]:
         "by_type": by_type,
         "by_priority": by_priority,
     }
+
+
+async def create_material_consumption(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> "SparePartTransaction":  # noqa: F821
+    """创建领料记录"""
+    from app.modules.equipment.models.spare_part import SparePartTransaction
+
+    transaction = SparePartTransaction(**data)
+    db.add(transaction)
+    await db.flush()
+    return transaction
+
+
+async def get_material_consumptions(
+    db: AsyncSession,
+    work_order_id: uuid.UUID,
+) -> list["SparePartTransaction"]:  # noqa: F821
+    """获取工单领料记录"""
+    from app.modules.equipment.models.spare_part import SparePartTransaction
+
+    result = await db.execute(
+        select(SparePartTransaction)
+        .where(
+            SparePartTransaction.work_order_id == work_order_id,
+            SparePartTransaction.is_deleted == False,  # noqa: E712
+        )
+        .order_by(SparePartTransaction.created_at.desc())
+    )
+    return list(result.scalars().all())

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -30,8 +31,26 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting %s (%s)", settings.APP_NAME, settings.APP_ENV)
+
+    from app.platform.integrations.feishu.sync import (
+        member_sync_loop,
+        stop_member_sync_flag,
+        stop_timeout_flag,
+        timeout_scan_loop,
+    )
+
+    member_task = asyncio.ensure_future(member_sync_loop())
+    timeout_task = asyncio.ensure_future(timeout_scan_loop())
+
+    logger.info("Background tasks started")
+
     yield
-    logger.info("Shutting down %s", settings.APP_NAME)
+
+    stop_member_sync_flag.set()
+    stop_timeout_flag.set()
+    member_task.cancel()
+    timeout_task.cancel()
+    logger.info("Background tasks stopped")
 
 
 app = FastAPI(

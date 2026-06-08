@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     String,
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
         FailureCause,
         FailureSymptom,
     )
+    from app.modules.equipment.models.work_order_image import WorkOrderImage
+    from app.platform.identity.models import User
 
 
 class WorkOrder(BaseModel):
@@ -39,7 +42,7 @@ class WorkOrder(BaseModel):
             name="uq_work_orders_work_order_no",
         ),
         CheckConstraint(
-            "order_type IN ('故障维修', '校准')",
+            "order_type IN ('故障维修', '计划维护', '巡检', '校准')",
             name="ck_work_orders_order_type",
         ),
         CheckConstraint(
@@ -47,7 +50,7 @@ class WorkOrder(BaseModel):
             name="ck_work_orders_priority",
         ),
         CheckConstraint(
-            "status IN ('待处理', '已指派', '维修中', '待验收', '已完成', '已关闭')",
+            "status IN ('待处理', '执行中', '待验收', '已完成', '已关闭')",
             name="ck_work_orders_status",
         ),
         CheckConstraint(
@@ -75,7 +78,7 @@ class WorkOrder(BaseModel):
     status: Mapped[str] = mapped_column(
         String(20),
         default="待处理",
-        comment="状态：待处理/已指派/维修中/待验收/已完成/已关闭",
+        comment="状态：待处理/执行中/待验收/已完成/已关闭",
     )
     fault_symptom_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("equipment.failure_symptoms.id"),
@@ -154,6 +157,25 @@ class WorkOrder(BaseModel):
         nullable=True,
         comment="创建工单时的设备原始状态",
     )
+    maintenance_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("equipment.maintenance_plans.id"),
+        nullable=True,
+        comment="关联维护计划ID",
+    )
+    planned_start_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="计划执行日期"
+    )
+    checklist_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("equipment.inspection_templates.id"),
+        nullable=True,
+        comment="关联巡检模板ID",
+    )
+    check_result: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, comment="巡检结果：正常/异常"
+    )
+    spare_parts_cost: Mapped[float | None] = mapped_column(
+        nullable=True, comment="备件费用汇总"
+    )
 
     # 关系
     equipment: Mapped[Equipment] = relationship(
@@ -171,4 +193,18 @@ class WorkOrder(BaseModel):
     fault_action: Mapped[FailureAction | None] = relationship(
         "FailureAction",
         foreign_keys=[fault_action_id],
+    )
+    reporter: Mapped[User] = relationship(
+        "User",
+        foreign_keys=[reporter_id],
+    )
+    assignee: Mapped[User | None] = relationship(
+        "User",
+        foreign_keys=[assignee_id],
+    )
+    images: Mapped[list[WorkOrderImage]] = relationship(
+        "WorkOrderImage",
+        foreign_keys="WorkOrderImage.work_order_id",
+        primaryjoin="and_(WorkOrder.id == foreign(WorkOrderImage.work_order_id), WorkOrderImage.is_deleted == False)",
+        lazy="selectin",
     )

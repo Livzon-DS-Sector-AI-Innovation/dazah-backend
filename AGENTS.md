@@ -89,6 +89,7 @@ ORM 和 migration 规则：
 - 不做与当前需求无关的重构。
 - 不提交临时调试代码、`print` 或无用注释。
 - 中文业务名可以写在 API `summary`、`description` 和文档中；代码标识符使用英文。
+- **SQLAlchemy async 铁律：禁止 `db.refresh()`、禁止直接赋值未加载的 relationship。写操作后统一用 `select+selectinload` eager re-fetch 返回对象。**（不遵守会出 MissingGreenlet）
 
 ## AI 工作流程
 
