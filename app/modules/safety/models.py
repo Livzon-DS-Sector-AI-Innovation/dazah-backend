@@ -1452,6 +1452,10 @@ class DailyRiskReport(BaseModel):
     report_date: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, comment="报备作业日期"
     )
+    report_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="regular", server_default="regular",
+        comment="报备类型: regular(常规作业) / non_regular(非常规作业)"
+    )
     department: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="报备部门")
     hazard_identification_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

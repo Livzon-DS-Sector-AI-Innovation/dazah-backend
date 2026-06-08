@@ -43,6 +43,7 @@ from app.modules.safety.schemas import (
     HazardIdentificationReview,
     HazardIdentificationRunScript,
     HazardIdentificationUpdate,
+    HazardRiskOption,
     HazardReportCreate,
     HazardReportResponse,
     HazardReportUpdate,
@@ -1229,6 +1230,29 @@ async def get_hazard_identifications(
     )
     return ApiResponse(
         data=[HazardIdentificationResponse.model_validate(i) for i in items],
+        meta={"page": page, "page_size": page_size, "total": total},
+    )
+
+
+@router.get(
+    "/hazard-identifications/risk-options",
+    response_model=ApiResponse,
+    summary="获取危险源风险选项（常规作业报备用）",
+)
+async def get_hazard_risk_options(
+    department: str | None = Query(None, description="部门筛选"),
+    keyword: str | None = Query(None, description="搜索关键字（编号/部门/岗位）"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """返回风险等级为 level_1/level_2 且 overall_status=completed 的危险源辨识项"""
+    service = DailyRiskReportService(db)
+    skip = (page - 1) * page_size
+    items, total = await service.get_hazard_risk_options(department, keyword, skip, page_size)
+    return ApiResponse(
+        data=[HazardRiskOption.model_validate(i) for i in items],
         meta={"page": page, "page_size": page_size, "total": total},
     )
 
@@ -2993,6 +3017,7 @@ async def get_daily_risk_reports(
     department: str | None = None,
     report_date: str | None = Query(None, description="报备日期 (YYYY-MM-DD)"),
     keyword: str | None = None,
+    report_type: str | None = Query(None, description="报备类型: regular/non_regular"),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser | None = Depends(get_current_user),
 ):
@@ -3003,7 +3028,7 @@ async def get_daily_risk_reports(
     if report_date:
         from datetime import datetime as dt
         parsed_date = dt.fromisoformat(report_date)
-    items, total = await service.get_reports(skip, page_size, status, department, parsed_date, keyword)
+    items, total = await service.get_reports(skip, page_size, status, department, parsed_date, keyword, report_type)
     return ApiResponse(
         data=[DailyRiskReportResponse.model_validate(i) for i in items],
         meta={"page": page, "page_size": page_size, "total": total},

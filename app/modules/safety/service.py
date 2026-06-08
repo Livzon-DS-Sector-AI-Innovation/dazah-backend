@@ -2480,10 +2480,11 @@ class DailyRiskReportService:
         department: str | None = None,
         report_date: datetime | None = None,
         keyword: str | None = None,
+        report_type: str | None = None,
     ) -> tuple[list[DailyRiskReport], int]:
         """获取每日风险作业报备列表"""
         return await self.repo.get_daily_risk_reports(
-            skip, limit, status, department, report_date, keyword
+            skip, limit, status, department, report_date, keyword, report_type
         )
 
     async def get_report(self, report_id: uuid.UUID) -> DailyRiskReport | None:
@@ -2493,14 +2494,19 @@ class DailyRiskReportService:
     async def create_report(
         self, data: DailyRiskReportCreate
     ) -> DailyRiskReport:
-        """创建报备"""
+        """创建报备 — 常规作业须关联危险源，非常规作业须填写作业描述"""
+        if data.report_type == "regular" and not data.hazard_identification_id:
+            raise ValueError("常规作业必须关联危险源辨识台账")
+        if data.report_type == "non_regular" and not data.operation_description:
+            raise ValueError("非常规作业必须填写风险作业描述")
         return await self.repo.create_daily_risk_report(data.model_dump())
 
     async def update_report(
         self, report_id: uuid.UUID, data: DailyRiskReportUpdate
     ) -> DailyRiskReport | None:
-        """更新报备"""
+        """更新报备 — report_type 创建后不可修改"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+        update_data.pop("report_type", None)  # 禁止修改报备类型
         return await self.repo.update_daily_risk_report(report_id, update_data)
 
     async def delete_report(self, report_id: uuid.UUID) -> bool:
@@ -2542,6 +2548,20 @@ class DailyRiskReportService:
         return await self.repo.update_daily_risk_report(
             report_id,
             {"status": "rejected", "rejection_reason": reason},
+        )
+
+    # ── 危险源风险选项 ──
+
+    async def get_hazard_risk_options(
+        self,
+        department: str | None = None,
+        keyword: str | None = None,
+        skip: int = 0,
+        limit: int = 100,
+    ):
+        """获取危险源风险选项（常规作业报备用）"""
+        return await self.repo.get_hazard_identifications_for_risk_options(
+            department, keyword, skip, limit
         )
 
 

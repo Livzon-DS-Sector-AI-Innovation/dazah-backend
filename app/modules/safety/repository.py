@@ -1658,6 +1658,7 @@ class SafetyRepository:
         department: str | None = None,
         report_date: datetime | None = None,
         keyword: str | None = None,
+        report_type: str | None = None,
     ) -> tuple[list[DailyRiskReport], int]:
         """获取每日风险作业报备列表"""
         query = select(DailyRiskReport).where(DailyRiskReport.is_deleted == False)
@@ -1666,6 +1667,8 @@ class SafetyRepository:
             query = query.where(DailyRiskReport.status == status)
         if department:
             query = query.where(DailyRiskReport.department == department)
+        if report_type:
+            query = query.where(DailyRiskReport.report_type == report_type)
         if report_date:
             query = query.where(
                 func.date(DailyRiskReport.report_date) == report_date.date()
@@ -1685,6 +1688,8 @@ class SafetyRepository:
             count_query = count_query.where(DailyRiskReport.status == status)
         if department:
             count_query = count_query.where(DailyRiskReport.department == department)
+        if report_type:
+            count_query = count_query.where(DailyRiskReport.report_type == report_type)
         if report_date:
             count_query = count_query.where(
                 func.date(DailyRiskReport.report_date) == report_date.date()
@@ -1754,6 +1759,53 @@ class SafetyRepository:
         )
         result = await self.session.execute(query)
         return result.rowcount > 0
+
+    # ── 危险源风险选项（常规作业报备用） ──
+
+    async def get_hazard_identifications_for_risk_options(
+        self,
+        department: str | None = None,
+        keyword: str | None = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> tuple[list["HazardIdentification"], int]:
+        """返回 level_1/level_2 且 overall_status=completed 的危险源，供常规作业报备选择"""
+        from app.modules.safety.models import HazardIdentification
+
+        query = select(HazardIdentification).where(
+            HazardIdentification.is_deleted == False,
+            HazardIdentification.inherent_risk_level.in_(["level_1", "level_2"]),
+            HazardIdentification.overall_status == "completed",
+        )
+        count_query = select(func.count(HazardIdentification.id)).where(
+            HazardIdentification.is_deleted == False,
+            HazardIdentification.inherent_risk_level.in_(["level_1", "level_2"]),
+            HazardIdentification.overall_status == "completed",
+        )
+
+        if department:
+            query = query.where(HazardIdentification.department == department)
+            count_query = count_query.where(HazardIdentification.department == department)
+        if keyword:
+            like = f"%{keyword}%"
+            query = query.where(
+                HazardIdentification.hazard_id_no.ilike(like)
+                | HazardIdentification.department.ilike(like)
+                | HazardIdentification.position.ilike(like)
+                | HazardIdentification.production_step.ilike(like)
+            )
+            count_query = count_query.where(
+                HazardIdentification.hazard_id_no.ilike(like)
+                | HazardIdentification.department.ilike(like)
+                | HazardIdentification.position.ilike(like)
+                | HazardIdentification.production_step.ilike(like)
+            )
+
+        total = await self.session.scalar(count_query)
+        query = query.offset(skip).limit(limit).order_by(HazardIdentification.created_at.desc())
+        result = await self.session.execute(query)
+        items = list(result.scalars().all())
+        return items, total or 0
 
     # ==================== EHS变更管理 (MOC) Operations ====================
 

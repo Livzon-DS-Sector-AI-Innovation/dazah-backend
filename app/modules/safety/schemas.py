@@ -1955,6 +1955,31 @@ class LedgerExportParsedFilters(BaseModel):
     explanation: str = Field("", description="AI 对筛选条件的解读说明")
 
 
+# ── 危险源风险选项（常规作业报备用） ──
+
+
+class HazardRiskOption(BaseModel):
+    """危险源风险选项 — 供常规作业报备选择关联危险源"""
+
+    id: uuid.UUID
+    hazard_id_no: str
+    department: str
+    position: str
+    production_step: str
+    specific_activity: str | None = None
+    inherent_risk_level: str | None = None
+    inherent_risk_label: str | None = None
+    hazard_type: str | None = None
+    possible_accident: str | None = None
+    existing_engineering_controls: str | None = None
+    existing_management_controls: str | None = None
+    existing_ppe: str | None = None
+    existing_emergency_measures: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
 # ── 每日风险作业报备 ──
 
 
@@ -1963,6 +1988,7 @@ class DailyRiskReportBase(BaseModel):
 
     report_no: str = Field(..., max_length=64, description="报备编号")
     report_date: datetime = Field(..., description="报备作业日期")
+    report_type: str = Field("regular", max_length=20, description="报备类型: regular(常规作业) / non_regular(非常规作业)")
     department: str | None = Field(None, max_length=100, description="报备部门")
     hazard_identification_id: uuid.UUID | None = Field(None, description="关联危险源辨识ID")
     operation_description: str = Field(..., description="风险作业描述")
@@ -1990,6 +2016,7 @@ class DailyRiskReportUpdate(BaseModel):
 
     report_no: str | None = Field(None, max_length=64, description="报备编号")
     report_date: datetime | None = Field(None, description="报备作业日期")
+    report_type: str | None = Field(None, max_length=20, description="报备类型（创建后不可修改）")
     department: str | None = Field(None, max_length=100, description="报备部门")
     hazard_identification_id: uuid.UUID | None = Field(None, description="关联危险源辨识ID")
     operation_description: str | None = Field(None, description="风险作业描述")
