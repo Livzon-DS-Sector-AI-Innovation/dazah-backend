@@ -69,32 +69,42 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def do_run_migrations(connection) -> None:  # type: ignore[no-untyped-def]
-    context.configure(
-        connection=connection,
-        target_metadata=target_metadata,
-        include_schemas=True,
-        include_name=include_name,
-        compare_type=True,
-        compare_server_default=True,
-    )
-    with context.begin_transaction():
-        context.run_migrations()
-
-
-async def run_async_migrations() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-    await connectable.dispose()
-
-
 def run_migrations_online() -> None:
-    asyncio.run(run_async_migrations())
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import NullPool
+    from urllib.parse import urlparse, quote_plus
+
+    # Parse URL to separate host and database
+    db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "")
+
+    # Extract components
+    parsed = urlparse(f"postgresql://{db_url}")
+
+    # Extract database name from path
+    db_name = parsed.path.lstrip('/') or "postgres"
+
+    # Build connection URL with db name for pg8000
+    sync_url = f"postgresql+pg8000://{quote_plus(parsed.username)}:{quote_plus(parsed.password)}@{parsed.hostname}:{parsed.port or 5432}/{db_name}"
+
+    engine = create_engine(
+        sync_url,
+        poolclass=NullPool,
+        pool_pre_ping=True,
+    )
+
+    with engine.connect() as connection:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_schemas=True,
+            include_name=include_name,
+            compare_type=True,
+            compare_server_default=True,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+
+    engine.dispose()
 
 
 if context.is_offline_mode():
