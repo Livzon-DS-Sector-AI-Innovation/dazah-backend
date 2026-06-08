@@ -6,6 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.response import paginated_response, success_response
 from app.modules.hr.schemas import (
+    DepartureRecordCreate,
+    DepartureRecordResponse,
+    DepartureRecordUpdate,
     DepartmentCreate,
     DepartmentResponse,
     DepartmentUpdate,
@@ -15,14 +18,18 @@ from app.modules.hr.schemas import (
     OffboardingRecordCreate,
     OffboardingRecordResponse,
     OffboardingRecordUpdate,
+    OnboardingRecordResponse,
     TeamCreate,
     TeamResponse,
     TeamUpdate,
 )
+from app.modules.hr.analysis_api import router as analysis_router
 from app.modules.hr.service import (
+    DepartureRecordService,
     DepartmentService,
     EmployeeService,
     OffboardingRecordService,
+    OnboardingRecordService,
     TeamService,
 )
 from app.shared.module_api import create_module_router
@@ -52,6 +59,18 @@ def get_team_service(
     session: AsyncSession = Depends(get_db),
 ) -> TeamService:
     return TeamService(session)
+
+
+def get_onboarding_service(
+    session: AsyncSession = Depends(get_db),
+) -> OnboardingRecordService:
+    return OnboardingRecordService(session)
+
+
+def get_departure_service(
+    session: AsyncSession = Depends(get_db),
+) -> DepartureRecordService:
+    return DepartureRecordService(session)
 
 
 # ─── Employee Routes ───
@@ -419,3 +438,185 @@ async def delete_offboarding_record(
 ):
     await service.delete_record(record_id)
     return success_response(message="离职记录删除成功")
+
+
+# ─── OnboardingRecord Routes ───
+
+@router.get("/onboarding-records", summary="老厂入职台账列表")
+async def list_onboarding_records(
+    department: str | None = Query(None, description="部门筛选"),
+    position: str | None = Query(None, description="岗位筛选"),
+    is_employed: str | None = Query(None, description="是否在职筛选"),
+    keyword: str | None = Query(None, description="姓名或工号关键词"),
+    sort_by: str = Query("hire_date", description="排序字段"),
+    sort_order: str = Query("desc", description="排序方向"),
+    page_params: PageParams = Depends(),
+    service: OnboardingRecordService = Depends(get_onboarding_service),
+):
+    records, total = await service.list_records(
+        department=department,
+        position=position,
+        is_employed=is_employed,
+        keyword=keyword,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    data = [
+        OnboardingRecordResponse.model_validate(r).model_dump(mode="json")
+        for r in records
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/onboarding-records/sync-from-feishu", summary="从飞书同步老厂入职台账")
+async def sync_onboarding_from_feishu(
+    service: OnboardingRecordService = Depends(get_onboarding_service),
+):
+    """手动触发：从飞书多维表格拉取全部老厂入职数据并 upsert 到本地 PG。"""
+    stats = await service.sync_from_feishu()
+    msg = (
+        f"同步完成：新增 {stats['created']} 条，"
+        f"更新 {stats['updated']} 条，失败 {stats['failed']} 条"
+    )
+    return success_response(
+        data=stats,
+        message=msg,
+    )
+
+
+@router.get("/onboarding-records/sync-status", summary="老厂入职台账同步状态")
+async def get_onboarding_sync_status(
+    service: OnboardingRecordService = Depends(get_onboarding_service),
+):
+    """查看本地与飞书的数据同步统计。"""
+    status = await service.get_sync_status()
+    return success_response(
+        data=status.model_dump(mode="json"),
+    )
+
+
+@router.get("/onboarding-records/{record_id}", summary="入职记录详情")
+async def get_onboarding_record(
+    record_id: UUID,
+    service: OnboardingRecordService = Depends(get_onboarding_service),
+):
+    record = await service.get_record(record_id)
+    return success_response(
+        data=OnboardingRecordResponse.model_validate(record).model_dump(mode="json"),
+    )
+
+
+# ─── DepartureRecord Routes ───
+
+@router.get("/departure-records", summary="老厂离职台账列表")
+async def list_departure_records(
+    department: str | None = Query(None, description="部门筛选"),
+    offboarding_type: str | None = Query(None, description="离职类型筛选"),
+    keyword: str | None = Query(None, description="姓名/部门/职位关键词"),
+    sort_by: str = Query("offboarding_date", description="排序字段"),
+    sort_order: str = Query("desc", description="排序方向"),
+    page_params: PageParams = Depends(),
+    service: DepartureRecordService = Depends(get_departure_service),
+):
+    records, total = await service.list_records(
+        department=department,
+        offboarding_type=offboarding_type,
+        keyword=keyword,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    data = [
+        DepartureRecordResponse.model_validate(r).model_dump(mode="json")
+        for r in records
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/departure-records", summary="创建离职台账记录")
+async def create_departure_record(
+    payload: DepartureRecordCreate,
+    service: DepartureRecordService = Depends(get_departure_service),
+):
+    record = await service.create_record(payload)
+    return success_response(
+        data=DepartureRecordResponse.model_validate(record).model_dump(mode="json"),
+        message="离职台账记录创建成功",
+        status_code=201,
+    )
+
+
+@router.get("/departure-records/{record_id}", summary="离职台账记录详情")
+async def get_departure_record(
+    record_id: UUID,
+    service: DepartureRecordService = Depends(get_departure_service),
+):
+    record = await service.get_record(record_id)
+    return success_response(
+        data=DepartureRecordResponse.model_validate(record).model_dump(mode="json"),
+    )
+
+
+@router.put("/departure-records/{record_id}", summary="更新离职台账记录")
+async def update_departure_record(
+    record_id: UUID,
+    payload: DepartureRecordUpdate,
+    service: DepartureRecordService = Depends(get_departure_service),
+):
+    record = await service.update_record(record_id, payload)
+    return success_response(
+        data=DepartureRecordResponse.model_validate(record).model_dump(mode="json"),
+        message="离职台账记录更新成功",
+    )
+
+
+@router.delete("/departure-records/{record_id}", summary="删除离职台账记录")
+async def delete_departure_record(
+    record_id: UUID,
+    service: DepartureRecordService = Depends(get_departure_service),
+):
+    await service.delete_record(record_id)
+    return success_response(message="离职台账记录删除成功")
+
+
+@router.post("/departure-records/sync-from-feishu", summary="从飞书同步老厂离职台账")
+async def sync_departure_from_feishu(
+    service: DepartureRecordService = Depends(get_departure_service),
+):
+    """手动触发：从飞书多维表格拉取全部老厂离职数据并 upsert 到本地 PG。"""
+    stats = await service.sync_from_feishu()
+    msg = (
+        f"同步完成：新增 {stats['created']} 条，"
+        f"更新 {stats['updated']} 条，失败 {stats['failed']} 条"
+    )
+    return success_response(
+        data=stats,
+        message=msg,
+    )
+
+
+@router.get("/departure-records/sync-status", summary="老厂离职台账同步状态")
+async def get_departure_sync_status(
+    service: DepartureRecordService = Depends(get_departure_service),
+):
+    """查看本地与飞书的数据同步统计。"""
+    status = await service.get_sync_status()
+    return success_response(
+        data=status.model_dump(mode="json"),
+    )
+
+
+router.include_router(analysis_router)

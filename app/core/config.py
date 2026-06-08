@@ -38,11 +38,21 @@ class Settings(BaseSettings):
     FEISHU_BITABLE_EMPLOYEE_TABLE_ID: str = ""
     FEISHU_BITABLE_DEPARTMENT_TABLE_ID: str = ""
     FEISHU_BITABLE_OFFBOARDING_TABLE_ID: str = ""
+    FEISHU_BITABLE_ONBOARDING_TABLE_ID: str = ""
+    FEISHU_BITABLE_DEPARTURE_TABLE_ID: str = ""
     FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
     FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID: str = ""
 
+    # Feishu AI Query
+    FEISHU_AI_QUERY_TABLES: str = ""  # JSON: {"别名": {"app_token": "...", "table_id": "...", "filterable_fields": [...]}}
+    FEISHU_AI_QUERY_MAX_ROWS: int = 200
+
+    # Aily
+    AILY_APP_ID: str = ""
+
     # AI
     MOONSHOT_API_KEY: str = ""
+    AI_MODEL: str = "kimi-k2.5"
 
     @property
     def is_production(self) -> bool:

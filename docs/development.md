@@ -51,7 +51,7 @@ uv run alembic upgrade head
 Start the backend locally:
 
 ```powershell
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --reload-exclude "*.log"
 ```
 
 The local application should use these URLs from `.env`:
