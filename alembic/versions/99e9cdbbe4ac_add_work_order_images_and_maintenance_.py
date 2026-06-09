@@ -213,7 +213,6 @@ def upgrade() -> None:
     op.drop_index(op.f('idx_batches_batch_no'), table_name='batches', schema='production')
     op.drop_index(op.f('idx_batches_product_code'), table_name='batches', schema='production')
     op.drop_index(op.f('idx_batches_status'), table_name='batches', schema='production')
-    op.create_foreign_key(None, 'batches', 'process_specs', ['process_spec_id'], ['id'], source_schema='production', referent_schema='production')
     op.alter_column('material_balances', 'batch_id',
                existing_type=sa.UUID(),
                comment='批次ID',
