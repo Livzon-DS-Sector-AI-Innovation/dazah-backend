@@ -134,7 +134,7 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='production')
-    op.drop_index(op.f('idx_batch_materials_batch_id'), table_name='batch_materials', schema='production')
+    op.execute('DROP INDEX IF EXISTS production.idx_batch_materials_batch_id')
     op.alter_column('batches', 'batch_no',
                existing_type=sa.VARCHAR(length=64),
                comment='批次号',
@@ -201,9 +201,9 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='production')
-    op.drop_index(op.f('idx_batches_batch_no'), table_name='batches', schema='production')
-    op.drop_index(op.f('idx_batches_product_code'), table_name='batches', schema='production')
-    op.drop_index(op.f('idx_batches_status'), table_name='batches', schema='production')
+    op.execute('DROP INDEX IF EXISTS production.idx_batches_batch_no')
+    op.execute('DROP INDEX IF EXISTS production.idx_batches_product_code')
+    op.execute('DROP INDEX IF EXISTS production.idx_batches_status')
     op.create_foreign_key(None, 'batches', 'process_specs', ['process_spec_id'], ['id'], source_schema='production', referent_schema='production')
     op.alter_column('material_balances', 'batch_id',
                existing_type=sa.UUID(),
@@ -303,7 +303,7 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='production')
-    op.drop_index(op.f('idx_plan_tasks_plan_id'), table_name='plan_tasks', schema='production')
+    op.execute('DROP INDEX IF EXISTS production.idx_plan_tasks_plan_id')
     op.alter_column('process_parameters', 'step_id',
                existing_type=sa.UUID(),
                comment='步骤ID',
@@ -355,7 +355,7 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='production')
-    op.drop_index(op.f('idx_process_parameters_step_id'), table_name='process_parameters', schema='production')
+    op.execute('DROP INDEX IF EXISTS production.idx_process_parameters_step_id')
     op.alter_column('process_specs', 'spec_code',
                existing_type=sa.VARCHAR(length=64),
                comment='规程编号',
@@ -418,8 +418,8 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='production')
-    op.drop_index(op.f('idx_process_specs_product_code'), table_name='process_specs', schema='production')
-    op.drop_index(op.f('idx_process_specs_status'), table_name='process_specs', schema='production')
+    op.execute('DROP INDEX IF EXISTS production.idx_process_specs_product_code')
+    op.execute('DROP INDEX IF EXISTS production.idx_process_specs_status')
     op.alter_column('process_steps', 'spec_id',
                existing_type=sa.UUID(),
                comment='规程ID',
@@ -465,7 +465,7 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='production')
-    op.drop_index(op.f('idx_process_steps_spec_id'), table_name='process_steps', schema='production')
+    op.execute('DROP INDEX IF EXISTS production.idx_process_steps_spec_id')
     op.alter_column('production_plans', 'plan_no',
                existing_type=sa.VARCHAR(length=64),
                comment='计划编号',
@@ -507,8 +507,8 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='production')
-    op.drop_index(op.f('idx_production_plans_plan_month'), table_name='production_plans', schema='production')
-    op.drop_index(op.f('idx_production_plans_status'), table_name='production_plans', schema='production')
+    op.execute('DROP INDEX IF EXISTS production.idx_production_plans_plan_month')
+    op.execute('DROP INDEX IF EXISTS production.idx_production_plans_status')
     op.alter_column('production_records', 'batch_id',
                existing_type=sa.UUID(),
                comment='批次ID',
@@ -566,8 +566,8 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='production')
-    op.drop_index(op.f('idx_production_records_batch_id'), table_name='production_records', schema='production')
-    op.drop_index(op.f('idx_production_records_operation_time'), table_name='production_records', schema='production')
+    op.execute('DROP INDEX IF EXISTS production.idx_production_records_batch_id')
+    op.execute('DROP INDEX IF EXISTS production.idx_production_records_operation_time')
     op.alter_column('accidents', 'accident_no',
                existing_type=sa.VARCHAR(length=64),
                comment='事故编号',
@@ -664,10 +664,10 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='safety')
-    op.drop_index(op.f('idx_accidents_accident_no'), table_name='accidents', schema='safety')
-    op.drop_index(op.f('idx_accidents_accident_type'), table_name='accidents', schema='safety')
-    op.drop_index(op.f('idx_accidents_happened_at'), table_name='accidents', schema='safety')
-    op.drop_index(op.f('idx_accidents_status'), table_name='accidents', schema='safety')
+    op.execute('DROP INDEX IF EXISTS safety.idx_accidents_accident_no')
+    op.execute('DROP INDEX IF EXISTS safety.idx_accidents_accident_type')
+    op.execute('DROP INDEX IF EXISTS safety.idx_accidents_happened_at')
+    op.execute('DROP INDEX IF EXISTS safety.idx_accidents_status')
     op.alter_column('hazard_reports', 'hazard_no',
                existing_type=sa.VARCHAR(length=64),
                comment='隐患编号',
@@ -760,12 +760,12 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='safety')
-    op.drop_index(op.f('idx_hazard_reports_check_id'), table_name='hazard_reports', schema='safety')
-    op.drop_index(op.f('idx_hazard_reports_department'), table_name='hazard_reports', schema='safety')
-    op.drop_index(op.f('idx_hazard_reports_hazard_level'), table_name='hazard_reports', schema='safety')
-    op.drop_index(op.f('idx_hazard_reports_hazard_no'), table_name='hazard_reports', schema='safety')
-    op.drop_index(op.f('idx_hazard_reports_hazard_type'), table_name='hazard_reports', schema='safety')
-    op.drop_index(op.f('idx_hazard_reports_status'), table_name='hazard_reports', schema='safety')
+    op.execute('DROP INDEX IF EXISTS safety.idx_hazard_reports_check_id')
+    op.execute('DROP INDEX IF EXISTS safety.idx_hazard_reports_department')
+    op.execute('DROP INDEX IF EXISTS safety.idx_hazard_reports_hazard_level')
+    op.execute('DROP INDEX IF EXISTS safety.idx_hazard_reports_hazard_no')
+    op.execute('DROP INDEX IF EXISTS safety.idx_hazard_reports_hazard_type')
+    op.execute('DROP INDEX IF EXISTS safety.idx_hazard_reports_status')
     op.alter_column('safety_checks', 'check_no',
                existing_type=sa.VARCHAR(length=64),
                comment='检查编号',
@@ -839,10 +839,10 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='safety')
-    op.drop_index(op.f('idx_safety_checks_check_date'), table_name='safety_checks', schema='safety')
-    op.drop_index(op.f('idx_safety_checks_check_no'), table_name='safety_checks', schema='safety')
-    op.drop_index(op.f('idx_safety_checks_check_type'), table_name='safety_checks', schema='safety')
-    op.drop_index(op.f('idx_safety_checks_status'), table_name='safety_checks', schema='safety')
+    op.execute('DROP INDEX IF EXISTS safety.idx_safety_checks_check_date')
+    op.execute('DROP INDEX IF EXISTS safety.idx_safety_checks_check_no')
+    op.execute('DROP INDEX IF EXISTS safety.idx_safety_checks_check_type')
+    op.execute('DROP INDEX IF EXISTS safety.idx_safety_checks_status')
     op.alter_column('safety_trainings', 'training_no',
                existing_type=sa.VARCHAR(length=64),
                comment='培训编号',
@@ -909,10 +909,10 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='safety')
-    op.drop_index(op.f('idx_safety_trainings_status'), table_name='safety_trainings', schema='safety')
-    op.drop_index(op.f('idx_safety_trainings_training_date'), table_name='safety_trainings', schema='safety')
-    op.drop_index(op.f('idx_safety_trainings_training_no'), table_name='safety_trainings', schema='safety')
-    op.drop_index(op.f('idx_safety_trainings_training_type'), table_name='safety_trainings', schema='safety')
+    op.execute('DROP INDEX IF EXISTS safety.idx_safety_trainings_status')
+    op.execute('DROP INDEX IF EXISTS safety.idx_safety_trainings_training_date')
+    op.execute('DROP INDEX IF EXISTS safety.idx_safety_trainings_training_no')
+    op.execute('DROP INDEX IF EXISTS safety.idx_safety_trainings_training_type')
     op.alter_column('training_records', 'training_id',
                existing_type=sa.UUID(),
                comment='培训ID',
@@ -954,8 +954,8 @@ def upgrade() -> None:
                comment='备注',
                existing_nullable=True,
                schema='safety')
-    op.drop_index(op.f('idx_training_records_employee_id'), table_name='training_records', schema='safety')
-    op.drop_index(op.f('idx_training_records_training_id'), table_name='training_records', schema='safety')
+    op.execute('DROP INDEX IF EXISTS safety.idx_training_records_employee_id')
+    op.execute('DROP INDEX IF EXISTS safety.idx_training_records_training_id')
     # ### end Alembic commands ###
 
 

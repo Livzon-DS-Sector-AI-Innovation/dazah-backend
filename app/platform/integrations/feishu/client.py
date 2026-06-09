@@ -50,3 +50,18 @@ class FeishuClient(IntegrationClient):
                 f"path={path}"
             )
         return data.get("data", {})
+
+    def build_authorize_url(self, state: str) -> str:
+        """Build Feishu OAuth authorize URL."""
+        from app.core.config import get_settings
+        settings = get_settings()
+        
+        redirect_uri = settings.FEISHU_REDIRECT_URI
+        app_id = settings.FEISHU_APP_ID
+        
+        return (
+            f"https://open.feishu.cn/open-apis/authen/v1/authorize"
+            f"?app_id={app_id}"
+            f"&redirect_uri={redirect_uri}"
+            f"&state={state}"
+        )

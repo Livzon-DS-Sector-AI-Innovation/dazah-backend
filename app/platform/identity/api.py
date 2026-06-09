@@ -35,7 +35,7 @@ sync_router = APIRouter(prefix="/sync", tags=["飞书同步"])
 def get_feishu_client(
     settings: Settings = Depends(get_settings),
 ) -> FeishuClient:
-    return FeishuClient(settings)
+    return FeishuClient()
 
 
 def get_identity_service(

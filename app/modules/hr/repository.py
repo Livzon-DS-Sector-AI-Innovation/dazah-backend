@@ -6,7 +6,7 @@ from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.modules.hr.models import Department, Employee, OffboardingRecord, Team
+from app.modules.hr.models import HRDepartment, Employee, OffboardingRecord, Team
 
 
 class EmployeeRepository:
@@ -128,16 +128,16 @@ class DepartmentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def get_by_id(self, department_id: UUID) -> Department | None:
+    async def get_by_id(self, department_id: UUID) -> HRDepartment | None:
         result = await self.session.execute(
-            select(Department).where(Department.id == department_id, Department.is_deleted.is_(False))
+            select(HRDepartment).where(HRDepartment.id == department_id, HRDepartment.is_deleted.is_(False))
         )
         return result.scalar_one_or_none()
 
-    async def get_by_code(self, code: str) -> Department | None:
+    async def get_by_code(self, code: str) -> HRDepartment | None:
         # 包含已删除记录，确保唯一性检查覆盖软删除数据
         result = await self.session.execute(
-            select(Department).where(Department.code == code)
+            select(HRDepartment).where(HRDepartment.code == code)
         )
         return result.scalar_one_or_none()
 
@@ -147,37 +147,37 @@ class DepartmentRepository:
         keyword: str | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> tuple[list[Department], int]:
-        stmt = select(Department).where(Department.is_deleted.is_(False))
+    ) -> tuple[list[HRDepartment], int]:
+        stmt = select(HRDepartment).where(HRDepartment.is_deleted.is_(False))
 
         if keyword:
             stmt = stmt.where(
-                Department.name.ilike(f"%{keyword}%")
-                | Department.code.ilike(f"%{keyword}%")
+                HRDepartment.name.ilike(f"%{keyword}%")
+                | HRDepartment.code.ilike(f"%{keyword}%")
             )
 
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total_result = await self.session.execute(count_stmt)
         total = total_result.scalar() or 0
 
-        stmt = stmt.order_by(asc(Department.created_at))
+        stmt = stmt.order_by(asc(HRDepartment.created_at))
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
 
         result = await self.session.execute(stmt)
         return list(result.scalars().all()), total
 
-    async def create(self, department: Department) -> Department:
+    async def create(self, department: HRDepartment) -> HRDepartment:
         self.session.add(department)
         await self.session.flush()
         await self.session.refresh(department)
         return department
 
-    async def update(self, department: Department) -> Department:
+    async def update(self, department: HRDepartment) -> HRDepartment:
         await self.session.flush()
         await self.session.refresh(department)
         return department
 
-    async def soft_delete(self, department: Department) -> None:
+    async def soft_delete(self, department: HRDepartment) -> None:
         department.is_deleted = True
         await self.session.flush()
 
