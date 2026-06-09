@@ -4,8 +4,9 @@ FastAPI-based backend service for the Dazah platform.
 
 ## Prerequisites
 
-- Docker & Docker Compose
-- Python 3.12+ (for local development)
+- Python 3.12+
+- [uv](https://github.com/astral-sh/uv) package manager
+- Docker & Docker Compose (for containerized deployment)
 
 ## Quick Start (Docker)
 
@@ -28,16 +29,47 @@ Services will be available at:
 
 ## Local Development
 
+### 1. Clone the repository
+
 ```bash
-# Install dependencies
+git clone <repository-url>
+cd dazah-backend
+```
+
+### 2. Install dependencies
+
+```bash
 uv sync
+```
 
-# Run migrations
+This will:
+- Create `.venv` virtual environment
+- Install all dependencies from `pyproject.toml`
+
+### 3. Configure environment variables
+
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+### 4. Run database migrations
+
+```bash
 uv run alembic upgrade head
+```
 
-# Start dev server
+### 5. Start the server
+
+```bash
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+## API Documentation
+
+Interactive API documentation is available at:
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
 
 ## Environment Variables
 
@@ -50,6 +82,43 @@ Key variables in `.env`:
 - `APP_REDIS_URL`: Redis connection string
 - `POSTGRES_USER/PASSWORD/DB`: Database credentials
 
+## Key Features
+
+### CPV Module (Continuous Process Validation)
+
+- Product management (CRUD operations)
+- CPP/CQA batch data import from Excel
+- Data preview before import (supports create/update/overwrite modes)
+- Batch data export to Excel
+- Statistical analysis and trend visualization
+
+#### Testing Excel Import Preview
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/quality/cpv/import/preview?product_id=<product-id>&data_type=CPP&import_mode=create" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@test.xlsx"
+```
+
+## Project Structure
+
+```
+.
+├── app/
+│   ├── api/              # API routes and dependencies
+│   ├── core/             # Core configuration and utilities
+│   ├── modules/          # Business logic modules
+│   │   └── quality/      # Quality management (CPV)
+│   │       ├── api/      # API endpoints
+│   │       ├── service/  # Business logic
+│   │       └── models/   # Database models
+│   └── platform/         # Cross-cutting concerns
+├── alembic/              # Database migrations
+├── tests/                # Test suite
+├── pyproject.toml        # Project dependencies
+└── uv.lock              # Dependency lock file
+```
+
 ## Database Migrations
 
 ```bash
@@ -61,6 +130,46 @@ uv run alembic upgrade head
 
 # Rollback one version
 uv run alembic downgrade -1
+```
+
+## Testing
+
+```bash
+uv run pytest
+```
+
+## Code Quality
+
+```bash
+# Run linter
+uv run ruff check .
+
+# Run type checker
+uv run mypy .
+
+# Format code
+uv run ruff format .
+```
+
+## Dependencies
+
+Key dependencies:
+- **FastAPI**: Web framework
+- **SQLAlchemy**: ORM with async support
+- **Alembic**: Database migrations
+- **openpyxl**: Excel file processing
+- **psycopg / pg8000**: PostgreSQL drivers
+- **Pydantic**: Data validation
+- **Uvicorn**: ASGI server
+
+For a complete list, see `pyproject.toml`.
+
+### Adding New Dependencies
+
+```bash
+uv add <package-name>
+uv add --dev <package-name>
+uv remove <package-name>
 ```
 
 ## Production Deployment
