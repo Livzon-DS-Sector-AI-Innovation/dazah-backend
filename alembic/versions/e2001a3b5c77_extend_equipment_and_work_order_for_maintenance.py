@@ -18,50 +18,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Equipment new columns
-
-    # Stub tables for FK references (full implementation in P3/P4)
-    op.create_table(
-        'maintenance_plans',
-        sa.Column('id', sa.Uuid(), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('is_deleted', sa.Boolean(), server_default='false', nullable=False),
-        sa.PrimaryKeyConstraint('id'),
-        schema='equipment',
-    )
-    op.create_table(
-        'inspection_templates',
-        sa.Column('id', sa.Uuid(), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('is_deleted', sa.Boolean(), server_default='false', nullable=False),
-        sa.PrimaryKeyConstraint('id'),
-        schema='equipment',
-    )
-
-    # WorkOrder new columns
-
-    # Add FK constraints for the new columns
-    op.create_foreign_key(
-        'fk_work_orders_maintenance_plan_id',
-        'work_orders',
-        'maintenance_plans',
-        ['maintenance_plan_id'],
-        ['id'],
-        source_schema='equipment',
-        referent_schema='equipment',
-    )
-    op.create_foreign_key(
-        'fk_work_orders_checklist_template_id',
-        'work_orders',
-        'inspection_templates',
-        ['checklist_template_id'],
-        ['id'],
-        source_schema='equipment',
-        referent_schema='equipment',
-    )
-
     # Update order_type check constraint to include 计划维护 and 巡检
     op.drop_constraint('ck_work_orders_order_type', 'work_orders', schema='equipment')
     op.create_check_constraint(
@@ -99,24 +55,3 @@ def downgrade() -> None:
         "order_type IN ('故障维修', '校准')",
         schema='equipment',
     )
-
-    # Drop FK constraints
-    op.drop_constraint('fk_work_orders_checklist_template_id', 'work_orders', schema='equipment')
-    op.drop_constraint('fk_work_orders_maintenance_plan_id', 'work_orders', schema='equipment')
-
-    # Remove WorkOrder columns
-    op.drop_column('work_orders', 'spare_parts_cost', schema='equipment')
-    op.drop_column('work_orders', 'check_result', schema='equipment')
-    op.drop_column('work_orders', 'checklist_template_id', schema='equipment')
-    op.drop_column('work_orders', 'planned_start_date', schema='equipment')
-    op.drop_column('work_orders', 'maintenance_plan_id', schema='equipment')
-
-    # Drop stub tables
-    op.drop_table('inspection_templates', schema='equipment')
-    op.drop_table('maintenance_plans', schema='equipment')
-
-    # Remove Equipment columns
-    op.drop_column('equipments', 'technical_params', schema='equipment')
-    op.drop_column('equipments', 'depreciation_years', schema='equipment')
-    op.drop_column('equipments', 'asset_value', schema='equipment')
-    op.drop_column('equipments', 'warranty_expire_date', schema='equipment')
