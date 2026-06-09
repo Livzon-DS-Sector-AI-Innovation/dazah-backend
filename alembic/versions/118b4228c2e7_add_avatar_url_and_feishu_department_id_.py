@@ -18,10 +18,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('users', sa.Column('avatar_url', sa.String(length=512), nullable=True), schema='identity')
-    op.add_column('users', sa.Column('feishu_department_id', sa.String(length=64), nullable=True, comment='飞书部门ID'), schema='identity')
+    pass
 
 
 def downgrade() -> None:
-    op.drop_column('users', 'feishu_department_id', schema='identity')
-    op.drop_column('users', 'avatar_url', schema='identity')
+    pass

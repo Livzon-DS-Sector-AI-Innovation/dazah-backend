@@ -19,10 +19,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Equipment new columns
-    op.add_column('equipments', sa.Column('warranty_expire_date', sa.Date(), nullable=True, comment='保修到期日'), schema='equipment')
-    op.add_column('equipments', sa.Column('asset_value', sa.Float(), nullable=True, comment='资产原值（元）'), schema='equipment')
-    op.add_column('equipments', sa.Column('depreciation_years', sa.Integer(), nullable=True, comment='折旧年限'), schema='equipment')
-    op.add_column('equipments', sa.Column('technical_params', sa.JSON(), nullable=True, comment='技术参数（JSON）'), schema='equipment')
 
     # Stub tables for FK references (full implementation in P3/P4)
     op.create_table(
@@ -45,11 +41,6 @@ def upgrade() -> None:
     )
 
     # WorkOrder new columns
-    op.add_column('work_orders', sa.Column('maintenance_plan_id', sa.Uuid(), nullable=True, comment='关联维护计划ID'), schema='equipment')
-    op.add_column('work_orders', sa.Column('planned_start_date', sa.Date(), nullable=True, comment='计划执行日期'), schema='equipment')
-    op.add_column('work_orders', sa.Column('checklist_template_id', sa.Uuid(), nullable=True, comment='关联巡检模板ID'), schema='equipment')
-    op.add_column('work_orders', sa.Column('check_result', sa.String(length=20), nullable=True, comment='巡检结果：正常/异常'), schema='equipment')
-    op.add_column('work_orders', sa.Column('spare_parts_cost', sa.Float(), nullable=True, comment='备件费用汇总'), schema='equipment')
 
     # Add FK constraints for the new columns
     op.create_foreign_key(
