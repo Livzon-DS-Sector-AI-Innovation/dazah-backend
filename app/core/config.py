@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +9,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # App
@@ -39,6 +41,14 @@ class Settings(BaseSettings):
     FEISHU_BITABLE_DEPARTMENT_TABLE_ID: str = ""
     FEISHU_BITABLE_OFFBOARDING_TABLE_ID: str = ""
     FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
+
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def coerce_debug(cls, v: object) -> bool:
+        if isinstance(v, bool):
+            return v
+        return str(v).lower() in ("true", "1", "yes", "on")
 
     @property
     def is_production(self) -> bool:
