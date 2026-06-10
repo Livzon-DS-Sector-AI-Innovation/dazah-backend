@@ -257,7 +257,7 @@ async def get_hazards(
     service = SafetyService(db)
     skip = (page - 1) * page_size
     items, total = await service.get_hazards(
-        skip, page_size, status, hazard_type, hazard_level, hazard_category, department, None, keyword
+        skip, page_size, status, hazard_type, hazard_level, hazard_category, department, keyword
     )
     return ApiResponse(
         data=[HazardReportResponse.model_validate(h) for h in items],
