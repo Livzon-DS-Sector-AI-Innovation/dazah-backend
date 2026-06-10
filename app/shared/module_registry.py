@@ -111,6 +111,14 @@ BUSINESS_MODULES: tuple[ModuleDefinition, ...] = (
         description="注册资料、申报进度、变更事项和法规跟踪数据入口。",
     ),
     ModuleDefinition(
+        code="regulatory_tracker",
+        name="法规追踪",
+        path="/regulatory_tracker",
+        db_schema="regulatory_tracker",
+        owner_hint="注册事务负责人",
+        description="法规自动监控追踪，包括数据源管理、栏目配置、文档同步和采集任务。",
+    ),
+    ModuleDefinition(
         code="quality",
         name="质量管理",
         path="/quality",
