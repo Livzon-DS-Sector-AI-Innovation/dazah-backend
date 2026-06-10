@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +46,11 @@ async def preview_import(
 @router.post("/import/confirm", summary="确认导入")
 async def confirm_import(
     file: UploadFile = File(...),
-    request: CpvImportConfirmRequest = Depends(),
+    product_id: uuid.UUID = Form(..., description="产品ID"),
+    data_type: str = Form(..., description="数据类型: CPP/CQA"),
+    import_mode: str = Form("create", description="导入模式: create/update/overwrite"),
+    file_name: str = Form(..., description="文件名"),
+    skip_errors: bool = Form(False, description="跳过错误行"),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
@@ -56,6 +60,14 @@ async def confirm_import(
     current_user_id = None
     if current_user:
         current_user_id = current_user.id
+    
+    request = CpvImportConfirmRequest(
+        product_id=product_id,
+        data_type=data_type,
+        import_mode=import_mode,
+        file_name=file_name,
+        skip_errors=skip_errors
+    )
     
     task = await service.confirm_import(db, file_content, request, current_user_id)
     

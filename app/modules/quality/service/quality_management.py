@@ -15,6 +15,7 @@ from app.modules.quality.models import (
     Deviation,
 )
 from app.modules.quality.schemas import (
+    DepartmentContactOut,
     AttachmentReviewOut,
     CapaApprovalRequest,
     CapaDetail,
@@ -505,7 +506,7 @@ async def get_department_contact_list(db: AsyncSession, page: int = 1, page_size
     items = result.scalars().all()
 
     return {
-        "items": [item.__dict__ for item in items],
+        "items": [DepartmentContactOut.model_validate(item).model_dump() for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,

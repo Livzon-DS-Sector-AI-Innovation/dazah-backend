@@ -65,6 +65,7 @@ async def update_parameter(
         setattr(parameter, key, value)
     
     await db.flush()
+    await db.refresh(parameter)
     return parameter
 
 
