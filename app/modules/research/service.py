@@ -125,6 +125,11 @@ async def get_components(db: AsyncSession, project_id: uuid.UUID) -> list[Bayesi
     """获取组件列表"""
     return await repository.get_components(db, project_id)
 
+async def delete_component(db: AsyncSession, component_id: uuid.UUID) -> None:
+    """删除组件"""
+    await repository.delete_component(db, component_id)
+
+
 
 # ============ Objective Service ============
 async def add_objective(
@@ -147,6 +152,11 @@ async def add_objective(
 async def get_objectives(db: AsyncSession, project_id: uuid.UUID) -> list[BayesianObjective]:
     """获取目标列表"""
     return await repository.get_objectives(db, project_id)
+
+async def delete_objective(db: AsyncSession, objective_id: uuid.UUID) -> None:
+    """删除目标"""
+    await repository.delete_objective(db, objective_id)
+
 
 
 # ============ Experiment Service ============

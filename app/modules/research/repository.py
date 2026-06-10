@@ -75,6 +75,18 @@ async def get_components(db: AsyncSession, project_id: uuid.UUID) -> list[Bayesi
     return list(result.scalars().all())
 
 
+
+
+async def delete_component(db: AsyncSession, component_id: uuid.UUID) -> None:
+    result = await db.execute(
+        select(BayesianComponent).where(BayesianComponent.id == component_id)
+    )
+    component = result.scalar_one_or_none()
+    if component:
+        component.is_deleted = True
+        await db.commit()
+
+
 async def delete_components_by_project(db: AsyncSession, project_id: uuid.UUID) -> None:
     await db.execute(
         delete(BayesianComponent).where(BayesianComponent.project_id == project_id)
@@ -96,6 +108,18 @@ async def get_objectives(db: AsyncSession, project_id: uuid.UUID) -> list[Bayesi
         .where(BayesianObjective.project_id == project_id, BayesianObjective.is_deleted == False)
     )
     return list(result.scalars().all())
+
+
+
+
+async def delete_objective(db: AsyncSession, objective_id: uuid.UUID) -> None:
+    result = await db.execute(
+        select(BayesianObjective).where(BayesianObjective.id == objective_id)
+    )
+    objective = result.scalar_one_or_none()
+    if objective:
+        objective.is_deleted = True
+        await db.commit()
 
 
 async def delete_objectives_by_project(db: AsyncSession, project_id: uuid.UUID) -> None:

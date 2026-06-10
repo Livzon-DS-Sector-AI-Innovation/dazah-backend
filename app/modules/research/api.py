@@ -105,6 +105,19 @@ async def get_components(
     return success_response(data=[ComponentResponse.model_validate(c) for c in components])
 
 
+
+
+@router.delete("/components/{component_id}", summary="删除组件")
+async def delete_component(
+    component_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    """删除反应组件"""
+    await service.delete_component(db, component_id)
+    return success_response(message="删除成功")
+
+
 # ============ Objective APIs ============
 @router.post("/projects/{project_id}/objectives", summary="添加目标")
 async def add_objective(
@@ -126,6 +139,19 @@ async def get_objectives(
     """获取项目的所有优化目标"""
     objectives = await service.get_objectives(db, project_id)
     return success_response(data=[ObjectiveResponse.model_validate(o) for o in objectives])
+
+
+
+
+@router.delete("/objectives/{objective_id}", summary="删除目标")
+async def delete_objective(
+    objective_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    """删除优化目标"""
+    await service.delete_objective(db, objective_id)
+    return success_response(message="删除成功")
 
 
 # ============ Experiment APIs ============
@@ -153,12 +179,12 @@ async def get_experiments(
 @router.post("/experiments/{experiment_id}/result", summary="记录实验结果")
 async def record_result(
     experiment_id: uuid.UUID,
-    results: dict,
+    data: dict,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
     """记录实验结果"""
-    experiment = await service.record_experiment_result(db, experiment_id, results)
+    experiment = await service.record_experiment_result(db, experiment_id, data)
     return success_response(data=ExperimentResponse.model_validate(experiment))
 
 
