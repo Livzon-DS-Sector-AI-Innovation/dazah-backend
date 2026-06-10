@@ -21,9 +21,9 @@ from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
-# 浏览器配置
-CHROME_EXECUTABLE = "/tmp/chromium-extracted/chrome-linux64/chrome"
-BROWSERS_PATH = "/tmp/playwright-browsers"
+# 浏览器配置（通过环境变量覆盖，默认使用 Playwright 标准安装路径）
+CRAWLER_HEADLESS = os.getenv("CRAWLER_HEADLESS", "true").lower() == "true"
+CRAWLER_BROWSERS_PATH = os.getenv("CRAWLER_BROWSERS_PATH", "")  # 空字符串 = Playwright 默认路径
 
 LAUNCH_ARGS = [
     "--no-sandbox",
@@ -71,15 +71,16 @@ class CdeDomesticGuidelineAdapter:
 
     async def start(self):
         """启动浏览器"""
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = BROWSERS_PATH
+        if CRAWLER_BROWSERS_PATH:
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = CRAWLER_BROWSERS_PATH
 
         self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.launch(
-            headless=self.headless,
-            executable_path=CHROME_EXECUTABLE,
-            args=LAUNCH_ARGS,
-            ignore_default_args=["--enable-automation"],
-        )
+        launch_kwargs: dict[str, Any] = {
+            "headless": self.headless,
+            "args": LAUNCH_ARGS,
+            "ignore_default_args": ["--enable-automation"],
+        }
+        self._browser = await self._pw.chromium.launch(**launch_kwargs)
         self._context = await self._browser.new_context(
             viewport={"width": 1920, "height": 1080},
             user_agent=(
