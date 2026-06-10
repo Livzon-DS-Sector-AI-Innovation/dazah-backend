@@ -17,8 +17,6 @@ from app.modules.safety.models import (
     DailyRiskReport,
     EhsChange,
     HazardReport,
-    HazardRevisionArchive,
-    HazardRevisionRecord,
     OhHazardMonitor,
     OhHealthExam,
     OperationRegulation,
@@ -207,6 +205,15 @@ class SafetyRepository:
         )
         result = await self.session.execute(query)
         return result.rowcount > 0
+
+    async def count_hazards_today(self, date_prefix: str) -> int:
+        """统计指定日期前缀的隐患编号数量，用于自动生成序号。"""
+        query = select(func.count(HazardReport.id)).where(
+            HazardReport.hazard_no.like(f"HZ-{date_prefix}-%"),
+            HazardReport.is_deleted == False,
+        )
+        result = await self.session.execute(query)
+        return result.scalar() or 0
 
     # ==================== Accident Operations ====================
 
@@ -488,8 +495,14 @@ class SafetyRepository:
         overall_status: str | None = None,
         ai_node_progress: str | None = None,
         keyword: str | None = None,
+        position: str | None = None,
+        risk_level: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> tuple[list["HazardIdentification"], int]:
         """获取危险源辨识列表"""
+        from datetime import datetime as dt_module
+
         from app.modules.safety.models import HazardIdentification
 
         query = select(HazardIdentification).where(HazardIdentification.is_deleted == False)
@@ -500,6 +513,26 @@ class SafetyRepository:
         if department:
             query = query.where(HazardIdentification.department == department)
             count_query = count_query.where(HazardIdentification.department == department)
+        if position:
+            query = query.where(HazardIdentification.position == position)
+            count_query = count_query.where(HazardIdentification.position == position)
+        if risk_level:
+            query = query.where(HazardIdentification.inherent_risk_level == risk_level)
+            count_query = count_query.where(HazardIdentification.inherent_risk_level == risk_level)
+        if date_from:
+            try:
+                dfrom = dt_module.strptime(date_from, "%Y-%m-%d")
+                query = query.where(HazardIdentification.created_at >= dfrom)
+                count_query = count_query.where(HazardIdentification.created_at >= dfrom)
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                dto = dt_module.strptime(date_to + " 23:59:59", "%Y-%m-%d %H:%M:%S")
+                query = query.where(HazardIdentification.created_at <= dto)
+                count_query = count_query.where(HazardIdentification.created_at <= dto)
+            except ValueError:
+                pass
         if overall_status:
             query = query.where(HazardIdentification.overall_status == overall_status)
             count_query = count_query.where(HazardIdentification.overall_status == overall_status)
@@ -704,7 +737,6 @@ class SafetyRepository:
         """获取修订记录详情"""
         query = (
             select(RegulationRevision)
-            .options(selectinload(RegulationRevision.hazard_revision_records))
             .where(RegulationRevision.id == revision_id, RegulationRevision.is_deleted == False)
         )
         result = await self.session.execute(query)
@@ -736,199 +768,6 @@ class SafetyRepository:
         query = (
             update(RegulationRevision)
             .where(RegulationRevision.id == revision_id, RegulationRevision.is_deleted == False)
-            .values(is_deleted=True)
-        )
-        result = await self.session.execute(query)
-        return result.rowcount > 0
-
-    # ==================== HazardRevisionRecord Operations ====================
-
-    async def get_hazard_revision_records(
-        self,
-        skip: int = 0,
-        limit: int = 20,
-        regulation_revision_id: uuid.UUID | None = None,
-        review_opinion: str | None = None,
-        identification_type: str | None = None,
-        keyword: str | None = None,
-    ) -> tuple[list[HazardRevisionRecord], int]:
-        """获取危险源辨识修订记录列表"""
-        query = select(HazardRevisionRecord).where(HazardRevisionRecord.is_deleted == False)
-        count_query = select(func.count(HazardRevisionRecord.id)).where(
-            HazardRevisionRecord.is_deleted == False
-        )
-
-        if regulation_revision_id:
-            query = query.where(
-                HazardRevisionRecord.regulation_revision_id == regulation_revision_id
-            )
-            count_query = count_query.where(
-                HazardRevisionRecord.regulation_revision_id == regulation_revision_id
-            )
-        if review_opinion:
-            query = query.where(HazardRevisionRecord.review_opinion == review_opinion)
-            count_query = count_query.where(
-                HazardRevisionRecord.review_opinion == review_opinion
-            )
-        if identification_type:
-            query = query.where(
-                HazardRevisionRecord.identification_type == identification_type
-            )
-            count_query = count_query.where(
-                HazardRevisionRecord.identification_type == identification_type
-            )
-        if keyword:
-            like = f"%{keyword}%"
-            query = query.where(
-                HazardRevisionRecord.regulation_name.ilike(like)
-                | HazardRevisionRecord.hazard_revision_no.ilike(like)
-            )
-            count_query = count_query.where(
-                HazardRevisionRecord.regulation_name.ilike(like)
-                | HazardRevisionRecord.hazard_revision_no.ilike(like)
-            )
-
-        total = await self.session.scalar(count_query)
-        query = query.offset(skip).limit(limit).order_by(
-            HazardRevisionRecord.created_at.desc()
-        )
-        result = await self.session.execute(query)
-        items = list(result.scalars().all())
-        return items, total or 0
-
-    async def get_hazard_revision_record_by_id(
-        self, record_id: uuid.UUID
-    ) -> HazardRevisionRecord | None:
-        """获取危险源辨识修订记录详情"""
-        query = select(HazardRevisionRecord).where(
-            HazardRevisionRecord.id == record_id, HazardRevisionRecord.is_deleted == False
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def create_hazard_revision_record(
-        self, data: dict[str, Any]
-    ) -> HazardRevisionRecord:
-        """创建危险源辨识修订记录"""
-        item = HazardRevisionRecord(**data)
-        self.session.add(item)
-        await self.session.flush()
-        await self.session.refresh(item)
-        return item
-
-    async def update_hazard_revision_record(
-        self, record_id: uuid.UUID, data: dict[str, Any]
-    ) -> HazardRevisionRecord | None:
-        """更新危险源辨识修订记录"""
-        query = (
-            update(HazardRevisionRecord)
-            .where(
-                HazardRevisionRecord.id == record_id,
-                HazardRevisionRecord.is_deleted == False,
-            )
-            .values(**data)
-            .returning(HazardRevisionRecord)
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def delete_hazard_revision_record(self, record_id: uuid.UUID) -> bool:
-        """删除危险源辨识修订记录（软删除）"""
-        query = (
-            update(HazardRevisionRecord)
-            .where(
-                HazardRevisionRecord.id == record_id,
-                HazardRevisionRecord.is_deleted == False,
-            )
-            .values(is_deleted=True)
-        )
-        result = await self.session.execute(query)
-        return result.rowcount > 0
-
-    # ==================== HazardRevisionArchive Operations ====================
-
-    async def get_hazard_revision_archives(
-        self,
-        skip: int = 0,
-        limit: int = 20,
-        status: str | None = None,
-        keyword: str | None = None,
-    ) -> tuple[list[HazardRevisionArchive], int]:
-        """获取危险源辨识存档列表"""
-        query = select(HazardRevisionArchive).where(
-            HazardRevisionArchive.is_deleted == False
-        )
-        count_query = select(func.count(HazardRevisionArchive.id)).where(
-            HazardRevisionArchive.is_deleted == False
-        )
-
-        if status:
-            query = query.where(HazardRevisionArchive.status == status)
-            count_query = count_query.where(HazardRevisionArchive.status == status)
-        if keyword:
-            like = f"%{keyword}%"
-            query = query.where(HazardRevisionArchive.regulation_name.ilike(like))
-            count_query = count_query.where(
-                HazardRevisionArchive.regulation_name.ilike(like)
-            )
-
-        total = await self.session.scalar(count_query)
-        query = query.offset(skip).limit(limit).order_by(
-            HazardRevisionArchive.created_at.desc()
-        )
-        result = await self.session.execute(query)
-        items = list(result.scalars().all())
-        return items, total or 0
-
-    async def get_hazard_revision_archive_by_id(
-        self, archive_id: uuid.UUID
-    ) -> HazardRevisionArchive | None:
-        """获取危险源辨识存档详情"""
-        query = (
-            select(HazardRevisionArchive)
-            .options(selectinload(HazardRevisionArchive.revision_records))
-            .where(
-                HazardRevisionArchive.id == archive_id,
-                HazardRevisionArchive.is_deleted == False,
-            )
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def create_hazard_revision_archive(
-        self, data: dict[str, Any]
-    ) -> HazardRevisionArchive:
-        """创建危险源辨识存档"""
-        item = HazardRevisionArchive(**data)
-        self.session.add(item)
-        await self.session.flush()
-        await self.session.refresh(item)
-        return item
-
-    async def update_hazard_revision_archive(
-        self, archive_id: uuid.UUID, data: dict[str, Any]
-    ) -> HazardRevisionArchive | None:
-        """更新危险源辨识存档"""
-        query = (
-            update(HazardRevisionArchive)
-            .where(
-                HazardRevisionArchive.id == archive_id,
-                HazardRevisionArchive.is_deleted == False,
-            )
-            .values(**data)
-            .returning(HazardRevisionArchive)
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def delete_hazard_revision_archive(self, archive_id: uuid.UUID) -> bool:
-        """删除危险源辨识存档（软删除）"""
-        query = (
-            update(HazardRevisionArchive)
-            .where(
-                HazardRevisionArchive.id == archive_id,
-                HazardRevisionArchive.is_deleted == False,
-            )
             .values(is_deleted=True)
         )
         result = await self.session.execute(query)
@@ -1069,11 +908,14 @@ class SafetyRepository:
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_active_api_call_config(self) -> APICallConfig | None:
-        """获取当前激活的 API 调用配置"""
+    async def get_active_api_call_config(
+        self, config_type: str = "text"
+    ) -> APICallConfig | None:
+        """获取当前激活的 API 调用配置（可按类型过滤）"""
         query = select(APICallConfig).where(
             APICallConfig.is_deleted == False,
             APICallConfig.is_active == True,
+            APICallConfig.config_type == config_type,
         )
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
@@ -1104,16 +946,17 @@ class SafetyRepository:
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def deactivate_all_api_call_configs(self) -> None:
-        """停用所有 API 调用配置"""
-        query = (
-            update(APICallConfig)
-            .where(
-                APICallConfig.is_deleted == False,
-                APICallConfig.is_active == True,
-            )
-            .values(is_active=False)
-        )
+    async def deactivate_all_api_call_configs(
+        self, config_type: str | None = None
+    ) -> None:
+        """停用 API 调用配置（可按类型过滤，不传则停用所有）"""
+        conditions = [
+            APICallConfig.is_deleted == False,
+            APICallConfig.is_active == True,
+        ]
+        if config_type:
+            conditions.append(APICallConfig.config_type == config_type)
+        query = update(APICallConfig).where(*conditions).values(is_active=False)
         await self.session.execute(query)
 
     async def delete_api_call_config(self, config_id: uuid.UUID) -> bool:

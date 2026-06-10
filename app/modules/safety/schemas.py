@@ -459,39 +459,6 @@ REVIEW_OPINION_OPTIONS = [
 ]
 
 
-class IdentificationType(str, Enum):
-    """危险源辨识类型枚举"""
-
-    AUTO_TRIGGER = "auto_trigger"
-    MANUAL_START = "manual_start"
-
-
-IDENTIFICATION_TYPE_OPTIONS = [
-    {"value": IdentificationType.AUTO_TRIGGER, "label": "自动触发"},
-    {"value": IdentificationType.MANUAL_START, "label": "手动启动"},
-]
-
-
-class ArchiveStatus(str, Enum):
-    """存档状态枚举"""
-
-    ACTIVE = "active"
-    ARCHIVED = "archived"
-
-
-ARCHIVE_STATUS_OPTIONS = [
-    {"value": ArchiveStatus.ACTIVE, "label": "有效"},
-    {"value": ArchiveStatus.ARCHIVED, "label": "已归档"},
-]
-
-
-IDENTIFICATION_SCOPE_OPTIONS = [
-    {"value": "人", "label": "人"},
-    {"value": "机", "label": "机"},
-    {"value": "料", "label": "料"},
-    {"value": "法", "label": "法"},
-    {"value": "环", "label": "环"},
-]
 
 
 class OperationType(str, Enum):
@@ -815,21 +782,27 @@ class SafetyCheckResponse(SafetyCheckBase):
 # ==================== 隐患排查 Schemas ====================
 
 
-class AssignRectificationRequest(BaseModel):
-    """指派整改请求"""
-
-    responsible_person_name: str = Field(..., max_length=100, description="整改责任人姓名")
-    responsible_department: str = Field(..., max_length=100, description="整改责任人部门")
-    planned_completion_date: datetime = Field(..., description="计划完成时间")
-    corrective_preventive_measures: str | None = Field(None, description="纠正预防措施")
-
-
 class CompleteRectificationRequest(BaseModel):
     """完成整改请求"""
 
     actual_completion_date: datetime | None = Field(None, description="实际完成时间")
     rectification_photos: str | None = Field(None, description="整改后图片JSON数组")
     corrective_preventive_measures: str | None = Field(None, description="纠正预防措施")
+
+
+class RectificationReplyRequest(BaseModel):
+    """整改回复请求"""
+
+    reply_content: str = Field(..., description="整改回复内容")
+    rectification_photos: str | None = Field(None, description="整改后图片JSON数组")
+
+
+class VerifyLevelRequest(BaseModel):
+    """三级复核请求"""
+
+    level: int = Field(..., ge=1, le=3, description="复核级别: 1/2/3")
+    action: str = Field(..., description="approved | rejected")
+    opinion: str | None = Field(None, description="复核意见")
 
 
 class ExtendDeadlineRequest(BaseModel):
@@ -848,6 +821,7 @@ class HazardReportBase(BaseModel):
     """隐患报告基础模式"""
 
     hazard_no: str = Field(..., max_length=64, description="隐患编号")
+    inspection_category: str | None = Field(None, max_length=64, description="检查类别（日常检查/专项检查…）")
     hazard_type: HazardType = Field(..., description="隐患分类（人/物/环/管）")
     hazard_level: HazardLevel = Field(HazardLevel.GENERAL, description="隐患等级")
     hazard_category: HazardCategory | None = Field(None, description="隐患类别（设备设施/危化储存…）")
@@ -875,13 +849,19 @@ class HazardReportBase(BaseModel):
 class HazardReportCreate(HazardReportBase):
     """创建隐患报告"""
 
-    pass
+    hazard_no: str | None = Field(None, max_length=64, description="隐患编号（留空自动生成）")
+    hazard_type: HazardType | None = Field(None, description="隐患分类")
+    hazard_level: HazardLevel | None = Field(None, description="隐患等级")
+    hazard_category: HazardCategory | None = Field(None, description="隐患类别")
+    description: str | None = Field(None, description="隐患描述")
+    discovered_at: datetime | None = Field(None, description="发现时间")
 
 
 class HazardReportUpdate(BaseModel):
     """更新隐患报告"""
 
     hazard_no: str | None = Field(None, max_length=64, description="隐患编号")
+    inspection_category: str | None = Field(None, max_length=64, description="检查类别（日常检查/专项检查…）")
     hazard_type: HazardType | None = Field(None, description="隐患分类")
     hazard_level: HazardLevel | None = Field(None, description="隐患等级")
     hazard_category: HazardCategory | None = Field(None, description="隐患类别")
@@ -900,11 +880,38 @@ class HazardReportUpdate(BaseModel):
     extended_deadline: datetime | None = Field(None, description="延期完成日期")
     rectification_photos: str | None = Field(None, description="整改后图片JSON数组")
     rectification_status: str | None = Field(None, max_length=32, description="整改进度")
+    # ── 整改回复 ──
+    rectification_reply: str | None = Field(None, description="整改回复内容")
+    rectification_replied_at: datetime | None = Field(None, description="整改回复时间")
+    rectification_replied_by: uuid.UUID | None = Field(None, description="整改回复人ID")
+    rectification_replied_by_name: str | None = Field(None, max_length=100, description="整改回复人姓名")
+    # ── 三级复核 ──
+    verify_level_1_status: str | None = Field(None, max_length=20, description="一级复核状态")
+    verify_level_1_by: uuid.UUID | None = Field(None, description="一级复核人ID")
+    verify_level_1_by_name: str | None = Field(None, max_length=100, description="一级复核人姓名")
+    verify_level_1_at: datetime | None = Field(None, description="一级复核时间")
+    verify_level_1_opinion: str | None = Field(None, description="一级复核意见")
+    verify_level_2_status: str | None = Field(None, max_length=20, description="二级复核状态")
+    verify_level_2_by: uuid.UUID | None = Field(None, description="二级复核人ID")
+    verify_level_2_by_name: str | None = Field(None, max_length=100, description="二级复核人姓名")
+    verify_level_2_at: datetime | None = Field(None, description="二级复核时间")
+    verify_level_2_opinion: str | None = Field(None, description="二级复核意见")
+    verify_level_3_status: str | None = Field(None, max_length=20, description="三级复核状态")
+    verify_level_3_by: uuid.UUID | None = Field(None, description="三级复核人ID")
+    verify_level_3_by_name: str | None = Field(None, max_length=100, description="三级复核人姓名")
+    verify_level_3_at: datetime | None = Field(None, description="三级复核时间")
+    verify_level_3_opinion: str | None = Field(None, description="三级复核意见")
     verified_by: uuid.UUID | None = Field(None, description="验证人")
     verified_by_name: str | None = Field(None, max_length=100, description="验证人姓名")
     verified_at: datetime | None = Field(None, description="验证时间")
     status: str | None = Field(None, max_length=32, description="状态")
     notes: str | None = Field(None, description="备注")
+    # ── AI 流程字段 ──
+    ai_node_progress: str | None = Field(None, max_length=50, description="AI流程节点进度")
+    overall_status: str | None = Field(None, max_length=20, description="整体状态")
+    ai_error_message: str | None = Field(None, description="AI错误信息")
+    script1_review_status: str | None = Field(None, max_length=20, description="AI隐患识别审核状态")
+    script2_review_status: str | None = Field(None, max_length=20, description="AI整改建议审核状态")
 
 
 class HazardReportResponse(HazardReportBase):
@@ -916,11 +923,45 @@ class HazardReportResponse(HazardReportBase):
     verified_by: uuid.UUID | None = None
     verified_by_name: str | None = None
     verified_at: datetime | None = None
+    # ── 整改回复 ──
+    rectification_reply: str | None = None
+    rectification_replied_at: datetime | None = None
+    rectification_replied_by: uuid.UUID | None = None
+    rectification_replied_by_name: str | None = None
+    # ── 三级复核 ──
+    verify_level_1_status: str = "pending"
+    verify_level_1_by: uuid.UUID | None = None
+    verify_level_1_by_name: str | None = None
+    verify_level_1_at: datetime | None = None
+    verify_level_1_opinion: str | None = None
+    verify_level_2_status: str = "pending"
+    verify_level_2_by: uuid.UUID | None = None
+    verify_level_2_by_name: str | None = None
+    verify_level_2_at: datetime | None = None
+    verify_level_2_opinion: str | None = None
+    verify_level_3_status: str = "pending"
+    verify_level_3_by: uuid.UUID | None = None
+    verify_level_3_by_name: str | None = None
+    verify_level_3_at: datetime | None = None
+    verify_level_3_opinion: str | None = None
+    # ── AI 流程字段 ──
+    ai_node_progress: str = "pending_input"
+    overall_status: str = "draft"
+    ai_error_message: str | None = None
+    script1_review_status: str = "pending"
+    script2_review_status: str = "pending"
+    ai_generated: bool = False
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class HazardReportRunAIRequest(BaseModel):
+    """执行隐患AI工作流请求（AI从已有数据读取上下文）"""
+
+    pass
 
 
 # ==================== 事故管理 Schemas ====================
@@ -1415,103 +1456,6 @@ class RegulationRevisionResponse(RegulationRevisionBase):
         from_attributes = True
 
 
-# ==================== 危险源辨识修订记录 Schemas ====================
-
-
-class HazardRevisionRecordBase(BaseModel):
-    """危险源辨识修订记录基础模式"""
-    hazard_revision_no: str = Field(..., max_length=64, description="危险源辨识修订编号")
-    regulation_revision_id: uuid.UUID | None = Field(None, description="关联操规修订记录ID")
-    regulation_name: str = Field(..., max_length=255, description="对应的操规名称")
-    identifier_id: uuid.UUID | None = Field(None, description="辨识人")
-    identifier_name: str | None = Field(None, max_length=100, description="辨识人姓名")
-    identification_time: datetime = Field(..., description="辨识时间")
-    identification_type: IdentificationType = Field(
-        IdentificationType.AUTO_TRIGGER, description="辨识类型"
-    )
-    process_change_content: str | None = Field(None, description="涉及工艺变更内容")
-    identification_scope: str | None = Field(None, max_length=200, description="辨识范围")
-    hazard_document_path: str | None = Field(None, max_length=500, description="危险源辨识文档路径")
-    hazard_document_original_name: str | None = Field(None, max_length=255, description="文档原始文件名")
-    linked_hazard_archive_id: uuid.UUID | None = Field(None, description="关联存档ID")
-    notes: str | None = Field(None, description="备注")
-
-
-class HazardRevisionRecordCreate(BaseModel):
-    """创建危险源辨识修订记录"""
-    hazard_revision_no: str = Field(..., max_length=64, description="危险源辨识修订编号")
-    regulation_revision_id: uuid.UUID | None = Field(None, description="关联操规修订记录ID")
-    regulation_name: str = Field(..., max_length=255, description="操规名称")
-    identifier_id: uuid.UUID | None = Field(None, description="辨识人")
-    identifier_name: str | None = Field(None, max_length=100, description="辨识人姓名")
-    identification_type: IdentificationType = Field(
-        IdentificationType.AUTO_TRIGGER, description="辨识类型"
-    )
-    process_change_content: str | None = Field(None, description="涉及工艺变更内容")
-    notes: str | None = Field(None, description="备注")
-
-
-class HazardRevisionRecordUpdate(BaseModel):
-    """更新危险源辨识修订记录"""
-    identification_scope: str | None = Field(None, max_length=200, description="辨识范围")
-    review_opinion: str | None = Field(None, max_length=32, description="审核意见")
-    hazard_document_path: str | None = Field(None, max_length=500, description="危险源辨识文档路径")
-    hazard_document_original_name: str | None = Field(None, max_length=255, description="文档原始文件名")
-    linked_hazard_archive_id: uuid.UUID | None = Field(None, description="关联存档ID")
-    notes: str | None = Field(None, description="备注")
-
-
-class HazardRevisionRecordResponse(HazardRevisionRecordBase):
-    """危险源辨识修订记录响应"""
-    id: uuid.UUID
-    review_opinion: str
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# ==================== 危险源辨识存档 Schemas ====================
-
-
-class HazardRevisionArchiveBase(BaseModel):
-    """危险源辨识存档基础模式"""
-    regulation_name: str = Field(..., max_length=255, description="对应的操规名称")
-    hazard_document_path: str | None = Field(None, max_length=500, description="危险源辨识文档路径")
-    hazard_document_original_name: str | None = Field(None, max_length=255, description="文档原始文件名")
-    identification_date: datetime = Field(..., description="最后辨识日期")
-    status: ArchiveStatus = Field(ArchiveStatus.ACTIVE, description="状态")
-    notes: str | None = Field(None, description="备注")
-
-
-class HazardRevisionArchiveCreate(BaseModel):
-    """创建危险源辨识存档"""
-    regulation_name: str = Field(..., max_length=255, description="操规名称")
-    hazard_document_path: str | None = Field(None, max_length=500, description="危险源辨识文档路径")
-    hazard_document_original_name: str | None = Field(None, max_length=255, description="文档原始文件名")
-    notes: str | None = Field(None, description="备注")
-
-
-class HazardRevisionArchiveUpdate(BaseModel):
-    """更新危险源辨识存档"""
-    hazard_document_path: str | None = Field(None, max_length=500, description="危险源辨识文档路径")
-    hazard_document_original_name: str | None = Field(None, max_length=255, description="文档原始文件名")
-    identification_date: datetime | None = Field(None, description="辨识日期")
-    status: ArchiveStatus | None = Field(None, description="状态")
-    notes: str | None = Field(None, description="备注")
-
-
-class HazardRevisionArchiveResponse(HazardRevisionArchiveBase):
-    """危险源辨识存档响应"""
-    id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
 # ==================== 修订范围 AI 识别 Schemas ====================
 
 
@@ -1584,6 +1528,7 @@ class APICallConfigBase(BaseModel):
     """API 调用配置基础模式"""
 
     config_name: str = Field(..., max_length=128, description="配置名称")
+    config_type: str = Field("text", max_length=20, description="配置类型: text(文本模型) / vision(视觉模型)")
     api_base_url: str = Field(..., max_length=500, description="API 基础 URL")
     api_key: str = Field(..., max_length=500, description="API 密钥")
     model_name: str = Field(..., max_length=128, description="模型名称")
@@ -1598,6 +1543,7 @@ class APICallConfigBase(BaseModel):
 class APICallConfigCreate(BaseModel):
     """创建 API 调用配置"""
     config_name: str = Field(..., max_length=128, description="配置名称")
+    config_type: str = Field("text", max_length=20, description="配置类型: text(文本模型) / vision(视觉模型)")
     api_base_url: str = Field(..., max_length=500, description="API 基础 URL")
     api_key: str = Field(..., max_length=500, description="API 密钥")
     model_name: str = Field(..., max_length=128, description="模型名称")
@@ -1612,6 +1558,7 @@ class APICallConfigCreate(BaseModel):
 class APICallConfigUpdate(BaseModel):
     """更新 API 调用配置"""
     config_name: str | None = Field(None, max_length=128, description="配置名称")
+    config_type: str | None = Field(None, max_length=20, description="配置类型: text(文本模型) / vision(视觉模型)")
     api_base_url: str | None = Field(None, max_length=500, description="API 基础 URL")
     api_key: str | None = Field(None, max_length=500, description="API 密钥")
     model_name: str | None = Field(None, max_length=128, description="模型名称")
@@ -1626,6 +1573,7 @@ class APICallConfigUpdate(BaseModel):
 class APICallConfigResponse(APICallConfigBase):
     """API 调用配置响应"""
     id: uuid.UUID
+    source: str = Field("db", description="配置来源: db(数据库) / env(环境变量)")
     created_at: datetime
     updated_at: datetime
 
@@ -1955,6 +1903,56 @@ class LedgerExportParsedFilters(BaseModel):
     explanation: str = Field("", description="AI 对筛选条件的解读说明")
 
 
+# ── 危险源辨识台账导出 ──
+
+
+class HazardLedgerExportRequest(BaseModel):
+    """危险源辨识台账导出请求 — AI自然语言筛选"""
+    natural_query: str | None = Field(None, description="自然语言筛选条件，例如「上月所有重大风险记录」")
+    department: str | None = Field(None, description="部门")
+    position: str | None = Field(None, description="岗位")
+    risk_level: str | None = Field(None, description="风险等级: level_1/level_2/level_3/level_4")
+    date_from: str | None = Field(None, description="创建时间起 YYYY-MM-DD")
+    date_to: str | None = Field(None, description="创建时间止 YYYY-MM-DD")
+    keyword: str | None = Field(None, description="关键词搜索（编号/部门/岗位/作业活动）")
+
+
+class HazardLedgerExportParsedFilters(BaseModel):
+    """AI 解析后的危险源辨识台账筛选条件"""
+    department: str | None = None
+    position: str | None = None
+    risk_level: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    keyword: str | None = None
+    explanation: str = Field("", description="AI 对筛选条件的解读说明")
+
+
+# ── 危险源风险选项（常规作业报备用） ──
+
+
+class HazardRiskOption(BaseModel):
+    """危险源风险选项 — 供常规作业报备选择关联危险源"""
+
+    id: uuid.UUID
+    hazard_id_no: str
+    department: str
+    position: str
+    production_step: str
+    specific_activity: str | None = None
+    inherent_risk_level: str | None = None
+    inherent_risk_label: str | None = None
+    hazard_type: str | None = None
+    possible_accident: str | None = None
+    existing_engineering_controls: str | None = None
+    existing_management_controls: str | None = None
+    existing_ppe: str | None = None
+    existing_emergency_measures: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
 # ── 每日风险作业报备 ──
 
 
@@ -1963,6 +1961,7 @@ class DailyRiskReportBase(BaseModel):
 
     report_no: str = Field(..., max_length=64, description="报备编号")
     report_date: datetime = Field(..., description="报备作业日期")
+    report_type: str = Field("regular", max_length=20, description="报备类型: regular(常规作业) / non_regular(非常规作业)")
     department: str | None = Field(None, max_length=100, description="报备部门")
     hazard_identification_id: uuid.UUID | None = Field(None, description="关联危险源辨识ID")
     operation_description: str = Field(..., description="风险作业描述")
@@ -1990,6 +1989,7 @@ class DailyRiskReportUpdate(BaseModel):
 
     report_no: str | None = Field(None, max_length=64, description="报备编号")
     report_date: datetime | None = Field(None, description="报备作业日期")
+    report_type: str | None = Field(None, max_length=20, description="报备类型（创建后不可修改）")
     department: str | None = Field(None, max_length=100, description="报备部门")
     hazard_identification_id: uuid.UUID | None = Field(None, description="关联危险源辨识ID")
     operation_description: str | None = Field(None, description="风险作业描述")

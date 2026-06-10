@@ -1,4 +1,4 @@
-"""Safety API routes."""
+"""Safety API routes — AI vision model support."""
 
 import uuid
 from datetime import datetime
@@ -20,7 +20,6 @@ from app.modules.safety.schemas import (
     APICallConfigResponse,
     APICallConfigUpdate,
     ApproveEhsChangeRequest,
-    AssignRectificationRequest,
     CloseEhsChangeRequest,
     CompleteRectificationRequest,
     ConfirmCheckRequest,
@@ -43,16 +42,12 @@ from app.modules.safety.schemas import (
     HazardIdentificationReview,
     HazardIdentificationRunScript,
     HazardIdentificationUpdate,
+    HazardLedgerExportRequest,
     HazardReportCreate,
     HazardReportResponse,
+    HazardReportRunAIRequest,
     HazardReportUpdate,
-    HazardRevisionArchiveCreate,
-    HazardRevisionArchiveResponse,
-    HazardRevisionArchiveUpdate,
-    HazardRevisionRecordCreate,
-    HazardRevisionRecordResponse,
-    HazardRevisionRecordUpdate,
-    LedgerExportParsedFilters,
+    HazardRiskOption,
     LedgerExportRequest,
     OhHazardMonitorCreate,
     OhHazardMonitorResponse,
@@ -63,6 +58,7 @@ from app.modules.safety.schemas import (
     OperationRegulationCreate,
     OperationRegulationResponse,
     OperationRegulationUpdate,
+    RectificationReplyRequest,
     RegulationRevisionCreate,
     RegulationRevisionResponse,
     RegulationRevisionUpdate,
@@ -90,6 +86,7 @@ from app.modules.safety.schemas import (
     TrainingRecordCreate,
     TrainingRecordResponse,
     TrainingRecordUpdate,
+    VerifyLevelRequest,
     VerifyMonitorRequest,
 )
 from app.modules.safety.service import (
@@ -256,7 +253,7 @@ async def get_hazards(
     service = SafetyService(db)
     skip = (page - 1) * page_size
     items, total = await service.get_hazards(
-        skip, page_size, status, hazard_type, hazard_level, hazard_category, department, None, keyword
+        skip, page_size, status, hazard_type, hazard_level, hazard_category, department, keyword
     )
     return ApiResponse(
         data=[HazardReportResponse.model_validate(h) for h in items],
@@ -308,6 +305,39 @@ async def update_hazard(
 
 
 @router.post(
+    "/hazards/{hazard_id}/upload-photo",
+    response_model=ApiResponse,
+    summary="上传隐患图片",
+)
+async def upload_hazard_photo(
+    hazard_id: uuid.UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """上传隐患缺陷图片，追加到 defect_photos JSON 数组"""
+    import os
+
+    upload_dir = os.path.join("uploads", "safety", "hazard")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    file_ext = os.path.splitext(file.filename or ".png")[1]
+    safe_name = f"hazard_{hazard_id}_{int(datetime.now().timestamp())}{file_ext}"
+    file_path = os.path.join(upload_dir, safe_name)
+
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    service = SafetyService(db)
+    item = await service.upload_hazard_photo(hazard_id, file.filename or "unknown", file_path)
+    if not item:
+        return ApiResponse(code=404, message="隐患不存在")
+    await db.commit()
+    return ApiResponse(data=HazardReportResponse.model_validate(item))
+
+
+@router.post(
     "/hazards/{hazard_id}/rectification/start",
     response_model=ApiResponse,
     summary="开始整改",
@@ -352,32 +382,6 @@ async def complete_rectification(
 
 
 @router.post(
-    "/hazards/{hazard_id}/assign",
-    response_model=ApiResponse,
-    summary="指派整改",
-)
-async def assign_rectification(
-    hazard_id: uuid.UUID,
-    data: AssignRectificationRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """指派整改任务（指定责任人、部门、完成时间）"""
-    service = SafetyService(db)
-    item = await service.assign_rectification(
-        hazard_id,
-        responsible_person_name=data.responsible_person_name,
-        responsible_department=data.responsible_department,
-        planned_completion_date=data.planned_completion_date,
-        corrective_preventive_measures=data.corrective_preventive_measures,
-    )
-    if not item:
-        return ApiResponse(code=400, message="无法指派整改，当前状态不允许")
-    await db.commit()
-    return ApiResponse(data=HazardReportResponse.model_validate(item))
-
-
-@router.post(
     "/hazards/{hazard_id}/extend",
     response_model=ApiResponse,
     summary="延期整改",
@@ -398,25 +402,86 @@ async def extend_deadline(
 
 
 @router.post(
-    "/hazards/{hazard_id}/rectification/verify",
+    "/hazards/{hazard_id}/rectification/reply",
     response_model=ApiResponse,
-    summary="验证整改",
+    summary="整改回复",
 )
-async def verify_rectification(
+async def reply_rectification(
     hazard_id: uuid.UUID,
-    passed: bool = Query(..., description="是否通过验证"),
+    data: RectificationReplyRequest,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser | None = Depends(get_current_user),
 ):
-    """验证整改"""
+    """责任人提交整改回复，rectification_status: in_progress → replied"""
     service = SafetyService(db)
     user_id = current_user.id if current_user else None
     user_name = current_user.name if current_user else None
-    item = await service.verify_rectification(
-        hazard_id, verified_by=user_id, verified_by_name=user_name, passed=passed
+    item = await service.reply_rectification(
+        hazard_id,
+        reply_content=data.reply_content,
+        rectification_photos=data.rectification_photos,
+        user_id=user_id,
+        user_name=user_name,
     )
     if not item:
-        return ApiResponse(code=400, message="无法验证，当前状态不允许")
+        return ApiResponse(code=400, message="无法回复，当前状态不允许")
+    await db.commit()
+    return ApiResponse(data=HazardReportResponse.model_validate(item))
+
+
+@router.post(
+    "/hazards/{hazard_id}/rectification/verify-level",
+    response_model=ApiResponse,
+    summary="三级复核",
+)
+async def verify_level(
+    hazard_id: uuid.UUID,
+    data: VerifyLevelRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """三级复核确认：1=一级(部门负责人), 2=二级(分管领导), 3=三级(隐患发现人)"""
+    service = SafetyService(db)
+    user_id = current_user.id if current_user else None
+    user_name = current_user.name if current_user else None
+    item = await service.verify_level(
+        hazard_id,
+        level=data.level,
+        action=data.action,
+        opinion=data.opinion,
+        user_id=user_id,
+        user_name=user_name,
+    )
+    if not item:
+        return ApiResponse(code=400, message="无法复核，当前状态不允许")
+    await db.commit()
+    return ApiResponse(data=HazardReportResponse.model_validate(item))
+
+
+@router.post(
+    "/hazards/{hazard_id}/rectification/rework",
+    response_model=ApiResponse,
+    summary="重新整改",
+)
+async def rework_rectification(
+    hazard_id: uuid.UUID,
+    data: RectificationReplyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """复核驳回后重新整改，rejected → replied，重置所有复核级别"""
+    service = SafetyService(db)
+    user_id = current_user.id if current_user else None
+    user_name = current_user.name if current_user else None
+    item = await service.rework_rectification(
+        hazard_id,
+        reply_content=data.reply_content,
+        rectification_photos=data.rectification_photos,
+        user_id=user_id,
+        user_name=user_name,
+    )
+    if not item:
+        return ApiResponse(code=400, message="无法重新整改，当前状态不允许")
     await db.commit()
     return ApiResponse(data=HazardReportResponse.model_validate(item))
 
@@ -434,6 +499,50 @@ async def delete_hazard(
         return ApiResponse(code=404, message="隐患不存在")
     await db.commit()
     return ApiResponse(message="删除成功")
+
+
+@router.post(
+    "/hazards/{hazard_id}/ai/run/{script_number}",
+    response_model=ApiResponse,
+    summary="执行隐患AI工作流",
+)
+async def run_hazard_ai(
+    hazard_id: uuid.UUID,
+    script_number: int,
+    data: HazardReportRunAIRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """执行隐患AI工作流脚本。AI从已有数据库数据读取上下文，无需额外传入参数。"""
+    service = SafetyService(db)
+    item = await service.run_hazard_ai_script(hazard_id, script_number)
+    if item is None:
+        return ApiResponse(code=400, message="无法执行AI工作流，当前状态不允许或前置步骤未完成")
+    await db.commit()
+    return ApiResponse(data=HazardReportResponse.model_validate(item))
+
+
+@router.post(
+    "/hazards/{hazard_id}/ai/review/{script_number}",
+    response_model=ApiResponse,
+    summary="审核隐患AI输出",
+)
+async def review_hazard_ai(
+    hazard_id: uuid.UUID,
+    script_number: int,
+    action: str = Query(..., description="审核动作：approved(通过) 或 rejected(驳回)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """审核隐患AI工作流输出（通过/驳回）。"""
+    if action not in ("approved", "rejected"):
+        return ApiResponse(code=400, message="action 参数必须是 approved 或 rejected")
+    service = SafetyService(db)
+    item = await service.review_hazard_ai_script(hazard_id, script_number, action)
+    if item is None:
+        return ApiResponse(code=400, message="无法审核，当前状态不允许")
+    await db.commit()
+    return ApiResponse(data=HazardReportResponse.model_validate(item))
 
 
 # ==================== 事故管理 Routes ====================
@@ -1114,7 +1223,6 @@ async def get_enums(
         ACCIDENT_TYPE_OPTIONS,
         ACTION_ITEM_STATUS_OPTIONS,
         APPROVAL_DECISION_OPTIONS,
-        ARCHIVE_STATUS_OPTIONS,
         CHANGE_DURATION_OPTIONS,
         CHANGE_GRADE_OPTIONS,
         CHANGE_TYPE_OPTIONS,
@@ -1131,8 +1239,6 @@ async def get_enums(
         HAZARD_FACTOR_CATEGORY_OPTIONS,
         HAZARD_LEVEL_OPTIONS,
         HAZARD_TYPE_OPTIONS,
-        IDENTIFICATION_SCOPE_OPTIONS,
-        IDENTIFICATION_TYPE_OPTIONS,
         INJURY_SEVERITY_OPTIONS,
         KNOWLEDGE_CATEGORY_OPTIONS,
         MONITOR_STATUS_OPTIONS,
@@ -1167,9 +1273,6 @@ async def get_enums(
             "revision_types": REVISION_TYPE_OPTIONS,
             "revision_scopes": REVISION_SCOPE_OPTIONS,
             "review_opinions": REVIEW_OPINION_OPTIONS,
-            "identification_types": IDENTIFICATION_TYPE_OPTIONS,
-            "archive_statuses": ARCHIVE_STATUS_OPTIONS,
-            "identification_scopes": IDENTIFICATION_SCOPE_OPTIONS,
             "operation_types": OPERATION_TYPE_OPTIONS,
             "operation_levels": OPERATION_LEVEL_OPTIONS,
             "personnel_statuses": PERSONNEL_STATUS_OPTIONS,
@@ -1229,6 +1332,29 @@ async def get_hazard_identifications(
     )
     return ApiResponse(
         data=[HazardIdentificationResponse.model_validate(i) for i in items],
+        meta={"page": page, "page_size": page_size, "total": total},
+    )
+
+
+@router.get(
+    "/hazard-identifications/risk-options",
+    response_model=ApiResponse,
+    summary="获取危险源风险选项（常规作业报备用）",
+)
+async def get_hazard_risk_options(
+    department: str | None = Query(None, description="部门筛选"),
+    keyword: str | None = Query(None, description="搜索关键字（编号/部门/岗位）"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """返回风险等级为 level_1/level_2 且 overall_status=completed 的危险源辨识项"""
+    service = DailyRiskReportService(db)
+    skip = (page - 1) * page_size
+    items, total = await service.get_hazard_risk_options(department, keyword, skip, page_size)
+    return ApiResponse(
+        data=[HazardRiskOption.model_validate(i) for i in items],
         meta={"page": page, "page_size": page_size, "total": total},
     )
 
@@ -1400,6 +1526,73 @@ async def delete_hazard_identification(
         return ApiResponse(code=404, message="记录不存在")
     await db.commit()
     return ApiResponse(message="删除成功")
+
+
+# ── 危险源辨识台账 AI 导出 ──
+
+
+@router.post(
+    "/hazard-identifications/parse-query",
+    response_model=ApiResponse,
+    summary="AI 解析危险源辨识台账自然语言筛选条件",
+)
+async def parse_hazard_ledger_query(
+    data: HazardLedgerExportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """使用 AI 将自然语言查询解析为结构化的危险源辨识台账筛选条件"""
+    service = SafetyService(db)
+    if not data.natural_query:
+        return ApiResponse(code=400, message="请提供自然语言查询")
+    result = await service.parse_hazard_export_query(data.natural_query)
+    return ApiResponse(data=result)
+
+
+@router.post(
+    "/hazard-identifications/export-pdf",
+    summary="导出危险源辨识台账 PDF",
+)
+async def export_hazard_ledger_pdf(
+    data: HazardLedgerExportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """导出危险源辨识台账为 PDF 文件，支持 AI 自然语言筛选"""
+    from datetime import datetime as dt_module
+
+    from fastapi.responses import Response
+
+    service = SafetyService(db)
+
+    # 如果有自然语言查询，先用 AI 解析
+    filters: dict = {}
+    if data.natural_query:
+        parsed = await service.parse_hazard_export_query(data.natural_query)
+        filters = {k: v for k, v in parsed.items() if k != "explanation"}
+    else:
+        filters = {
+            k: v for k, v in {
+                "department": data.department,
+                "position": data.position,
+                "risk_level": data.risk_level,
+                "date_from": data.date_from,
+                "date_to": data.date_to,
+                "keyword": data.keyword,
+            }.items() if v is not None
+        }
+
+    pdf_bytes = await service.export_hazard_ledger_pdf(**filters)
+
+    filename = f"危险源辨识台账_{dt_module.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )
 
 
 # ==================== 安全操作规程 Routes ====================
@@ -1737,284 +1930,6 @@ async def identify_revision_scope(
     return ApiResponse(data=RegulationRevisionResponse.model_validate(item))
 
 
-# ==================== 危险源辨识修订记录 Routes ====================
-
-
-@router.get(
-    "/hazard-revision-records",
-    response_model=ApiResponse,
-    summary="获取危险源辨识修订记录列表",
-)
-async def get_hazard_revision_records(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
-    regulation_revision_id: uuid.UUID | None = None,
-    review_opinion: str | None = None,
-    identification_type: str | None = None,
-    keyword: str | None = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """获取危险源辨识修订记录列表"""
-    service = RegulationService(db)
-    skip = (page - 1) * page_size
-    items, total = await service.get_hazard_revision_records(
-        skip, page_size, regulation_revision_id, review_opinion, identification_type, keyword
-    )
-    return ApiResponse(
-        data=[HazardRevisionRecordResponse.model_validate(r) for r in items],
-        meta={"page": page, "page_size": page_size, "total": total},
-    )
-
-
-@router.get(
-    "/hazard-revision-records/{record_id}",
-    response_model=ApiResponse,
-    summary="获取危险源辨识修订记录详情",
-)
-async def get_hazard_revision_record(
-    record_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """获取危险源辨识修订记录详情"""
-    service = RegulationService(db)
-    item = await service.get_hazard_revision_record(record_id)
-    if not item:
-        return ApiResponse(code=404, message="记录不存在")
-    return ApiResponse(data=HazardRevisionRecordResponse.model_validate(item))
-
-
-@router.post(
-    "/hazard-revision-records",
-    response_model=ApiResponse,
-    summary="手动创建危险源辨识修订记录",
-)
-async def create_hazard_revision_record(
-    data: HazardRevisionRecordCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """手动创建危险源辨识修订记录（自动触发由系统内部调用）"""
-    service = RegulationService(db)
-    item = await service.create_hazard_revision_manual(data)
-    await db.commit()
-    return ApiResponse(data=HazardRevisionRecordResponse.model_validate(item))
-
-
-@router.put(
-    "/hazard-revision-records/{record_id}",
-    response_model=ApiResponse,
-    summary="更新危险源辨识修订记录",
-)
-async def update_hazard_revision_record(
-    record_id: uuid.UUID,
-    data: HazardRevisionRecordUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """更新危险源辨识修订记录"""
-    service = RegulationService(db)
-    item = await service.update_hazard_revision_record(record_id, data)
-    if not item:
-        return ApiResponse(code=404, message="记录不存在")
-    await db.commit()
-    return ApiResponse(data=HazardRevisionRecordResponse.model_validate(item))
-
-
-@router.post(
-    "/hazard-revision-records/{record_id}/approve",
-    response_model=ApiResponse,
-    summary="审核通过危险源辨识修订",
-)
-async def approve_hazard_revision(
-    record_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """审核通过危险源辨识修订记录"""
-    service = RegulationService(db)
-    item = await service.approve_hazard_revision(record_id)
-    if not item:
-        return ApiResponse(code=400, message="无法审核，当前状态不允许")
-    await db.commit()
-    return ApiResponse(data=HazardRevisionRecordResponse.model_validate(item))
-
-
-@router.delete(
-    "/hazard-revision-records/{record_id}",
-    response_model=ApiResponse,
-    summary="删除危险源辨识修订记录",
-)
-async def delete_hazard_revision_record(
-    record_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """删除危险源辨识修订记录"""
-    service = RegulationService(db)
-    result = await service.delete_hazard_revision_record(record_id)
-    if not result:
-        return ApiResponse(code=404, message="记录不存在")
-    await db.commit()
-    return ApiResponse(message="删除成功")
-
-
-@router.post(
-    "/hazard-revision-records/{record_id}/upload",
-    response_model=ApiResponse,
-    summary="上传危险源辨识文档",
-)
-async def upload_hazard_revision_document(
-    record_id: uuid.UUID,
-    file: UploadFile,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """上传危险源辨识文档"""
-    import os
-
-    upload_dir = os.path.join("uploads", "safety", "hazard-revision")
-    os.makedirs(upload_dir, exist_ok=True)
-
-    file_ext = os.path.splitext(file.filename or ".md")[1]
-    safe_name = f"hazard_{record_id}_{int(datetime.now().timestamp())}{file_ext}"
-    file_path = os.path.join(upload_dir, safe_name)
-
-    content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-    service = RegulationService(db)
-    item = await service.upload_hazard_document(
-        record_id, file.filename or "unknown", file_path
-    )
-    if not item:
-        return ApiResponse(code=404, message="记录不存在")
-    await db.commit()
-    return ApiResponse(data=HazardRevisionRecordResponse.model_validate(item))
-
-
-# ==================== 危险源辨识存档 Routes ====================
-
-
-@router.get(
-    "/hazard-revision-archives",
-    response_model=ApiResponse,
-    summary="获取危险源辨识存档列表",
-)
-async def get_hazard_revision_archives(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
-    status: str | None = None,
-    keyword: str | None = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """获取危险源辨识存档列表"""
-    service = RegulationService(db)
-    skip = (page - 1) * page_size
-    items, total = await service.get_hazard_revision_archives(skip, page_size, status, keyword)
-    return ApiResponse(
-        data=[HazardRevisionArchiveResponse.model_validate(a) for a in items],
-        meta={"page": page, "page_size": page_size, "total": total},
-    )
-
-
-@router.get(
-    "/hazard-revision-archives/{archive_id}",
-    response_model=ApiResponse,
-    summary="获取危险源辨识存档详情",
-)
-async def get_hazard_revision_archive(
-    archive_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """获取危险源辨识存档详情"""
-    service = RegulationService(db)
-    item = await service.get_hazard_revision_archive(archive_id)
-    if not item:
-        return ApiResponse(code=404, message="存档不存在")
-    return ApiResponse(data=HazardRevisionArchiveResponse.model_validate(item))
-
-
-@router.post(
-    "/hazard-revision-archives",
-    response_model=ApiResponse,
-    summary="创建危险源辨识存档",
-)
-async def create_hazard_revision_archive(
-    data: HazardRevisionArchiveCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """创建危险源辨识存档"""
-    service = RegulationService(db)
-    item = await service.create_hazard_revision_archive(data)
-    await db.commit()
-    return ApiResponse(data=HazardRevisionArchiveResponse.model_validate(item))
-
-
-@router.put(
-    "/hazard-revision-archives/{archive_id}",
-    response_model=ApiResponse,
-    summary="更新危险源辨识存档",
-)
-async def update_hazard_revision_archive(
-    archive_id: uuid.UUID,
-    data: HazardRevisionArchiveUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """更新危险源辨识存档"""
-    service = RegulationService(db)
-    item = await service.update_hazard_revision_archive(archive_id, data)
-    if not item:
-        return ApiResponse(code=404, message="存档不存在")
-    await db.commit()
-    return ApiResponse(data=HazardRevisionArchiveResponse.model_validate(item))
-
-
-@router.delete(
-    "/hazard-revision-archives/{archive_id}",
-    response_model=ApiResponse,
-    summary="删除危险源辨识存档",
-)
-async def delete_hazard_revision_archive(
-    archive_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """删除危险源辨识存档"""
-    service = RegulationService(db)
-    result = await service.delete_hazard_revision_archive(archive_id)
-    if not result:
-        return ApiResponse(code=404, message="存档不存在")
-    await db.commit()
-    return ApiResponse(message="删除成功")
-
-
-@router.post(
-    "/hazard-revision-records/{record_id}/link-archive/{archive_id}",
-    response_model=ApiResponse,
-    summary="关联修订记录到存档",
-)
-async def link_revision_to_archive(
-    record_id: uuid.UUID,
-    archive_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser | None = Depends(get_current_user),
-):
-    """将危险源辨识修订记录关联到存档（双向关联）"""
-    service = RegulationService(db)
-    item = await service.link_revision_to_archive(record_id, archive_id)
-    if not item:
-        return ApiResponse(code=404, message="记录或存档不存在")
-    await db.commit()
-    return ApiResponse(data=HazardRevisionRecordResponse.model_validate(item))
-
-
 # ==================== AI 工作流配置 Routes ====================
 
 
@@ -2136,8 +2051,10 @@ async def get_api_call_configs(
     service = ConfigService(db)
     skip = (page - 1) * page_size
     items, total = await service.get_api_call_configs(skip, page_size, is_active)
+
+    db_configs = [APICallConfigResponse.model_validate(item) for item in items]
     return ApiResponse(
-        data=[APICallConfigResponse.model_validate(item) for item in items],
+        data=db_configs,
         meta={"page": page, "page_size": page_size, "total": total},
     )
 
@@ -2993,6 +2910,7 @@ async def get_daily_risk_reports(
     department: str | None = None,
     report_date: str | None = Query(None, description="报备日期 (YYYY-MM-DD)"),
     keyword: str | None = None,
+    report_type: str | None = Query(None, description="报备类型: regular/non_regular"),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser | None = Depends(get_current_user),
 ):
@@ -3003,7 +2921,7 @@ async def get_daily_risk_reports(
     if report_date:
         from datetime import datetime as dt
         parsed_date = dt.fromisoformat(report_date)
-    items, total = await service.get_reports(skip, page_size, status, department, parsed_date, keyword)
+    items, total = await service.get_reports(skip, page_size, status, department, parsed_date, keyword, report_type)
     return ApiResponse(
         data=[DailyRiskReportResponse.model_validate(i) for i in items],
         meta={"page": page, "page_size": page_size, "total": total},

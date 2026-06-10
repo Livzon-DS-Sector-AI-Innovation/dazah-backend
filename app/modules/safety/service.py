@@ -1,13 +1,13 @@
 """Safety business workflows."""
 
 import logging
+import os
 import uuid
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.modules.safety.models import (
     Accident,
     AIWorkflowConfig,
@@ -63,12 +63,74 @@ from app.modules.safety.schemas import (
 from app.platform.integrations.ai.client import AIOutputError, AIService
 from app.platform.integrations.ai.document_parser import DocumentParser
 from app.platform.integrations.ai.prompts import (
+    HAZARD_WORKFLOW_STEP_CONFIG,
     SCRIPT_CONFIG,
     STANDALONE_WORKFLOW_CONFIG,
     build_prompt,
 )
 
 logger = logging.getLogger(__name__)
+
+# ── AI 配置默认值（仅用于自动种子和 temperature fallback）──
+_DEFAULT_TEXT_AI_CONFIG = {
+    "api_base_url": "https://api.deepseek.com",
+    "model_name": "deepseek-v4-flash",
+    "temperature": 0.1,
+    "timeout_seconds": 120,
+}
+_DEFAULT_VISION_AI_CONFIG = {
+    "api_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model_name": "qwen-vl-max",
+    "temperature": 0.1,
+    "timeout_seconds": 120,
+}
+
+
+async def _ensure_ai_config_seeded(
+    session: AsyncSession, config_type: str
+) -> None:
+    """自动种子：将 env 中的 AI 配置迁移到数据库。
+
+    仅在数据库中尚无该类型活跃配置时执行，
+    从环境变量读取 API Key，结合模块默认值创建配置。
+    """
+    from app.modules.safety.repository import SafetyRepository
+
+    repo = SafetyRepository(session)
+    existing = await repo.get_active_api_call_config(config_type)
+    if existing:
+        return  # 已有活跃配置，无需种子
+
+    api_key = os.environ.get(
+        "VISION_AI_API_KEY" if config_type == "vision" else "AI_API_KEY", ""
+    ).strip()
+    if not api_key:
+        logger.warning("环境变量中未找到 %s API Key，跳过自动种子", config_type)
+        return
+
+    defaults = (
+        _DEFAULT_VISION_AI_CONFIG
+        if config_type == "vision"
+        else _DEFAULT_TEXT_AI_CONFIG
+    )
+    logger.info("自动种子 AI 配置: config_type=%s model=%s", config_type, defaults["model_name"])
+    await repo.create_api_call_config({
+        "config_name": f"默认{'视觉' if config_type == 'vision' else '文本'}模型配置",
+        "config_type": config_type,
+        "api_base_url": os.environ.get(
+            "VISION_AI_BASE_URL" if config_type == "vision" else "AI_BASE_URL",
+            defaults["api_base_url"],
+        ),
+        "api_key": api_key,
+        "model_name": os.environ.get(
+            "VISION_AI_MODEL" if config_type == "vision" else "AI_MODEL",
+            defaults["model_name"],
+        ),
+        "temperature": defaults["temperature"],
+        "timeout_seconds": defaults["timeout_seconds"],
+        "is_active": True,
+    })
+    await session.flush()
 
 
 class SafetyService:
@@ -177,9 +239,38 @@ class SafetyService:
         return await self.repo.get_hazard_by_id(hazard_id)
 
     async def create_hazard(self, data: HazardReportCreate) -> HazardReport:
-        """创建隐患"""
-        hazard_data = data.model_dump()
-        return await self.repo.create_hazard(hazard_data)
+        """创建隐患（hazard_no 留空时自动生成），创建后自动执行 AI 工作流。"""
+        hazard_data = data.model_dump(exclude_none=True)
+        if not hazard_data.get("hazard_no"):
+            # 自动生成：HZ-年月日-序号
+            today = datetime.now().strftime("%Y%m%d")
+            existing = await self.repo.count_hazards_today(today)
+            hazard_data["hazard_no"] = f"HZ-{today}-{existing + 1:03d}"
+        # 填充默认值以兼容DB NOT NULL约束
+        hazard_data.setdefault("hazard_type", "unsafe_condition")
+        hazard_data.setdefault("hazard_level", "general")
+        hazard_data.setdefault("description", "待AI填写")
+        hazard_data.setdefault("discovered_at", datetime.now())
+        # 初始化 AI 状态
+        hazard_data.setdefault("ai_node_progress", "pending_script1")
+        hazard_data.setdefault("overall_status", "draft")
+        hazard_data.setdefault("ai_generated", False)
+
+        item = await self.repo.create_hazard(hazard_data)
+
+        # ── 自动执行 AI 工作流 ──
+        if item.defect_photos:
+            try:
+                # Step 1: AI隐患识别（视觉模型）
+                item = await self.run_hazard_ai_script(item.id, 1)
+                if item and not item.ai_error_message:
+                    # Step 2: AI整改建议（文本模型）
+                    item = await self.run_hazard_ai_script(item.id, 2)
+            except Exception as e:
+                logger.error(f"自动执行 AI 工作流失败(hazard {item.id}): {e}")
+                # 即使 AI 失败也返回记录，用户可在台账中手动重试
+
+        return item
 
     async def update_hazard(
         self, hazard_id: uuid.UUID, data: HazardReportUpdate
@@ -187,6 +278,32 @@ class SafetyService:
         """更新隐患"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
         return await self.repo.update_hazard(hazard_id, update_data)
+
+    async def upload_hazard_photo(
+        self, hazard_id: uuid.UUID, file_name: str, file_path: str
+    ) -> HazardReport | None:
+        """保存隐患图片路径，追加到 defect_photos JSON 数组"""
+        import json
+
+        hazard = await self.repo.get_hazard_by_id(hazard_id)
+        if not hazard:
+            return None
+        # 标准化为 / 分隔符：避免 Windows 反斜杠在 JSON 中被当作非法转义符
+        safe_path = file_path.replace("\\", "/")
+        try:
+            photos = json.loads(hazard.defect_photos) if hazard.defect_photos else []
+        except (json.JSONDecodeError, TypeError):
+            # 兼容历史损坏数据：尝试替换反斜杠后解析，仍失败则视为空列表
+            try:
+                photos = json.loads(hazard.defect_photos.replace("\\", "/"))
+            except Exception:
+                photos = []
+        if not isinstance(photos, list):
+            photos = []
+        photos.append(safe_path)
+        return await self.repo.update_hazard(
+            hazard_id, {"defect_photos": json.dumps(photos, ensure_ascii=False)}
+        )
 
     async def start_rectification(self, hazard_id: uuid.UUID) -> HazardReport | None:
         """开始整改"""
@@ -218,28 +335,6 @@ class SafetyService:
             update_data["corrective_preventive_measures"] = corrective_preventive_measures
         return await self.repo.update_hazard(hazard_id, update_data)
 
-    async def assign_rectification(
-        self,
-        hazard_id: uuid.UUID,
-        responsible_person_name: str,
-        responsible_department: str,
-        planned_completion_date: datetime,
-        corrective_preventive_measures: str | None = None,
-    ) -> HazardReport | None:
-        """指派整改任务"""
-        hazard = await self.repo.get_hazard_by_id(hazard_id)
-        if not hazard or hazard.rectification_status not in ("pending",):
-            return None
-        update_data: dict[str, Any] = {
-            "rectification_status": "in_progress",
-            "rectification_responsible_person_name": responsible_person_name,
-            "rectification_responsible_department": responsible_department,
-            "deadline": planned_completion_date,
-        }
-        if corrective_preventive_measures:
-            update_data["corrective_preventive_measures"] = corrective_preventive_measures
-        return await self.repo.update_hazard(hazard_id, update_data)
-
     async def extend_deadline(
         self, hazard_id: uuid.UUID, extended_deadline: datetime
     ) -> HazardReport | None:
@@ -251,29 +346,426 @@ class SafetyService:
             hazard_id, {"extended_deadline": extended_deadline}
         )
 
-    async def verify_rectification(
+    async def reply_rectification(
         self,
         hazard_id: uuid.UUID,
-        verified_by: uuid.UUID,
-        verified_by_name: str,
-        passed: bool,
+        reply_content: str,
+        rectification_photos: str | None,
+        user_id: uuid.UUID,
+        user_name: str,
     ) -> HazardReport | None:
-        """验证整改"""
+        """整改回复：in_progress → replied"""
         hazard = await self.repo.get_hazard_by_id(hazard_id)
-        if not hazard or hazard.rectification_status != "completed":
+        if not hazard or hazard.rectification_status != "in_progress":
             return None
         update_data: dict[str, Any] = {
-            "rectification_status": "verified",
-            "verified_by": verified_by,
-            "verified_by_name": verified_by_name,
-            "verified_at": datetime.now(),
-            "status": "closed" if passed else "open",
+            "rectification_status": "replied",
+            "rectification_reply": reply_content,
+            "rectification_replied_at": datetime.now(),
+            "rectification_replied_by": user_id,
+            "rectification_replied_by_name": user_name,
         }
+        if rectification_photos is not None:
+            update_data["rectification_photos"] = rectification_photos
+        return await self.repo.update_hazard(hazard_id, update_data)
+
+    async def verify_level(
+        self,
+        hazard_id: uuid.UUID,
+        level: int,
+        action: str,
+        opinion: str | None,
+        user_id: uuid.UUID,
+        user_name: str,
+    ) -> HazardReport | None:
+        """三级复核：按级别审批或驳回"""
+        hazard = await self.repo.get_hazard_by_id(hazard_id)
+        if not hazard:
+            return None
+
+        # 检查当前状态是否允许该级别复核
+        if level == 1 and hazard.rectification_status != "replied":
+            return None
+        if level == 2 and hazard.verify_level_1_status != "approved":
+            return None
+        if level == 3 and hazard.verify_level_2_status != "approved":
+            return None
+
+        now = datetime.now()
+        if action == "rejected":
+            update_data: dict[str, Any] = {
+                "rectification_status": "rejected",
+                f"verify_level_{level}_status": "rejected",
+                f"verify_level_{level}_by": user_id,
+                f"verify_level_{level}_by_name": user_name,
+                f"verify_level_{level}_at": now,
+                f"verify_level_{level}_opinion": opinion,
+            }
+            return await self.repo.update_hazard(hazard_id, update_data)
+
+        # action == "approved"
+        if level == 3:
+            update_data = {
+                "rectification_status": "closed",
+                "status": "closed",
+                "verify_level_3_status": "approved",
+                "verify_level_3_by": user_id,
+                "verify_level_3_by_name": user_name,
+                "verify_level_3_at": now,
+                "verify_level_3_opinion": opinion,
+            }
+        else:
+            next_status = f"level{level}_approved"
+            update_data = {
+                "rectification_status": next_status,
+                f"verify_level_{level}_status": "approved",
+                f"verify_level_{level}_by": user_id,
+                f"verify_level_{level}_by_name": user_name,
+                f"verify_level_{level}_at": now,
+                f"verify_level_{level}_opinion": opinion,
+            }
+        return await self.repo.update_hazard(hazard_id, update_data)
+
+    async def rework_rectification(
+        self,
+        hazard_id: uuid.UUID,
+        reply_content: str,
+        rectification_photos: str | None,
+        user_id: uuid.UUID,
+        user_name: str,
+    ) -> HazardReport | None:
+        """重新整改：rejected → replied，重置所有复核级别"""
+        hazard = await self.repo.get_hazard_by_id(hazard_id)
+        if not hazard or hazard.rectification_status != "rejected":
+            return None
+        update_data: dict[str, Any] = {
+            "rectification_status": "replied",
+            "rectification_reply": reply_content,
+            "rectification_replied_at": datetime.now(),
+            "rectification_replied_by": user_id,
+            "rectification_replied_by_name": user_name,
+            "verify_level_1_status": "pending",
+            "verify_level_1_by": None,
+            "verify_level_1_by_name": None,
+            "verify_level_1_at": None,
+            "verify_level_1_opinion": None,
+            "verify_level_2_status": "pending",
+            "verify_level_2_by": None,
+            "verify_level_2_by_name": None,
+            "verify_level_2_at": None,
+            "verify_level_2_opinion": None,
+            "verify_level_3_status": "pending",
+            "verify_level_3_by": None,
+            "verify_level_3_by_name": None,
+            "verify_level_3_at": None,
+            "verify_level_3_opinion": None,
+        }
+        if rectification_photos is not None:
+            update_data["rectification_photos"] = rectification_photos
         return await self.repo.update_hazard(hazard_id, update_data)
 
     async def delete_hazard(self, hazard_id: uuid.UUID) -> bool:
         """删除隐患"""
         return await self.repo.delete_hazard(hazard_id)
+
+    # ── AI 工作流 ──
+
+    async def _build_hazard_context(self, script_number: int, item: HazardReport) -> str:
+        """构建隐患 AI 工作流上下文信息。"""
+        parts = [f"隐患编号：{item.hazard_no}"]
+        if item.department:
+            parts.append(f"责任部门：{item.department}")
+        if item.location:
+            parts.append(f"地点/部位：{item.location}")
+        if item.discovered_by_name:
+            parts.append(f"发现人：{item.discovered_by_name}")
+        if item.discovered_at:
+            parts.append(f"发现时间：{item.discovered_at.isoformat()}")
+        if item.defect_photos:
+            parts.append(f"缺陷图片：{item.defect_photos}")
+
+        # 步骤2：包含步骤1已确认的输出
+        if script_number == 2:
+            if item.hazard_type:
+                parts.append(f"隐患分类（已确认）：{item.hazard_type}")
+            if item.hazard_level:
+                parts.append(f"隐患等级（已确认）：{item.hazard_level}")
+            if item.hazard_category:
+                parts.append(f"隐患类别（已确认）：{item.hazard_category}")
+            if item.description:
+                parts.append(f"隐患描述（已确认）：{item.description}")
+            if item.location:
+                parts.append(f"地点/部位（已确认）：{item.location}")
+            if item.key_defect:
+                parts.append(f"重点缺陷（已确认）：{item.key_defect}")
+            if item.major_hazard_basis:
+                parts.append(f"重大隐患判定依据（已确认）：{item.major_hazard_basis}")
+
+        return "\n".join(parts)
+
+    async def _generate_hazard_ai_output(
+        self, script_number: int, item: HazardReport
+    ) -> dict:
+        """调用 AI 服务为隐患模块生成工作流输出。失败时抛出 AIOutputError。
+
+        优先从数据库 ai_workflow_configs 表读取配置，fallback 到 prompts.py 的硬编码 HAZARD_WORKFLOW_STEP_CONFIG。
+        """
+        # 优先从数据库读取工作流配置
+        workflow_config = await self.repo.get_ai_workflow_config_by_module("hazard")
+        if (
+            workflow_config
+            and workflow_config.is_enabled
+            and workflow_config.script_configs
+        ):
+            raw = workflow_config.script_configs
+            if isinstance(raw, list):
+                scripts = raw
+            elif isinstance(raw, dict):
+                scripts = raw.get("scripts", [])
+            else:
+                scripts = []
+            db_script = next(
+                (s for s in scripts if s.get("script_number") == script_number), None
+            )
+            if db_script and db_script.get("is_enabled", True):
+                prompt_template = build_prompt(db_script)
+                expected_keys = db_script.get("expected_keys", [])
+                logger.debug("使用数据库工作流配置(hazard): 步骤%d - %s", script_number, db_script.get("name"))
+            else:
+                config = HAZARD_WORKFLOW_STEP_CONFIG[script_number]
+                prompt_template = build_prompt(config)
+                expected_keys = config["expected_keys"]
+                logger.debug("数据库未找到步骤 %d，fallback 到硬编码(hazard)", script_number)
+        else:
+            config = HAZARD_WORKFLOW_STEP_CONFIG[script_number]
+            prompt_template = build_prompt(config)
+            expected_keys = config["expected_keys"]
+            logger.debug("无数据库工作流配置(hazard)，使用硬编码步骤 %d", script_number)
+
+        context_text = await self._build_hazard_context(script_number, item)
+
+        if '{context}' in prompt_template:
+            prompt = prompt_template.replace('{context}', context_text)
+        else:
+            prompt = f"## 上下文信息\n{context_text}\n\n{prompt_template}"
+
+        # ── Step1 + 有缺陷图片 → 走视觉模型 ──
+        if script_number == 1 and item.defect_photos:
+            image_urls = self._parse_defect_photo_urls(item.defect_photos)
+            if image_urls:
+                logger.debug("Step1 使用视觉模型, 图片数: %d", len(image_urls))
+                db_config = await self.repo.get_active_api_call_config(config_type="vision")
+                temperature = db_config.temperature if db_config else _DEFAULT_VISION_AI_CONFIG["temperature"]
+                vision_service = await self._get_vision_ai_service()
+                try:
+                    result = await vision_service.chat_vision_parsed(
+                        text_prompt=prompt,
+                        image_urls=image_urls,
+                        expected_keys=expected_keys,
+                        temperature=temperature,
+                    )
+                    return result
+                finally:
+                    await vision_service.close()
+
+        # ── 文本模型 ──
+        messages = [
+            {"role": "system", "content": "你是一个专业的化工安全与隐患排查专家助手，服务于原料药生产企业。"},
+            {"role": "user", "content": prompt},
+        ]
+
+        ai_service = await self._get_ai_service()
+        db_config = await self.repo.get_active_api_call_config(config_type="text")
+        temperature = db_config.temperature if db_config else _DEFAULT_TEXT_AI_CONFIG["temperature"]
+        try:
+            result = await ai_service.chat_parsed(
+                messages=messages,
+                expected_keys=expected_keys,
+                temperature=temperature,
+            )
+            return result
+        finally:
+            await ai_service.close()
+
+    def _parse_defect_photo_urls(self, defect_photos: str) -> list[str]:
+        """从 defect_photos JSON 字段提取图片，本地路径转 base64 data URI。"""
+        import base64
+        import json as _json
+
+        try:
+            photos = _json.loads(defect_photos)
+        except (_json.JSONDecodeError, TypeError):
+            # Windows 反斜杠路径经 json.dumps 写入后，json.loads 会报 Invalid \escape
+            # 尝试把反斜杠替换为正斜杠再解析
+            try:
+                photos = _json.loads(defect_photos.replace("\\", "/"))
+            except (_json.JSONDecodeError, TypeError):
+                return []
+        if isinstance(photos, str):
+            photos = [photos] if photos else []
+        elif not isinstance(photos, list):
+            return []
+
+        urls: list[str] = []
+        for p in photos:
+            p_str = str(p)
+            # 已经是 http/data URL，直接使用
+            if p_str.startswith("http://") or p_str.startswith("https://") or p_str.startswith("data:"):
+                urls.append(p_str)
+                continue
+            # 本地路径 → base64 data URI
+            # 兼容 Windows 反斜杠路径：同时检查原始路径和正斜杠版本
+            check_paths = [p_str]
+            if "\\" in p_str:
+                check_paths.append(p_str.replace("\\", "/"))
+            elif "/" in p_str:
+                check_paths.append(p_str.replace("/", "\\"))
+            found_path = None
+            for cp in check_paths:
+                if cp and os.path.exists(cp):
+                    found_path = cp
+                    break
+            if found_path:
+                try:
+                    ext = os.path.splitext(found_path)[1].lower()
+                    mime = {
+                        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+                    }.get(ext, "image/png")
+                    with open(found_path, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    urls.append(f"data:{mime};base64,{b64}")
+                    logger.debug("转换本地图片为 data URI: %s (%s)", found_path, mime)
+                except Exception as exc:
+                    logger.warning("无法读取图片 %s: %s", found_path, exc)
+        return urls
+
+    async def run_hazard_ai_script(
+        self, hazard_id: uuid.UUID, script_number: int
+    ) -> HazardReport | None:
+        """执行隐患AI工作流脚本（1=AI隐患识别, 2=AI整改建议）。
+
+        简化状态机：AI 自动执行，不再需要逐步骤人工审核。
+        Step1 完成后自动进入 Step2，Step2 完成后进入 completed。
+        """
+        item = await self.repo.get_hazard_by_id(hazard_id)
+        if not item:
+            return None
+
+        # ── 状态机校验 ──
+        expected_node = f"pending_script{script_number}"
+        if item.ai_node_progress != expected_node:
+            # 允许从 completed 状态重跑（台账中重新执行）
+            if item.ai_node_progress != "completed":
+                return None
+
+        # Step2 需要 Step1 已产生输出（hazard_type 已被填写）
+        if script_number == 2:
+            if not item.hazard_type or item.hazard_type == "unsafe_condition":
+                # Step1 可能未执行或失败，先执行 Step1
+                pass
+
+        update_data: dict[str, Any] = {}
+
+        try:
+            generated = await self._generate_hazard_ai_output(script_number, item)
+            self._map_hazard_ai_output(script_number, generated, update_data)
+            if script_number == 1:
+                update_data["ai_node_progress"] = "pending_script2"
+            else:
+                update_data["ai_node_progress"] = "completed"
+                update_data["overall_status"] = "completed"
+            update_data["ai_error_message"] = None
+            update_data["ai_generated"] = True
+        except AIOutputError as e:
+            logger.error(f"Hazard script {script_number} AI 输出错误: {e}")
+            update_data["ai_error_message"] = str(e)
+        except Exception as e:
+            logger.error(f"Hazard script {script_number} 执行异常: {e}")
+            update_data["ai_error_message"] = f"AI 服务调用失败：{e}"
+
+        return await self.repo.update_hazard(hazard_id, update_data)
+
+    async def review_hazard_ai_script(
+        self, hazard_id: uuid.UUID, script_number: int, action: str
+    ) -> HazardReport | None:
+        """审核隐患AI输出（action=approved|rejected）。
+
+        新流程：在台账中进行统一审核，而非逐步骤审核。
+        审核通过 → overall_status='reviewed', status→'open'（进入整改流程）
+        驳回 → 重置 AI 状态，允许重新执行。
+        """
+        item = await self.repo.get_hazard_by_id(hazard_id)
+        if not item:
+            return None
+
+        # 审核仅允许在 AI 完成后进行
+        if item.overall_status != "completed":
+            return None
+
+        update_data: dict[str, Any] = {}
+
+        if action == "approved":
+            # 审核通过：标记为已审核，状态改为 open 进入整改流程
+            update_data["script1_review_status"] = "approved"
+            update_data["script2_review_status"] = "approved"
+            update_data["overall_status"] = "reviewed"
+            update_data["status"] = "open"
+        elif action == "rejected":
+            # 驳回：重置 AI 状态，允许重新执行
+            update_data["script1_review_status"] = "pending"
+            update_data["script2_review_status"] = "pending"
+            update_data["ai_node_progress"] = "pending_script1"
+            update_data["overall_status"] = "draft"
+            update_data["ai_error_message"] = None
+        else:
+            return None
+
+        return await self.repo.update_hazard(hazard_id, update_data)
+
+    # ── AI 输出字段约束（DB Enum 限制）──
+    _VALID_HAZARD_TYPES = {"unsafe_condition", "unsafe_action", "management_defect", "environmental"}
+    _VALID_HAZARD_LEVELS = {"general", "serious", "major"}
+    _VALID_HAZARD_CATEGORIES = {
+        "equipment", "hazardous_storage", "emergency_mgmt", "instrument_electrical",
+        "lightning_antistatic", "occupational_health", "violation_operation", "six_s",
+        "label_signage", "process_mgmt", "contractor_defect", "documentation", "special_operation",
+    }
+
+    def _map_hazard_ai_output(
+        self, script_number: int, output: dict, update_data: dict[str, Any]
+    ) -> None:
+        """将 AI JSON 输出映射到 HazardReport 字段（校验枚举值）。"""
+        if script_number == 1:
+            key_map = {
+                "hazard_type": "hazard_type",
+                "hazard_level": "hazard_level",
+                "hazard_category": "hazard_category",
+                "description": "description",
+                "location": "location",
+                "key_defect": "key_defect",
+                "major_hazard_basis": "major_hazard_basis",
+            }
+        else:  # script_number == 2
+            key_map = {
+                "control_measures": "control_measures",
+                "corrective_preventive_measures": "corrective_preventive_measures",
+            }
+
+        for json_key, db_field in key_map.items():
+            if json_key in output and output[json_key]:
+                val = output[json_key]
+                # 校验枚举字段，非法值跳过（保留默认值）
+                if db_field == "hazard_type" and val not in self._VALID_HAZARD_TYPES:
+                    logger.debug("AI 输出非法 hazard_type=%s，跳过", val)
+                    continue
+                if db_field == "hazard_level" and val not in self._VALID_HAZARD_LEVELS:
+                    logger.debug("AI 输出非法 hazard_level=%s，跳过", val)
+                    continue
+                if db_field == "hazard_category" and val not in self._VALID_HAZARD_CATEGORIES:
+                    logger.debug("AI 输出非法 hazard_category=%s，跳过", val)
+                    continue
+                update_data[db_field] = val
 
     # ==================== Accident Operations ====================
 
@@ -655,7 +1147,6 @@ class SafetyService:
 
     async def create_hazard_identification(self, data) -> Any:
         """创建危险源辨识记录"""
-        from app.modules.safety.schemas import HazardIdentificationCreate
 
         create_data = data.model_dump()
         create_data["ai_node_progress"] = "pending_input"
@@ -695,16 +1186,36 @@ class SafetyService:
     # ── AI 集成 ──
 
     async def _get_ai_service(self) -> AIService:
-        """获取 AIService（优先数据库配置，fallback 到 env）
+        """获取文本模型 AIService（安全模块数据库配置）"""
+        config = await self.repo.get_active_api_call_config(config_type="text")
+        if config:
+            logger.debug("使用数据库 API 配置: %s (%s)", config.config_name, config.model_name)
+            return AIService(
+                api_key=config.api_key,
+                base_url=config.api_base_url,
+                model=config.model_name,
+                timeout=config.timeout_seconds,
+            )
 
-        每次调用都会查询数据库中的激活 API 配置，
-        确保前端修改配置后实时生效。
-        """
-        # 优先尝试从数据库获取激活的 API 配置
-        config = await self.repo.get_active_api_call_config()
+        # 自动种子：从环境变量迁移到数据库
+        await _ensure_ai_config_seeded(self.session, "text")
+        config = await self.repo.get_active_api_call_config(config_type="text")
+        if config:
+            return AIService(
+                api_key=config.api_key,
+                base_url=config.api_base_url,
+                model=config.model_name,
+                timeout=config.timeout_seconds,
+            )
+
+        raise AIOutputError("安全模块未配置文本 AI 模型，请在 API 配置页面进行配置")
+
+    async def _get_vision_ai_service(self) -> AIService:
+        """获取视觉模型 AIService（安全模块数据库配置）"""
+        config = await self.repo.get_active_api_call_config(config_type="vision")
         if config:
             logger.debug(
-                "使用数据库 API 配置: %s (%s)", config.config_name, config.model_name
+                "使用数据库视觉API配置: %s (%s)", config.config_name, config.model_name
             )
             return AIService(
                 api_key=config.api_key,
@@ -713,17 +1224,18 @@ class SafetyService:
                 timeout=config.timeout_seconds,
             )
 
-        # Fallback 到 env 配置
-        settings = get_settings()
-        if not settings.AI_API_KEY:
-            raise AIOutputError("AI_API_KEY 未配置，无法执行 AI 脚本")
-        logger.debug("使用 env API 配置: %s", settings.AI_MODEL)
-        return AIService(
-            api_key=settings.AI_API_KEY,
-            base_url=settings.AI_BASE_URL,
-            model=settings.AI_MODEL,
-            timeout=settings.AI_TIMEOUT,
-        )
+        # 自动种子：从环境变量迁移到数据库
+        await _ensure_ai_config_seeded(self.session, "vision")
+        config = await self.repo.get_active_api_call_config(config_type="vision")
+        if config:
+            return AIService(
+                api_key=config.api_key,
+                base_url=config.api_base_url,
+                model=config.model_name,
+                timeout=config.timeout_seconds,
+            )
+
+        raise AIOutputError("安全模块未配置视觉 AI 模型，请在 API 配置页面进行配置")
 
     def _build_context(self, script_number: int, item: Any) -> str:
         """从当前记录构建供 AI 使用的上下文字符串"""
@@ -864,9 +1376,11 @@ class SafetyService:
             else:
                 context_text += "\n\n### 附件文档内容\n（未上传附件或附件无法解析）"
 
-        # 转义上下文中的花括号，防止 .format() 误解析
-        safe_context = context_text.replace("{", "{{").replace("}", "}}")
-        prompt = prompt_template.format(context=safe_context)
+        # 使用 replace 而非 format()，避免 AI 输出示例中的花括号被误解析
+        if '{context}' in prompt_template:
+            prompt = prompt_template.replace('{context}', context_text)
+        else:
+            prompt = f"## 上下文信息\n{context_text}\n\n{prompt_template}"
         messages = [
             {"role": "system", "content": "你是一个专业的危险源辨识与风险评价专家助手，服务于原料药生产企业。"},
             {"role": "user", "content": prompt},
@@ -874,8 +1388,8 @@ class SafetyService:
 
         ai_service = await self._get_ai_service()
         # 优先使用数据库配置的 temperature
-        db_config = await self.repo.get_active_api_call_config()
-        temperature = db_config.temperature if db_config else get_settings().AI_TEMPERATURE
+        db_config = await self.repo.get_active_api_call_config(config_type="text")
+        temperature = db_config.temperature if db_config else _DEFAULT_TEXT_AI_CONFIG["temperature"]
         try:
             result = await ai_service.chat_parsed(
                 messages=messages,
@@ -890,7 +1404,6 @@ class SafetyService:
         self, hid: uuid.UUID, script_number: int, ai_output: dict | None = None
     ) -> Any | None:
         """执行AI脚本（状态机推进）"""
-        from app.modules.safety.schemas import get_risk_level
 
         item = await self.repo.get_hazard_identification_by_id(hid)
         if not item:
@@ -1123,6 +1636,314 @@ class SafetyService:
             },
         )
 
+    # ── AI 导出 ──
+
+    async def parse_hazard_export_query(self, natural_query: str) -> dict:
+        """使用 AI 将自然语言筛选条件解析为结构化参数"""
+        wf_config = await self._get_workflow_config("hazard-identification-export")
+        if wf_config:
+            prompt = build_prompt(wf_config) + "\n\n用户查询：" + natural_query
+        else:
+            prompt = natural_query
+
+        try:
+            ai = await self._get_ai_service()
+            messages = [
+                {"role": "system", "content": "你是一个数据库查询助手。只返回 JSON。"},
+                {"role": "user", "content": prompt},
+            ]
+            response_text = await ai.chat(messages, response_format="json_object")
+            import json
+
+            result = json.loads(response_text)
+            # 清除 None 值
+            return {k: v for k, v in result.items() if v is not None}
+        except Exception as e:
+            logger.warning("AI 自然语言解析失败(hazard-identification): %s", e)
+            return {
+                "explanation": f"AI 解析失败，将使用原始查询: {natural_query}",
+                "keyword": natural_query,
+            }
+
+    async def export_hazard_ledger_pdf(
+        self,
+        department: str | None = None,
+        position: str | None = None,
+        risk_level: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        keyword: str | None = None,
+    ) -> bytes:
+        """导出危险源辨识台账为 PDF 文件（A4 横向，标准格式）"""
+        import io
+        from datetime import datetime as dt_module
+
+        # 获取数据
+        items, _ = await self.repo.get_hazard_identifications(
+            skip=0,
+            limit=10000,
+            department=department,
+            overall_status="completed",
+            position=position,
+            risk_level=risk_level,
+            date_from=date_from,
+            date_to=date_to,
+            keyword=keyword,
+        )
+
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+
+        # A4 横向
+        page_w, page_h = landscape(A4)
+        margin = 15 * mm
+        buf = io.BytesIO()
+
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=landscape(A4),
+            leftMargin=margin,
+            rightMargin=margin,
+            topMargin=margin,
+            bottomMargin=margin,
+            title="危险源辨识台账",
+        )
+
+        # 字体注册
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+
+        # 尝试注册中文字体
+        _font_name = "Helvetica"
+        _font_name_bold = "Helvetica-Bold"
+        _chinese_fonts = [
+            ("C:/Windows/Fonts/simsun.ttc", "SimSun"),
+            ("C:/Windows/Fonts/simhei.ttf", "SimHei"),
+            ("C:/Windows/Fonts/msyh.ttc", "MicrosoftYaHei"),
+        ]
+        for font_path, font_alias in _chinese_fonts:
+            try:
+                pdfmetrics.registerFont(TTFont(font_alias, font_path))
+                if font_alias == "SimSun":
+                    _font_name = "SimSun"
+                if font_alias == "SimHei":
+                    _font_name_bold = "SimHei"
+            except Exception:
+                pass
+        # 回退：如果没有中文字体，使用 Helvetica（英文/数字可用）
+        logger.debug("PDF fonts: body=%s, bold=%s", _font_name, _font_name_bold)
+
+        styles = getSampleStyleSheet()
+        body_style = ParagraphStyle(
+            "BodyCN",
+            parent=styles["Normal"],
+            fontName=_font_name,
+            fontSize=8,
+            leading=12,
+        )
+        header_style = ParagraphStyle(
+            "HeaderCN",
+            parent=styles["Normal"],
+            fontName=_font_name_bold,
+            fontSize=8,
+            leading=12,
+            textColor=colors.white,
+        )
+        title_style = ParagraphStyle(
+            "TitleCN",
+            parent=styles["Title"],
+            fontName=_font_name_bold,
+            fontSize=16,
+            leading=22,
+            alignment=TA_CENTER,
+            spaceAfter=4,
+        )
+        subtitle_style = ParagraphStyle(
+            "SubtitleCN",
+            parent=styles["Normal"],
+            fontName=_font_name,
+            fontSize=9,
+            leading=14,
+            alignment=TA_CENTER,
+            textColor=colors.grey,
+        )
+
+        # ── 构建内容 ──
+        elements: list = []
+
+        # 标题
+        elements.append(Paragraph("危险源辨识台账", title_style))
+
+        # 副标题：筛选条件 + 时间
+        filter_parts: list[str] = []
+        if department:
+            filter_parts.append(f"部门：{department}")
+        if position:
+            filter_parts.append(f"岗位：{position}")
+        if risk_level:
+            level_map = {
+                "level_1": "一级/重大风险", "level_2": "二级/较大风险",
+                "level_3": "三级/一般风险", "level_4": "四级/低风险",
+            }
+            filter_parts.append(f"风险等级：{level_map.get(risk_level, risk_level)}")
+        if date_from:
+            filter_parts.append(f"起：{date_from}")
+        if date_to:
+            filter_parts.append(f"止：{date_to}")
+        if keyword:
+            filter_parts.append(f"关键词：{keyword}")
+        filter_text = "；".join(filter_parts) if filter_parts else "全部记录"
+        export_time = dt_module.now().strftime("%Y-%m-%d %H:%M")
+        elements.append(Paragraph(
+            f"筛选条件：{filter_text}　|　导出时间：{export_time}　|　共 {len(items)} 条",
+            subtitle_style,
+        ))
+        elements.append(Spacer(1, 6 * mm))
+
+        # ── 数据表 ──
+        level_label_map = {
+            "level_1": "重大", "level_2": "较大",
+            "level_3": "一般", "level_4": "低",
+        }
+        headers = [
+            "序号", "编号", "部门", "岗位", "作业活动",
+            "危险类型", "固有风险", "残余风险",
+            "管控层级", "责任人", "控制措施摘要",
+        ]
+        col_widths = [
+            25, 70, 50, 50, 80,
+            55, 55, 55,
+            45, 50, 160,
+        ]
+
+        table_data = [headers]
+        for idx, item in enumerate(items, 1):
+            inherent_label = item.inherent_risk_label or level_label_map.get(
+                item.inherent_risk_level or "", ""
+            )
+            inherent_d = f"{inherent_label}(D={int(item.d_inherent)})" if item.d_inherent and inherent_label else inherent_label or "-"
+            residual_label = item.residual_risk_label or level_label_map.get(
+                item.residual_risk_level or "", ""
+            )
+            residual_d = f"{residual_label}(D={int(item.d_residual)})" if item.d_residual and residual_label else residual_label or "-"
+
+            # 控制措施摘要
+            controls_parts = []
+            if item.existing_engineering_controls:
+                controls_parts.append(f"工程：{item.existing_engineering_controls[:60]}")
+            if item.existing_management_controls:
+                controls_parts.append(f"管理：{item.existing_management_controls[:60]}")
+            if item.existing_ppe:
+                controls_parts.append(f"PPE：{item.existing_ppe[:40]}")
+            controls_summary = "；".join(controls_parts) if controls_parts else "-"
+
+            row = [
+                str(idx),
+                item.hazard_id_no or "",
+                item.department or "",
+                item.position or "",
+                item.specific_activity or item.production_step or "",
+                item.hazard_type or "",
+                inherent_d,
+                residual_d,
+                item.control_level or "",
+                item.responsible_person or "",
+                controls_summary,
+            ]
+            table_data.append(row)
+
+        table = Table(table_data, colWidths=[w * mm / 4 for w in col_widths], repeatRows=1)
+        table.setStyle(TableStyle([
+            # Header
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#5645D4")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), _font_name_bold),
+            ("FONTSIZE", (0, 0), (-1, 0), 8),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            # Body
+            ("FONTNAME", (0, 1), (-1, -1), _font_name),
+            ("FONTSIZE", (0, 1), (-1, -1), 7.5),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ("ALIGN", (1, 1), (1, -1), "CENTER"),
+            # Grid
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D9D9D9")),
+            ("LINEBELOW", (0, 0), (-1, 0), 1.5, colors.HexColor("#3D2DA6")),
+            # Row striping
+            *[
+                ("BACKGROUND", (0, i), (-1, i), colors.HexColor("#F7F6FB"))
+                for i in range(2, len(table_data) + 1, 2)
+            ],
+        ]))
+        elements.append(table)
+        elements.append(Spacer(1, 10 * mm))
+
+        # ── 签发栏 ──
+        sign_style = ParagraphStyle(
+            "SignCN",
+            parent=body_style,
+            fontSize=10,
+            leading=16,
+        )
+        sign_table = Table(
+            [[
+                Paragraph("编制人：______________", sign_style),
+                Paragraph("审核人：______________", sign_style),
+                Paragraph("批准人：______________", sign_style),
+            ]],
+            colWidths=[page_w / 3 - 20, page_w / 3 - 20, page_w / 3 - 20],
+        )
+        sign_table.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("FONTNAME", (0, 0), (-1, -1), _font_name),
+            ("LEFTPADDING", (0, 0), (-1, -1), 30),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 30),
+        ]))
+        sign_data = [
+            [Paragraph("日期：______________", sign_style),
+             Paragraph("日期：______________", sign_style),
+             Paragraph("日期：______________", sign_style)],
+        ]
+        sign_table2 = Table(
+            sign_data,
+            colWidths=[page_w / 3 - 20, page_w / 3 - 20, page_w / 3 - 20],
+        )
+        sign_table2.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("FONTNAME", (0, 0), (-1, -1), _font_name),
+            ("LEFTPADDING", (0, 0), (-1, -1), 30),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 30),
+        ]))
+        elements.append(sign_table)
+        elements.append(Spacer(1, 4 * mm))
+        elements.append(sign_table2)
+
+        # ── 生成 PDF ──
+        def add_page_number(canvas, doc_obj):
+            canvas.saveState()
+            canvas.setFont(_font_name, 8)
+            canvas.drawCentredString(
+                page_w / 2, 10 * mm,
+                f"第 {canvas.getPageNumber()} 页",
+            )
+            canvas.restoreState()
+
+        doc.build(elements, onFirstPage=add_page_number, onLaterPages=add_page_number)
+        buf.seek(0)
+        return buf.getvalue()
+
 
 # ==================== 操规修订 Service ====================
 
@@ -1157,7 +1978,6 @@ class RegulationService:
 
     async def create_regulation(self, data) -> Any:
         """创建安全操作规程"""
-        from app.modules.safety.schemas import OperationRegulationCreate
 
         create_data = data.model_dump() if not isinstance(data, dict) else data
         return await self.repo.create_regulation(create_data)
@@ -1382,22 +2202,15 @@ class RegulationService:
 
         updated = await self.repo.get_revision_by_id(revision_id)
 
-        # 若修订范围包含"工艺"，自动触发危险源辨识修订
-        if "process" in (scope_result or ""):
-            await self._auto_trigger_hazard_identification(revision_id)
-
         return updated
 
     # ==================== AI 辅助方法 ====================
 
     async def _get_ai_client(self) -> AIService:
-        """获取 AI 服务客户端（优先数据库配置，fallback 到 env）"""
-        # 优先尝试从数据库获取激活的 API 配置
-        config = await self.repo.get_active_api_call_config()
+        """获取文本模型 AI 服务客户端（安全模块数据库配置）"""
+        config = await self.repo.get_active_api_call_config(config_type="text")
         if config:
-            logger.debug(
-                "使用数据库 API 配置: %s (%s)", config.config_name, config.model_name
-            )
+            logger.debug("使用数据库 API 配置: %s (%s)", config.config_name, config.model_name)
             return AIService(
                 api_key=config.api_key,
                 base_url=config.api_base_url,
@@ -1405,17 +2218,18 @@ class RegulationService:
                 timeout=config.timeout_seconds,
             )
 
-        # Fallback 到 env 配置
-        settings = get_settings()
-        if not settings.AI_API_KEY:
-            raise AIOutputError("AI_API_KEY 未配置，无法执行 AI 操作")
-        logger.debug("使用 env API 配置: %s", settings.AI_MODEL)
-        return AIService(
-            api_key=settings.AI_API_KEY,
-            base_url=settings.AI_BASE_URL,
-            model=settings.AI_MODEL,
-            timeout=settings.AI_TIMEOUT,
-        )
+        # 自动种子：从环境变量迁移到数据库
+        await _ensure_ai_config_seeded(self.session, "text")
+        config = await self.repo.get_active_api_call_config(config_type="text")
+        if config:
+            return AIService(
+                api_key=config.api_key,
+                base_url=config.api_base_url,
+                model=config.model_name,
+                timeout=config.timeout_seconds,
+            )
+
+        raise AIOutputError("安全模块未配置文本 AI 模型，请在 API 配置页面进行配置")
 
     async def _ai_identify_scope(
         self,
@@ -1546,140 +2360,9 @@ class RegulationService:
         if not os.path.exists(path):
             raise FileNotFoundError(f"文档不存在: {path}")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read(max_chars)
         return content
-
-    # ==================== 危险源辨识修订 ====================
-
-    async def _auto_trigger_hazard_identification(
-        self, revision_id: uuid.UUID
-    ) -> Any | None:
-        """自动触发危险源辨识修订（内部方法）
-
-        当操规修订范围包含"工艺"时自动调用。
-        """
-        revision = await self.repo.get_revision_by_id(revision_id)
-        if not revision:
-            return None
-
-        # 检查是否已有关联的危险源辨识记录，避免重复创建
-        existing = await self.repo.get_hazard_revision_records(
-            regulation_revision_id=revision_id
-        )
-        if existing[1] > 0:
-            logger.info(f"修订记录 {revision_id} 已有危险源辨识记录，跳过自动触发")
-            return None
-
-        # 生成危险源辨识编号
-        now = datetime.now()
-        hazard_no = f"HR-{now.strftime('%Y%m%d')}-{now.strftime('%H%M%S')}"
-
-        record_data = {
-            "hazard_revision_no": hazard_no,
-            "regulation_revision_id": revision_id,
-            "regulation_name": revision.regulation_name,
-            "identifier_id": revision.reviser,
-            "identifier_name": revision.reviser_name,
-            "identification_time": now,
-            "identification_type": "auto_trigger",
-            "process_change_content": revision.revision_opinion,
-        }
-
-        return await self.repo.create_hazard_revision_record(record_data)
-
-    async def create_hazard_revision_manual(
-        self, data
-    ) -> Any:
-        """手动创建危险源辨识修订记录"""
-        create_data = data.model_dump() if not isinstance(data, dict) else data
-        create_data["identification_time"] = create_data.get("identification_time", datetime.now())
-        create_data["identification_type"] = create_data.get("identification_type", "manual_start")
-        return await self.repo.create_hazard_revision_record(create_data)
-
-    # ==================== 危险源辨识修订记录 CRUD ====================
-
-    async def get_hazard_revision_records(
-        self,
-        skip: int = 0,
-        limit: int = 20,
-        regulation_revision_id: uuid.UUID | None = None,
-        review_opinion: str | None = None,
-        identification_type: str | None = None,
-        keyword: str | None = None,
-    ) -> tuple[list, int]:
-        """获取危险源辨识修订记录列表"""
-        return await self.repo.get_hazard_revision_records(
-            skip, limit, regulation_revision_id, review_opinion, identification_type, keyword
-        )
-
-    async def get_hazard_revision_record(self, record_id: uuid.UUID):
-        """获取危险源辨识修订记录详情"""
-        return await self.repo.get_hazard_revision_record_by_id(record_id)
-
-    async def update_hazard_revision_record(self, record_id: uuid.UUID, data) -> Any | None:
-        """更新危险源辨识修订记录"""
-        update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_hazard_revision_record(record_id, update_data)
-
-    async def delete_hazard_revision_record(self, record_id: uuid.UUID) -> bool:
-        """删除危险源辨识修订记录"""
-        return await self.repo.delete_hazard_revision_record(record_id)
-
-    async def approve_hazard_revision(self, record_id: uuid.UUID) -> Any | None:
-        """审核通过危险源辨识修订记录"""
-        record = await self.repo.get_hazard_revision_record_by_id(record_id)
-        if not record or record.review_opinion != "pending":
-            return None
-        return await self.repo.update_hazard_revision_record(
-            record_id, {"review_opinion": "approved"}
-        )
-
-    # ==================== 危险源辨识存档 CRUD ====================
-
-    async def get_hazard_revision_archives(
-        self,
-        skip: int = 0,
-        limit: int = 20,
-        status: str | None = None,
-        keyword: str | None = None,
-    ) -> tuple[list, int]:
-        """获取危险源辨识存档列表"""
-        return await self.repo.get_hazard_revision_archives(skip, limit, status, keyword)
-
-    async def get_hazard_revision_archive(self, archive_id: uuid.UUID):
-        """获取危险源辨识存档详情"""
-        return await self.repo.get_hazard_revision_archive_by_id(archive_id)
-
-    async def create_hazard_revision_archive(self, data) -> Any:
-        """创建危险源辨识存档"""
-        create_data = data.model_dump() if not isinstance(data, dict) else data
-        create_data["identification_date"] = create_data.get("identification_date", datetime.now())
-        return await self.repo.create_hazard_revision_archive(create_data)
-
-    async def update_hazard_revision_archive(self, archive_id: uuid.UUID, data) -> Any | None:
-        """更新危险源辨识存档"""
-        update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_hazard_revision_archive(archive_id, update_data)
-
-    async def delete_hazard_revision_archive(self, archive_id: uuid.UUID) -> bool:
-        """删除危险源辨识存档"""
-        return await self.repo.delete_hazard_revision_archive(archive_id)
-
-    async def link_revision_to_archive(
-        self, record_id: uuid.UUID, archive_id: uuid.UUID
-    ) -> Any | None:
-        """关联危险源辨识修订记录到存档"""
-        record = await self.repo.get_hazard_revision_record_by_id(record_id)
-        if not record:
-            return None
-        archive = await self.repo.get_hazard_revision_archive_by_id(archive_id)
-        if not archive:
-            return None
-
-        return await self.repo.update_hazard_revision_record(
-            record_id, {"linked_hazard_archive_id": archive_id}
-        )
 
     # ==================== 文档上传处理 ====================
 
@@ -1692,18 +2375,6 @@ class RegulationService:
             {
                 "document_path": file_path,
                 "document_original_name": file_name,
-            },
-        )
-
-    async def upload_hazard_document(
-        self, record_id: uuid.UUID, file_name: str, file_path: str
-    ) -> Any | None:
-        """上传危险源辨识文档并更新修订记录"""
-        return await self.repo.update_hazard_revision_record(
-            record_id,
-            {
-                "hazard_document_path": file_path,
-                "hazard_document_original_name": file_name,
             },
         )
 
@@ -1773,16 +2444,19 @@ class ConfigService:
         """获取 API 调用配置详情"""
         return await self.repo.get_api_call_config_by_id(config_id)
 
-    async def get_active_api_call_config(self) -> APICallConfig | None:
+    async def get_active_api_call_config(
+        self, config_type: str = "text"
+    ) -> APICallConfig | None:
         """获取当前激活的 API 调用配置"""
-        return await self.repo.get_active_api_call_config()
+        return await self.repo.get_active_api_call_config(config_type)
 
     async def create_api_call_config(self, data: APICallConfigCreate) -> APICallConfig:
         """创建 API 调用配置"""
         create_data = data.model_dump() if not isinstance(data, dict) else data
-        # 如果新配置标记为激活，先停用所有其他配置
+        # 如果新配置标记为激活，停用同类型其他配置（允许 text/vision 各有一个激活）
         if create_data.get("is_active"):
-            await self.repo.deactivate_all_api_call_configs()
+            cfg_type = create_data.get("config_type", "text")
+            await self.repo.deactivate_all_api_call_configs(cfg_type)
         return await self.repo.create_api_call_config(create_data)
 
     async def update_api_call_config(
@@ -1790,17 +2464,18 @@ class ConfigService:
     ) -> APICallConfig | None:
         """更新 API 调用配置"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        # 如果更新为激活，先停用所有其他配置
+        # 如果更新为激活，停用同类型其他配置
         if update_data.get("is_active"):
-            await self.repo.deactivate_all_api_call_configs()
+            cfg_type = update_data.get("config_type", "text")
+            await self.repo.deactivate_all_api_call_configs(cfg_type)
         return await self.repo.update_api_call_config(config_id, update_data)
 
     async def activate_api_call_config(self, config_id: uuid.UUID) -> APICallConfig | None:
-        """激活指定的 API 调用配置（停用其他）"""
+        """激活指定的 API 调用配置（停用同类型其他配置）"""
         config = await self.repo.get_api_call_config_by_id(config_id)
         if not config:
             return None
-        await self.repo.deactivate_all_api_call_configs()
+        await self.repo.deactivate_all_api_call_configs(config.config_type)
         return await self.repo.update_api_call_config(config_id, {"is_active": True})
 
     async def delete_api_call_config(self, config_id: uuid.UUID) -> bool:
@@ -2175,12 +2850,10 @@ class SpecialOperationReportService:
         return config
 
     async def _get_ai_service(self) -> "AIService":
-        """获取 AI 服务客户端（优先数据库配置，fallback 到 env）"""
-        config = await self.repo.get_active_api_call_config()
+        """获取文本模型 AI 服务客户端（安全模块数据库配置）"""
+        config = await self.repo.get_active_api_call_config(config_type="text")
         if config:
-            logger.debug(
-                "使用数据库 API 配置: %s (%s)", config.config_name, config.model_name
-            )
+            logger.debug("使用数据库 API 配置: %s (%s)", config.config_name, config.model_name)
             return AIService(
                 api_key=config.api_key,
                 base_url=config.api_base_url,
@@ -2188,16 +2861,18 @@ class SpecialOperationReportService:
                 timeout=config.timeout_seconds,
             )
 
-        settings = get_settings()
-        if not settings.AI_API_KEY:
-            raise AIOutputError("AI_API_KEY 未配置，无法执行关键作业判定")
-        logger.debug("使用 env API 配置: %s", settings.AI_MODEL)
-        return AIService(
-            api_key=settings.AI_API_KEY,
-            base_url=settings.AI_BASE_URL,
-            model=settings.AI_MODEL,
-            timeout=settings.AI_TIMEOUT,
-        )
+        # 自动种子：从环境变量迁移到数据库
+        await _ensure_ai_config_seeded(self.session, "text")
+        config = await self.repo.get_active_api_call_config(config_type="text")
+        if config:
+            return AIService(
+                api_key=config.api_key,
+                base_url=config.api_base_url,
+                model=config.model_name,
+                timeout=config.timeout_seconds,
+            )
+
+        raise AIOutputError("安全模块未配置文本 AI 模型，请在 API 配置页面进行配置")
 
     async def _identify_critical(
         self, report: "SpecialOperationReport"

@@ -59,13 +59,6 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
 
-    # AI / LLM
-    AI_API_KEY: str = ""
-    AI_BASE_URL: str = "https://api.openai.com/v1"
-    AI_MODEL: str = "gpt-4o"
-    AI_TIMEOUT: int = 120
-    AI_TEMPERATURE: float = 0.1
-
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"

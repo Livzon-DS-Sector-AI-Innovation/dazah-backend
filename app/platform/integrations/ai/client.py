@@ -51,9 +51,15 @@ class AIService:
         max_tokens: int = 16384,
     ) -> str:
         """Send a chat completion request and return the response text."""
+        # 使用 json_object 格式时，prompt 中必须出现 "json" 字样（DeepSeek/OpenAI 要求）
+        msgs = [dict(m) for m in messages]  # shallow copy
+        if response_format == "json_object":
+            last = msgs[-1]
+            if isinstance(last.get("content"), str) and "json" not in last["content"].lower():
+                last["content"] = last["content"] + "\n\n请以 JSON 格式返回结果。"
         body: dict = {
             "model": self.model,
-            "messages": messages,
+            "messages": msgs,
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
@@ -102,6 +108,77 @@ class AIService:
         missing = [k for k in expected_keys if k not in parsed]
         if missing:
             raise AIOutputError(f"AI response missing keys: {missing}", raw)
+        return parsed
+
+    async def chat_vision(
+        self,
+        text_prompt: str,
+        image_urls: list[str],
+        temperature: float = 0.1,
+        max_tokens: int = 16384,
+    ) -> str:
+        """Send a multimodal chat request with images (vision-capable model).
+
+        Uses OpenAI-compatible vision format:
+        messages = [{"role":"user", "content":[{"type":"text",...}, {"type":"image_url",...}]}]
+        """
+        content_parts: list[dict] = [
+            {"type": "text", "text": text_prompt},
+        ]
+        for url in image_urls:
+            content_parts.append({
+                "type": "image_url",
+                "image_url": {"url": url},
+            })
+
+        body: dict = {
+            "model": self.model,
+            "messages": [
+                {"role": "user", "content": content_parts},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        resp = await self._client.post("/chat/completions", json=body)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+
+    async def chat_vision_parsed(
+        self,
+        text_prompt: str,
+        image_urls: list[str],
+        expected_keys: list[str],
+        temperature: float = 0.1,
+    ) -> dict:
+        """Vision chat + parse JSON response, validating expected keys."""
+        raw = await self.chat_vision(text_prompt, image_urls, temperature=temperature)
+        try:
+            # Strip markdown code fences if present
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                lines = cleaned.split("\n")
+                # Find first line that doesn't start with ```
+                for i, line in enumerate(lines):
+                    if not line.strip().startswith("```"):
+                        cleaned = "\n".join(lines[i:])
+                        break
+                # Remove trailing ```
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3].strip()
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            raise AIOutputError("Vision AI response is not valid JSON", raw) from e
+
+        # coerce boolean strings
+        for k, v in parsed.items():
+            if isinstance(v, str) and v.lower() in ("true", "false"):
+                parsed[k] = v.lower() == "true"
+
+        missing = [k for k in expected_keys if k not in parsed]
+        if missing:
+            raise AIOutputError(f"Vision AI response missing keys: {missing}", raw)
         return parsed
 
     async def health_check(self) -> dict:
