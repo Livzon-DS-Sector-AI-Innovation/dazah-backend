@@ -1,4 +1,4 @@
-"""Production database queries live here."""
+"""Quality database queries live here."""
 
 from datetime import date, datetime, timedelta
 from uuid import UUID

@@ -1,8 +1,3 @@
-from app.shared.module_api import create_module_router
-from app.shared.module_registry import MODULES_BY_CODE
-
-router = create_module_router(MODULES_BY_CODE["production"])
-
 from datetime import date
 from uuid import UUID
 
@@ -11,18 +6,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.response import paginated_response, success_response
-from app.modules.production.label_verification_schemas import (
+from app.modules.production.schemas import (
     LabelVerificationCreate,
     LabelVerificationUpdate,
 )
-from app.modules.production.label_verification_service import LabelVerificationService
+from app.modules.production.service import LabelVerificationService
+from app.shared.module_api import create_module_router
+from app.shared.module_registry import MODULES_BY_CODE
 from app.shared.schemas import PageParams
+
+router = create_module_router(MODULES_BY_CODE["quality"])
 
 
 def get_label_verification_service(
     session: AsyncSession = Depends(get_db),
 ) -> LabelVerificationService:
     return LabelVerificationService(session)
+
+
+# ─── LabelVerification Routes ───
 
 
 @router.get("/label-verifications", summary="标签复核记录列表")

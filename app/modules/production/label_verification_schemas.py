@@ -1,9 +1,11 @@
-"""Production request and response schemas live here."""
+"""Quality request and response schemas live here."""
 
 from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# ─── LabelVerification Schemas ───
 
 
 class LabelVerificationBase(BaseModel):
