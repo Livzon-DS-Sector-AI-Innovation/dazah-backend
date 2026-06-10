@@ -26,6 +26,10 @@ class BayesianProject(BaseModel):
     experiments: Mapped[list["BayesianExperiment"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    # 关联的反应范围
+    reaction_scopes: Mapped[list["ReactionScope"]] = relationship(
+        cascade="all, delete-orphan"
+    )
 
 
 class BayesianComponent(BaseModel):

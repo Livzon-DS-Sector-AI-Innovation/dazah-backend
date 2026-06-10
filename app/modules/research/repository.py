@@ -25,7 +25,7 @@ async def create_project(db: AsyncSession, project: BayesianProject) -> Bayesian
 async def get_project(db: AsyncSession, project_id: uuid.UUID) -> BayesianProject | None:
     result = await db.execute(
         select(BayesianProject)
-        .options(selectinload(BayesianProject.components), selectinload(BayesianProject.objectives))
+        .options(selectinload(BayesianProject.components), selectinload(BayesianProject.objectives), selectinload(BayesianProject.experiments), selectinload(BayesianProject.reaction_scopes))
         .where(BayesianProject.id == project_id, BayesianProject.is_deleted == False)
     )
     return result.scalar_one_or_none()
