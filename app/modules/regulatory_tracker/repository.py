@@ -1,7 +1,7 @@
 """Regulatory Tracker repository layer."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any
 
 from sqlalchemy import select, func, and_
@@ -183,3 +183,155 @@ async def update_sync_job_page(
             setattr(page, key, value)
     await db.flush()
     return page
+
+
+# ============ API 查询方法 ============
+
+async def get_summary_stats(db: AsyncSession) -> dict[str, Any]:
+    """获取统计摘要数据"""
+    from datetime import date, timedelta
+    
+    # 总文档数
+    total_result = await db.execute(
+        select(func.count(RegulatoryDocument.id)).where(
+            RegulatoryDocument.is_deleted == False  # noqa: E712
+        )
+    )
+    total_count = total_result.scalar() or 0
+    
+    # 今日新增数
+    today = date.today()
+    today_start = datetime.combine(today, datetime.min.time())
+    today_new_result = await db.execute(
+        select(func.count(RegulatoryDocument.id)).where(
+            RegulatoryDocument.is_deleted == False,  # noqa: E712
+            RegulatoryDocument.first_found_at >= today_start
+        )
+    )
+    today_new_count = today_new_result.scalar() or 0
+    
+    # 未读新增数
+    unread_result = await db.execute(
+        select(func.count(RegulatoryDocument.id)).where(
+            RegulatoryDocument.is_deleted == False,  # noqa: E712
+            RegulatoryDocument.is_new == True  # noqa: E712
+        )
+    )
+    unread_new_count = unread_result.scalar() or 0
+    
+    # 最近同步任务
+    last_sync_result = await db.execute(
+        select(SyncJob)
+        .where(SyncJob.finished_at.isnot(None))
+        .order_by(SyncJob.finished_at.desc())
+        .limit(1)
+    )
+    last_sync = last_sync_result.scalar_one_or_none()
+    
+    return {
+        "totalCount": total_count,
+        "todayNewCount": today_new_count,
+        "unreadNewCount": unread_new_count,
+        "lastSyncTime": last_sync.finished_at.isoformat() if last_sync and last_sync.finished_at else None,
+        "lastSyncStatus": last_sync.status if last_sync else None,
+    }
+
+
+async def get_documents_with_filters(
+    db: AsyncSession,
+    keyword: str | None = None,
+    publish_date_from: date | None = None,
+    publish_date_to: date | None = None,
+    status_text: str | None = None,
+    classification: str | None = None,
+    is_new: bool | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[RegulatoryDocument], int]:
+    """带筛选条件的文档列表查询"""
+    query = select(RegulatoryDocument).where(
+        RegulatoryDocument.is_deleted == False  # noqa: E712
+    )
+    count_query = select(func.count(RegulatoryDocument.id)).where(
+        RegulatoryDocument.is_deleted == False  # noqa: E712
+    )
+    
+    # 应用筛选条件
+    if keyword:
+        keyword_filter = RegulatoryDocument.title.ilike(f"%{keyword}%")
+        query = query.where(keyword_filter)
+        count_query = count_query.where(keyword_filter)
+    
+    if publish_date_from:
+        date_filter = RegulatoryDocument.publish_date >= publish_date_from
+        query = query.where(date_filter)
+        count_query = count_query.where(date_filter)
+    
+    if publish_date_to:
+        date_filter = RegulatoryDocument.publish_date <= publish_date_to
+        query = query.where(date_filter)
+        count_query = count_query.where(date_filter)
+    
+    if status_text:
+        status_filter = RegulatoryDocument.status_text == status_text
+        query = query.where(status_filter)
+        count_query = count_query.where(status_filter)
+    
+    if classification:
+        class_filter = RegulatoryDocument.classification.ilike(f"%{classification}%")
+        query = query.where(class_filter)
+        count_query = count_query.where(class_filter)
+    
+    if is_new is not None:
+        new_filter = RegulatoryDocument.is_new == is_new
+        query = query.where(new_filter)
+        count_query = count_query.where(new_filter)
+    
+    # 获取总数
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+    
+    # 分页
+    offset = (page - 1) * page_size
+    query = query.order_by(RegulatoryDocument.publish_date.desc()).offset(offset).limit(page_size)
+    
+    result = await db.execute(query)
+    documents = list(result.scalars().all())
+    
+    return documents, total
+
+
+async def get_document_by_id(db: AsyncSession, doc_id: uuid.UUID) -> RegulatoryDocument | None:
+    """根据 ID 获取文档"""
+    result = await db.execute(
+        select(RegulatoryDocument).where(
+            RegulatoryDocument.id == doc_id,
+            RegulatoryDocument.is_deleted == False  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_sync_jobs_list(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[SyncJob], int]:
+    """获取同步任务列表"""
+    # 获取总数
+    count_result = await db.execute(
+        select(func.count(SyncJob.id))
+    )
+    total = count_result.scalar() or 0
+    
+    # 分页查询
+    offset = (page - 1) * page_size
+    result = await db.execute(
+        select(SyncJob)
+        .order_by(SyncJob.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    jobs = list(result.scalars().all())
+    
+    return jobs, total
