@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.production.models import LabelVerification
+from app.modules.production.label_verification_models import LabelVerification
 
 
 class LabelVerificationRepository:

@@ -27,7 +27,7 @@ class LabelVerification(BaseModel):
         Index("ix_label_verifications_production_date", "production_date"),
         Index("ix_label_verifications_verification_date", "verification_date"),
         Index("ix_label_verifications_result_status", "result_status"),
-        {"schema": "quality"},
+        {"schema": "production"},
     )
 
     # 基础信息

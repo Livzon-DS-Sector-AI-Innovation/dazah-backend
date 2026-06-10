@@ -47,23 +47,6 @@ class ResearchProject(BaseModel):
     leader: Mapped[str | None] = mapped_column(
         String(100), nullable=True, comment="项目负责人"
     )
-
-    # 关联的参数
-    components: Mapped[list["BayesianComponent"]] = relationship(
-        primaryjoin="BayesianProject.id == foreign(BayesianComponent.project_id)",
-        cascade="all, delete-orphan",
-        viewonly=False
-    )
-    # 关联的目标
-    objectives: Mapped[list["BayesianObjective"]] = relationship(
-        primaryjoin="BayesianProject.id == foreign(BayesianObjective.project_id)",
-        cascade="all, delete-orphan",
-        viewonly=False
-    )
-    # 关联的实验数据
-    experiments: Mapped[list["BayesianExperiment"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
     start_date: Mapped[date | None] = mapped_column(
         Date, nullable=True, comment="开始日期"
     )

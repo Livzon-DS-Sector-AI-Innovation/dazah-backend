@@ -16,9 +16,18 @@ from app.modules.research.schemas import (
 async def create_project(
     db: AsyncSession, data: ResearchProjectCreate
 ) -> ResearchProject:
-    if await repo.exists_by_project_no(db, data.project_no):
-        raise DuplicateException("项目编号", data.project_no)
-    return await repo.create_project(db, data.model_dump())
+    # Auto-generate project_no if not provided
+    project_no = data.project_no
+    if not project_no:
+        import uuid
+        project_no = f"PRJ-{str(uuid.uuid4())[:8].upper()}"
+    
+    if await repo.exists_by_project_no(db, project_no):
+        raise DuplicateException("项目编号", project_no)
+    
+    project_data = data.model_dump()
+    project_data["project_no"] = project_no
+    return await repo.create_project(db, project_data)
 
 
 async def get_project(db: AsyncSession, project_id: uuid.UUID) -> ResearchProject:

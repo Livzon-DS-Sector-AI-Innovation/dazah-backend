@@ -7,9 +7,9 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
-from app.modules.production.models import LabelVerification
-from app.modules.production.repository import LabelVerificationRepository
-from app.modules.production.schemas import (
+from app.modules.production.label_verification_models import LabelVerification
+from app.modules.production.label_verification_repository import LabelVerificationRepository
+from app.modules.production.label_verification_schemas import (
     LabelVerificationCreate,
     LabelVerificationResponse,
     LabelVerificationStatistics,
