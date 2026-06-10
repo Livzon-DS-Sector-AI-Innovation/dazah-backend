@@ -22,6 +22,18 @@ class BayesianProject(BaseModel):
         String(50), default="draft", comment="状态: draft/running/completed/failed"
     )
 
+    # 关联的参数
+    components: Mapped[list["BayesianComponent"]] = relationship(
+        primaryjoin="BayesianProject.id == foreign(BayesianComponent.project_id)",
+        cascade="all, delete-orphan",
+        viewonly=False
+    )
+    # 关联的目标
+    objectives: Mapped[list["BayesianObjective"]] = relationship(
+        primaryjoin="BayesianProject.id == foreign(BayesianObjective.project_id)",
+        cascade="all, delete-orphan",
+        viewonly=False
+    )
     # 关联的实验数据
     experiments: Mapped[list["BayesianExperiment"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
