@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ============ Component Schemas ============
@@ -20,6 +20,7 @@ class ComponentCreate(ComponentBase):
 
 
 class ComponentResponse(ComponentBase):
+    model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     project_id: uuid.UUID
     created_at: datetime
@@ -37,6 +38,7 @@ class ObjectiveCreate(ObjectiveBase):
 
 
 class ObjectiveResponse(ObjectiveBase):
+    model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     project_id: uuid.UUID
     created_at: datetime
@@ -60,6 +62,7 @@ class ProjectUpdate(BaseModel):
 
 
 class ProjectResponse(ProjectBase):
+    model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     status: str
     created_at: datetime
@@ -67,6 +70,7 @@ class ProjectResponse(ProjectBase):
 
 
 class ProjectDetail(ProjectResponse):
+    model_config = ConfigDict(from_attributes=True)
     components: list[ComponentResponse] = []
     objectives: list[ObjectiveResponse] = []
 
@@ -85,6 +89,7 @@ class ExperimentCreate(ExperimentBase):
 
 
 class ExperimentResponse(ExperimentBase):
+    model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     project_id: uuid.UUID
     created_at: datetime
@@ -103,6 +108,7 @@ class ReactionScopeCreate(BaseModel):
 
 
 class ReactionScopeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     project_id: uuid.UUID
     name: str

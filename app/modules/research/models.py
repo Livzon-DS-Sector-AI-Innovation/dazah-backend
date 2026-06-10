@@ -28,7 +28,9 @@ class BayesianProject(BaseModel):
     )
     # 关联的反应范围
     reaction_scopes: Mapped[list["ReactionScope"]] = relationship(
-        cascade="all, delete-orphan"
+        primaryjoin="BayesianProject.id == foreign(ReactionScope.project_id)",
+        cascade="all, delete-orphan",
+        viewonly=False
     )
 
 
