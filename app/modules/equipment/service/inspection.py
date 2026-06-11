@@ -409,6 +409,8 @@ async def submit_equipment_check(
         r["task_id"] = str(task_id)
         r["equipment_id"] = str(equipment_id)
 
+    # 替换旧记录：先软删除同设备的已有记录，再创建新记录
+    await repo.soft_delete_records_by_task_equipment(db, task_id, equipment_id)
     created_records = await repo.create_inspection_records(db, records)
 
     # 筛选异常记录

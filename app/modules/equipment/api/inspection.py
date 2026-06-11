@@ -268,7 +268,12 @@ async def get_task(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     task = await inspection_svc.get_task_by_id(db, task_id)
-    return success_response(data=_task_to_response(task))
+    resp = _task_to_response(task)
+    # 填充已完成设备列表
+    completed_ids = await repo.get_task_equipment_completed_ids(db, task_id)
+    resp.completed_equipment_ids = list(completed_ids)
+    resp.completed_count = len(completed_ids)
+    return success_response(data=resp)
 
 
 @router.put("/tasks/{task_id}/start", summary="开始巡检")

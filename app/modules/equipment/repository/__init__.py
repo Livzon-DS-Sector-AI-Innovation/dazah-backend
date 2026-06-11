@@ -27,6 +27,7 @@ from app.modules.equipment.repository.equipment import (
     get_departments_for_select,
     get_equipment_by_id,
     get_equipment_by_no,
+    get_user_name_by_id,
     get_equipment_categories,
     get_equipment_category_by_id,
     get_equipment_category_tree,
@@ -70,6 +71,7 @@ from app.modules.equipment.repository.inspection import (
     get_task_equipment_completed_ids,
     get_tasks,
     set_route_equipments,
+    soft_delete_records_by_task_equipment,
     update_route,
 )
 from app.modules.equipment.repository.inspection_template import (
@@ -189,6 +191,7 @@ __all__ = [
     "get_departments_for_select",
     "get_equipment_by_id",
     "get_equipment_by_no",
+    "get_user_name_by_id",
     "get_equipment_names_by_ids",
     "get_equipment_categories",
     "get_equipment_category_by_id",
@@ -261,5 +264,6 @@ __all__ = [
     "list_roles",
     "soft_delete_personnel_categories",
     "soft_delete_personnel_roles",
+    "soft_delete_records_by_task_equipment",
     "soft_delete_role",
 ]
