@@ -1903,8 +1903,6 @@ class LedgerExportParsedFilters(BaseModel):
     explanation: str = Field("", description="AI 对筛选条件的解读说明")
 
 
-<<<<<<< HEAD
-=======
 # ── 危险源辨识台账导出 ──
 
 
@@ -1930,7 +1928,6 @@ class HazardLedgerExportParsedFilters(BaseModel):
     explanation: str = Field("", description="AI 对筛选条件的解读说明")
 
 
->>>>>>> origin/feature/safety-module
 # ── 危险源风险选项（常规作业报备用） ──
 
 

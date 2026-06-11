@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     # Storage
     STORAGE_ROOT: str = "./storage"
 
+    # 设备模块交互机器人
+    EQUIPMENT_FEISHU_APP_ID: str = ""
+    EQUIPMENT_FEISHU_APP_SECRET: str = ""
+
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
