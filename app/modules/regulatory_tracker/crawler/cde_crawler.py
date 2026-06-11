@@ -398,7 +398,7 @@ class CdeDomesticGuidelineAdapter:
             标准化后的字典
         """
         zdyz_id = record.get("zdyzIdCODE", "")
-        issue_date_str = record.get("issueDate", "")
+        issue_date_str = record.get("issueDate", "").strip()
 
         # 解析日期
         publish_date = None
@@ -406,7 +406,7 @@ class CdeDomesticGuidelineAdapter:
             try:
                 publish_date = datetime.strptime(issue_date_str, "%Y%m%d").date()
             except ValueError:
-                pass
+                logger.warning(f"日期解析失败: {issue_date_str}")
 
         # 构造原文链接
         original_url = ""

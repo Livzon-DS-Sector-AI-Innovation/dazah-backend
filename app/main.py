@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.response import error_response
 from app.platform.audit import AuditMiddleware
+from app.modules.regulatory_tracker.tasks.sync_tasks import start_scheduler, stop_scheduler
 
 settings = get_settings()
 
@@ -26,7 +27,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting %s (%s)", settings.APP_NAME, settings.APP_ENV)
+    start_scheduler()
     yield
+    stop_scheduler()
     logger.info("Shutting down %s", settings.APP_NAME)
 
 

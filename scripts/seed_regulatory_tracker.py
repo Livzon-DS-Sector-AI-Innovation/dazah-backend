@@ -1,7 +1,11 @@
 """Seed script for regulatory tracker initial data."""
 
 import asyncio
+import os
+import sys
 import uuid
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select
 

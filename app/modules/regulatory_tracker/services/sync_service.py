@@ -37,6 +37,7 @@ async def upsert_document(
             "last_checked_at": datetime.now(timezone.utc),
             "is_new": False,
             "title": normalized.get("title", existing.title),
+            "publish_date": normalized.get("publish_date") or existing.publish_date,
             "status_text": normalized.get("status_text", existing.status_text),
             "classification": normalized.get("classification", existing.classification),
             "raw_data": normalized.get("raw_data", existing.raw_data),
