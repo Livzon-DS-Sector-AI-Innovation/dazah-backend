@@ -39,15 +39,34 @@ class LLMConfig:
         """更新配置并保存到 .env 文件"""
         if api_key is not None:
             self.api_key = api_key
-            set_key(env_path, "OPENAI_API_KEY", api_key)
+            self._save_to_env("OPENAI_API_KEY", api_key)
         
         if base_url is not None:
             self.base_url = base_url
-            set_key(env_path, "OPENAI_BASE_URL", base_url)
+            self._save_to_env("OPENAI_BASE_URL", base_url)
         
         if model is not None:
             self.model = model
-            set_key(env_path, "OPENAI_MODEL", model)
+            self._save_to_env("OPENAI_MODEL", model)
+    
+    def _save_to_env(self, key: str, value: str):
+        """直接写入 .env 文件，避免 set_key 的截断问题"""
+        if not env_path.exists():
+            env_path.write_text("")
+        
+        lines = env_path.read_text().splitlines()
+        found = False
+        
+        for i, line in enumerate(lines):
+            if line.startswith(f"{key}="):
+                lines[i] = f"{key}={value}"
+                found = True
+                break
+        
+        if not found:
+            lines.append(f"{key}={value}")
+        
+        env_path.write_text("\n".join(lines) + "\n")
     
     def _mask_key(self, key: str) -> str:
         """隐藏 API Key，只显示前10位"""
@@ -60,10 +79,16 @@ class LLMConfig:
     async def test_connection(self) -> dict[str, Any]:
         """测试 LLM 连接"""
         if not self.api_key:
-            return {"success": False, "message": "API Key 未配置"}
+            return {"success": False, "message": "❌ API Key 未配置，请输入您的 API Key"}
+        
+        if not self.api_key.startswith("sk-"):
+            return {"success": False, "message": "❌ API Key 格式错误，应以 sk- 开头"}
+        
+        if len(self.api_key) < 20:
+            return {"success": False, "message": "❌ API Key 长度不足，请检查是否完整复制"}
         
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
                     f"{self.base_url}/chat/completions",
                     headers={
@@ -76,12 +101,26 @@ class LLMConfig:
                         "max_tokens": 5,
                     },
                 )
-                response.raise_for_status()
-                return {"success": True, "message": f"连接成功！模型: {self.model}"}
-        except httpx.HTTPError as e:
-            return {"success": False, "message": f"连接失败: {str(e)}"}
+                
+                if response.status_code == 200:
+                    return {"success": True, "message": f"✅ 连接成功！模型: {self.model}"}
+                elif response.status_code == 401:
+                    return {"success": False, "message": "❌ API Key 无效，请检查是否正确"}
+                elif response.status_code == 404:
+                    return {"success": False, "message": f"❌ 模型 {self.model} 不存在，请检查模型名称"}
+                elif response.status_code == 429:
+                    return {"success": False, "message": "❌ 请求过于频繁，请稍后再试"}
+                elif response.status_code >= 500:
+                    return {"success": False, "message": f"❌ 服务器错误 ({response.status_code})，请稍后再试"}
+                else:
+                    error_text = response.text[:100]
+                    return {"success": False, "message": f"❌ 请求失败 ({response.status_code}): {error_text}"}
+        except httpx.TimeoutException:
+            return {"success": False, "message": "❌ 连接超时，请检查网络或 Base URL 是否正确"}
+        except httpx.ConnectError:
+            return {"success": False, "message": "❌ 无法连接到服务器，请检查 Base URL 是否正确"}
         except Exception as e:
-            return {"success": False, "message": f"错误: {str(e)}"}
+            return {"success": False, "message": f"❌ 未知错误: {str(e)}"}
 
 
 # 全局配置实例
