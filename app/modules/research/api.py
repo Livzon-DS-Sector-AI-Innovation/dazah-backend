@@ -244,6 +244,7 @@ async def export_csv(
 async def analyze_ich_q3d(
     file: UploadFile = File(...),
     route: str = Query(default="oral", description="给药途径: oral/parenteral/inhalation/cutaneous"),
+    use_llm: bool = Query(default=False, description="是否使用 LLM 增强识别"),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
     """上传 DOCX 文件进行 ICH Q3D 元素杂质分析"""
@@ -256,13 +257,19 @@ async def analyze_ich_q3d(
         raise AppException("无效的给药途径，可选: oral/parenteral/inhalation/cutaneous")
     
     content = await file.read()
-    result = ich_service.analyze_ich_q3d(content, route=route)
+    
+    if use_llm:
+        result = await ich_service.analyze_ich_q3d_with_llm(content, route=route)
+    else:
+        result = ich_service.analyze_ich_q3d(content, route=route)
+    
     return success_response(data=result)
 
 
 @router.post("/ich/q3c/analyze", summary="ICH Q3C 溶剂残留分析")
 async def analyze_ich_q3c(
     file: UploadFile = File(...),
+    use_llm: bool = Query(default=False, description="是否使用 LLM 增强识别"),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
     """上传 DOCX 文件进行 ICH Q3C 溶剂残留分析"""
@@ -272,5 +279,10 @@ async def analyze_ich_q3c(
         raise AppException("只支持 DOCX 格式文件")
     
     content = await file.read()
-    result = ich_service.analyze_ich_q3c(content)
+    
+    if use_llm:
+        result = await ich_service.analyze_ich_q3c_with_llm(content)
+    else:
+        result = ich_service.analyze_ich_q3c(content)
+    
     return success_response(data=result)

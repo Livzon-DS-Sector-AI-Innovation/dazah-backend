@@ -620,3 +620,169 @@ def analyze_ich_q3c(file_content: bytes) -> dict:
         "summary": summary,
         "report": report,
     }
+
+
+# ==================== LLM 集成版本 ====================
+
+async def analyze_ich_q3d_with_llm(file_content: bytes, route: str = "oral") -> dict:
+    """使用 LLM 分析 ICH Q3D 元素杂质"""
+    from app.modules.research.llm_service import extract_elements_with_llm
+    
+    text = extract_text_from_docx(file_content)
+    steps = parse_process_steps(text)
+    
+    # 使用 LLM 提取元素
+    llm_elements = await extract_elements_with_llm(text)
+    
+    # 合并 LLM 结果和关键词匹配结果
+    elements = identify_elements_from_text(text)
+    
+    # 处理 LLM 识别的元素
+    for llm_elem in llm_elements:
+        symbol = llm_elem.get("symbol", "")
+        if not symbol:
+            continue
+        
+        # 查找是否已存在
+        existing = next((e for e in elements if e["symbol"] == symbol), None)
+        if existing:
+            # 更新来源信息
+            if llm_elem.get("source"):
+                existing["source"] = llm_elem["source"]
+            existing["intentionally_added"] = llm_elem.get("intentionally_added", False)
+            existing["found_in_text"] = True
+        else:
+            # 添加新元素
+            elem_data = get_element_data(symbol)
+            if elem_data:
+                elements.append({
+                    "symbol": symbol,
+                    "source": llm_elem.get("source", "LLM 识别"),
+                    "intentionally_added": llm_elem.get("intentionally_added", False),
+                    "assessment_required": True,
+                    "q3d_class": elem_data.get("class"),
+                    "oral_pde": elem_data.get("oral_pde"),
+                    "parenteral_pde": elem_data.get("parenteral_pde"),
+                    "inhalation_pde": elem_data.get("inhalation_pde"),
+                    "cutaneous_pde": elem_data.get("cutaneous_pde"),
+                    "ctcl": elem_data.get("ctcl"),
+                    "oral_assess": True,
+                    "parenteral_assess": True,
+                    "inhalation_assess": True,
+                    "cutaneous_assess": True,
+                    "notes": elem_data.get("notes", ""),
+                    "found_in_text": True,
+                })
+    
+    # 合规评估
+    elements = assess_compliance(elements, route)
+    
+    # 生成报告
+    report = generate_q3d_report(elements, route)
+    
+    # 统计
+    summary = {
+        "class_1": 0, "class_2a": 0, "class_2b": 0, "class_3": 0, "other": 0,
+    }
+    for elem in elements:
+        cls = elem.get("q3d_class", "")
+        if cls == "Class 1":
+            summary["class_1"] += 1
+        elif cls == "Class 2A":
+            summary["class_2a"] += 1
+        elif cls == "Class 2B":
+            summary["class_2b"] += 1
+        elif cls == "Class 3":
+            summary["class_3"] += 1
+        elif cls == "Other":
+            summary["other"] += 1
+    
+    return {
+        "type": "Q3D",
+        "text_length": len(text),
+        "steps_count": len(steps),
+        "route": route,
+        "elements_found": elements,
+        "total_elements": len(elements),
+        "needs_assessment": len([e for e in elements if e.get("needs_assessment")]),
+        "summary": summary,
+        "report": report,
+        "llm_used": True,
+        "llm_elements_count": len(llm_elements),
+    }
+
+
+async def analyze_ich_q3c_with_llm(file_content: bytes) -> dict:
+    """使用 LLM 分析 ICH Q3C 溶剂残留"""
+    from app.modules.research.llm_service import extract_solvents_with_llm
+    
+    text = extract_text_from_docx(file_content)
+    steps = parse_process_steps(text)
+    
+    # 使用 LLM 提取溶剂
+    llm_solvents = await extract_solvents_with_llm(text)
+    
+    # 合并 LLM 结果和关键词匹配结果
+    solvents = identify_solvents_from_text(text)
+    solvent_index = build_solvent_index()
+    
+    # 处理 LLM 识别的溶剂
+    for llm_solv in llm_solvents:
+        name = llm_solv.get("name", "")
+        if not name:
+            continue
+        
+        # 去除浓度前缀
+        name = remove_concentration_prefix(name)
+        name_lower = name.lower()
+        
+        # 查找是否已存在
+        existing = next((s for s in solvents if s["name_en"].lower() == name_lower or s["name_cn"] == name), None)
+        if existing:
+            # 更新用途信息
+            if llm_solv.get("purpose"):
+                existing["purpose"] = llm_solv["purpose"]
+            existing["found_in_text"] = True
+        else:
+            # 尝试在索引中查找
+            if name_lower in solvent_index:
+                solvent_data = solvent_index[name_lower]
+                solvents.append({
+                    "name_en": solvent_data["canonical"],
+                    "name_cn": get_solvent_cn(solvent_data["canonical"]),
+                    "class": solvent_data["class"],
+                    "limit_ppm": solvent_data.get("limit"),
+                    "pde_mg_day": solvent_data.get("pde"),
+                    "purpose": llm_solv.get("purpose", ""),
+                    "found_in_text": True,
+                })
+    
+    # 生成报告
+    report = generate_q3c_report(solvents)
+    
+    # 统计
+    summary = {
+        "class_1": 0, "class_2": 0, "class_3": 0, "unknown": 0,
+    }
+    for solv in solvents:
+        cls = solv.get("class", "")
+        if cls == "Class 1":
+            summary["class_1"] += 1
+        elif cls == "Class 2":
+            summary["class_2"] += 1
+        elif cls == "Class 3":
+            summary["class_3"] += 1
+        else:
+            summary["unknown"] += 1
+    
+    return {
+        "type": "Q3C",
+        "text_length": len(text),
+        "steps_count": len(steps),
+        "solvents_found": solvents,
+        "total_solvents": len(solvents),
+        "summary": summary,
+        "report": report,
+        "llm_used": True,
+        "llm_solvents_count": len(llm_solvents),
+    }
