@@ -17,6 +17,7 @@ services:
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-dW90FQW5h1SKDL6cOLdRUhcEcPkoCG0z}
       FEISHU_REDIRECT_URI: ${FEISHU_REDIRECT_URI:-http://localhost:3000/auth/callback}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      JWT_EXPIRE_SECONDS: ${JWT_EXPIRE_SECONDS:-86400}
     depends_on:
       db:
         condition: service_healthy

@@ -37,15 +37,21 @@ class Settings(BaseSettings):
 
     # Feishu 设备部
     FEISHU_EQUIPMENT_DEPT_ID: str = ""
-    FEISHU_EQUIPMENT_CHAT_ID: str = ""
+    FEISHU_EQUIPMENT_CHAT_ID: str = "oc_ba1a54a70a0d611315f29581621c50b5"
 
     # Feishu 组织架构同步
     FEISHU_SYNC_ROOT_DEPT_ID: str = ""   # 部门同步的根部门 ID（API 触发）
     FEISHU_SYNC_MEMBER_DEPT_ID: str = ""  # 成员同步的目标部门 ID（每日 00:00）
 
+    # Feishu WebSocket 长连接（接收消息/事件推送）
+    FEISHU_WS_ENABLED: bool = True
+
     # Upload
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
+
+    # Energy
+    ENERGY_AUTO_COLLECT_ENABLED: bool = False
 
     # JWT
     JWT_EXPIRE_SECONDS: int = 86400  # 24 hours
