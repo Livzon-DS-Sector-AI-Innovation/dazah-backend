@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.modules.administration import router as administration_router
+from app.modules.dossier_writer import router as dossier_writer_router
 from app.modules.energy import router as energy_router
 from app.modules.environment import router as environment_router
 from app.modules.equipment import router as equipment_router
@@ -55,3 +56,8 @@ api_router.include_router(
 api_router.include_router(quality_router, prefix="/quality", tags=["质量管理"])
 api_router.include_router(label_verification_router, prefix="/quality", tags=["质量管理 - 标签复核"])
 api_router.include_router(regulatory_tracker_router, tags=["法规追踪"])
+api_router.include_router(
+    dossier_writer_router,
+    prefix="/dossier-writer",
+    tags=["申报资料撰写"],
+)

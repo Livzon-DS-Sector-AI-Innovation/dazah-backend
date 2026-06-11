@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     CDE_GUIDELINE_URL: str = "https://www.cde.org.cn/zdyz/listpage/9cd8db3b7530c6fa0c86485e563f93c7"
     DAILY_SYNC_CRON: str = "0 2 * * *"
 
+    # Storage
+    STORAGE_ROOT: str = "./storage"
+
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
