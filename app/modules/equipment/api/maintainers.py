@@ -41,7 +41,6 @@ async def list_maintainers(
         )
         id_map = {row.feishu_user_id: str(row.id) for row in result.all()}
 
-    # 返回本地 UUID 作为 user_id，前端直接用作 responsible_person_id
     mapped = []
     for m in members:
         fid = m.get("user_id", "")
@@ -53,10 +52,26 @@ async def list_maintainers(
                 "employee_no": m.get("employee_no", ""),
                 "department_id": m.get("department_id", ""),
             })
-        else:
-            logger.warning(
-                "Maintainer %s (feishu_user_id=%s) not found in local users",
-                m.get("name"), fid,
-            )
 
     return success_response(data=mapped)
+
+
+@router.get("/all-users", summary="获取全体员工列表")
+async def list_all_users(
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """返回所有本地用户，供工单责任人选择。"""
+    result = await db.execute(
+        select(User.id, User.name, User.employee_no)
+        .where(User.is_deleted == False)  # noqa: E712
+        .order_by(User.name)
+    )
+    users = [
+        {
+            "user_id": str(row.id),
+            "name": row.name,
+            "employee_no": row.employee_no or "",
+        }
+        for row in result.all()
+    ]
+    return success_response(data=users)
