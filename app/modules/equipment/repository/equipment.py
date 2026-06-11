@@ -371,13 +371,14 @@ async def get_equipments(
 
     if category_id:
         category_ids = await _get_category_child_ids(db, category_id)
-        query = query.join(
-            EquipmentCategoryLink,
-            EquipmentCategoryLink.equipment_id == Equipment.id,
-        ).where(
-            EquipmentCategoryLink.category_id.in_(category_ids),
-            EquipmentCategoryLink.is_deleted == False,  # noqa: E712
-        ).distinct()
+        query = query.where(
+            Equipment.id.in_(
+                select(EquipmentCategoryLink.equipment_id).where(
+                    EquipmentCategoryLink.category_id.in_(category_ids),
+                    EquipmentCategoryLink.is_deleted == False,  # noqa: E712
+                )
+            )
+        )
     if location_id:
         location_ids = await _get_location_child_ids(db, location_id)
         query = query.where(Equipment.location_id.in_(location_ids))
@@ -577,12 +578,13 @@ async def get_equipment_statistics(db: AsyncSession) -> dict[str, Any]:
 
 
 async def get_departments_for_select(db: AsyncSession) -> list[dict[str, Any]]:
-    """获取可选部门列表（含负责人姓名），供下拉使用"""
+    """获取可选部门列表（含负责人姓名和 leader_id），供下拉使用"""
     query = (
         select(
             Department.id.label("id"),
             Department.name.label("name"),
             Department.leader_user_id.label("leader_user_id"),
+            User.id.label("leader_id"),
             User.name.label("leader_name"),
         )
         .outerjoin(User, Department.leader_user_id == User.feishu_open_id)
@@ -600,12 +602,13 @@ async def get_departments_for_select(db: AsyncSession) -> list[dict[str, Any]]:
 async def get_department_info(
     db: AsyncSession, department_id: uuid.UUID
 ) -> dict[str, Any] | None:
-    """获取单个部门信息（含负责人姓名）"""
+    """获取单个部门信息（含负责人姓名和 leader_id）"""
     query = (
         select(
             Department.id.label("id"),
             Department.name.label("name"),
             Department.leader_user_id.label("leader_user_id"),
+            User.id.label("leader_id"),
             User.name.label("leader_name"),
         )
         .outerjoin(User, Department.leader_user_id == User.feishu_open_id)
@@ -634,5 +637,13 @@ async def get_department_leader_user_id(
             Department.id == department_id,
             Department.is_deleted == False,  # noqa: E712
         )
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_user_name_by_id(db: AsyncSession, user_id: uuid.UUID) -> str | None:
+    """根据 User.id 获取用户姓名"""
+    result = await db.execute(
+        select(User.name).where(User.id == user_id)
     )
     return result.scalar_one_or_none()
