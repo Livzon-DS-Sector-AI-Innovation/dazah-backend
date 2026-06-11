@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.response import error_response
 from app.platform.audit import AuditMiddleware
+from app.modules.regulatory_tracker.tasks.sync_tasks import start_scheduler, stop_scheduler
 
 # Ensure platform models are registered in SQLAlchemy metadata
 import app.platform.identity.models  # noqa: F401
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         timeout_scan_loop,
     )
 
+    start_scheduler()
     member_task = asyncio.ensure_future(member_sync_loop())
     timeout_task = asyncio.ensure_future(timeout_scan_loop())
 
@@ -48,9 +50,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     stop_member_sync_flag.set()
     stop_timeout_flag.set()
+    stop_scheduler()
     member_task.cancel()
     timeout_task.cancel()
-    logger.info("Background tasks stopped")
+    logger.info("Shutting down %s", settings.APP_NAME)
 
 
 app = FastAPI(
