@@ -2,9 +2,14 @@
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 import httpx
+from dotenv import load_dotenv
 
+# 加载 .env 文件
+env_path = Path(__file__).parent.parent.parent.parent / ".env"
+load_dotenv(env_path)
 
 # OpenAI API 配置
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
