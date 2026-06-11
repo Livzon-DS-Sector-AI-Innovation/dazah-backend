@@ -243,6 +243,7 @@ async def export_csv(
 @router.post("/ich/q3d/analyze", summary="ICH Q3D 元素杂质分析")
 async def analyze_ich_q3d(
     file: UploadFile = File(...),
+    route: str = Query(default="oral", description="给药途径: oral/parenteral/inhalation/cutaneous"),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
     """上传 DOCX 文件进行 ICH Q3D 元素杂质分析"""
@@ -251,8 +252,11 @@ async def analyze_ich_q3d(
     if not file.filename.endswith('.docx'):
         raise AppException("只支持 DOCX 格式文件")
     
+    if route not in ["oral", "parenteral", "inhalation", "cutaneous"]:
+        raise AppException("无效的给药途径，可选: oral/parenteral/inhalation/cutaneous")
+    
     content = await file.read()
-    result = ich_service.analyze_ich_q3d(content)
+    result = ich_service.analyze_ich_q3d(content, route=route)
     return success_response(data=result)
 
 

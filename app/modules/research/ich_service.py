@@ -1,6 +1,7 @@
-"""ICH Q3C/Q3D 杂质识别服务"""
+"""ICH Q3C/Q3D 杂质识别服务 - 完整版"""
 
 import json
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,64 @@ def extract_text_from_docx(file_content: bytes) -> str:
         Path(tmp_path).unlink(missing_ok=True)
 
 
+def parse_process_steps(text: str) -> list[dict]:
+    """解析工艺步骤
+    
+    支持的格式：
+    - 步骤1: ...
+    - Step 1: ...
+    - 1. ...
+    - (1) ...
+    """
+    steps = []
+    
+    # 尝试多种步骤格式
+    patterns = [
+        r'(?:步骤|Step)\s*(\d+)[：:]\s*(.+?)(?=(?:步骤|Step)\s*\d+[：:]|$)',
+        r'(\d+)[.、]\s*(.+?)(?=\d+[.、]|$)',
+        r'\((\d+)\)\s*(.+?)(?=\(\d+\)|$)',
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+        if matches:
+            for step_num, step_content in matches:
+                steps.append({
+                    "step_number": int(step_num),
+                    "content": step_content.strip(),
+                })
+            break
+    
+    # 如果没有匹配到步骤格式，将整个文本作为一个步骤
+    if not steps:
+        steps.append({
+            "step_number": 1,
+            "content": text,
+        })
+    
+    return steps
+
+
+def remove_concentration_prefix(solvent_name: str) -> str:
+    """去除浓度前缀
+    
+    例如：
+    - 95%乙醇 → 乙醇
+    - 无水乙醇 → 乙醇
+    - Absolute ethanol → ethanol
+    """
+    # 去除百分比前缀
+    solvent_name = re.sub(r'^\d+%?\s*', '', solvent_name)
+    
+    # 去除浓度描述
+    prefixes = ['无水', '绝对', 'Absolute', 'Anhydrous', '干燥']
+    for prefix in prefixes:
+        if solvent_name.startswith(prefix):
+            solvent_name = solvent_name[len(prefix):].strip()
+    
+    return solvent_name.strip()
+
+
 def get_element_data(symbol: str) -> dict:
     """获取元素数据"""
     for class_name, class_data in Q3D_DATA.get("classes", {}).items():
@@ -123,7 +182,6 @@ def build_solvent_index() -> dict:
         
         for solvent in solvent_list:
             if isinstance(solvent, str):
-                # Class 3 溶剂是字符串
                 canonical = solvent.lower().strip()
                 index[canonical] = {
                     "canonical": solvent,
@@ -133,7 +191,6 @@ def build_solvent_index() -> dict:
                     "aliases": [canonical]
                 }
             else:
-                # Class 1/2 溶剂是字典
                 canonical = solvent["name"].lower().strip()
                 class_display = "Class 1" if class_name == "class1" else "Class 2"
                 index[canonical] = {
@@ -158,9 +215,8 @@ def build_solvent_index() -> dict:
     return index
 
 
-# 元素关键词映射（用于简化匹配）
+# 元素关键词映射
 ELEMENT_KEYWORDS = {
-    # 常见元素中文名和符号
     "钯": "Pd", "pd": "Pd", "palladium": "Pd",
     "铂": "Pt", "pt": "Pt", "platinum": "Pt",
     "铑": "Rh", "rh": "Rh", "rhodium": "Rh",
@@ -215,7 +271,6 @@ def identify_elements_from_text(text: str) -> list[dict]:
             if symbol in elements_found:
                 elements_found[symbol]["found_in_text"] = True
             else:
-                # 元素不在必须评估列表中，检查是否是 Class 2B 或 Other
                 elem_data = get_element_data(symbol)
                 if elem_data:
                     elements_found[symbol] = {
@@ -240,7 +295,7 @@ def identify_elements_from_text(text: str) -> list[dict]:
 
 
 def identify_solvents_from_text(text: str) -> list[dict]:
-    """从文本识别溶剂"""
+    """从文本识别溶剂（支持浓度前缀）"""
     solvents_found = {}
     text_lower = text.lower()
     solvent_index = build_solvent_index()
@@ -278,9 +333,11 @@ def identify_solvents_from_text(text: str) -> list[dict]:
         "nmp": "n-methylpyrrolidone", "n-甲基吡咯烷酮": "n-methylpyrrolidone",
     }
     
-    # 从文本中查找溶剂
+    # 从文本中查找溶剂（支持浓度前缀）
     for keyword, solvent_name in solvent_keywords.items():
-        if keyword.lower() in text_lower:
+        # 支持带浓度前缀的匹配
+        pattern = rf'(?:\d+%|无水|绝对)?\s*{re.escape(keyword)}'
+        if re.search(pattern, text_lower):
             if solvent_name in solvent_index:
                 solvent_data = solvent_index[solvent_name]
                 solvents_found[solvent_data["canonical"]] = {
@@ -294,7 +351,9 @@ def identify_solvents_from_text(text: str) -> list[dict]:
     
     # 也检查同义词索引
     for name, data in solvent_index.items():
-        if name in text_lower and data["canonical"] not in solvents_found:
+        # 支持带浓度前缀的匹配
+        pattern = rf'(?:\d+%|无水|绝对)?\s*{re.escape(name)}'
+        if re.search(pattern, text_lower) and data["canonical"] not in solvents_found:
             solvents_found[data["canonical"]] = {
                 "name_en": data["canonical"],
                 "name_cn": get_solvent_cn(data["canonical"]),
@@ -310,101 +369,198 @@ def identify_solvents_from_text(text: str) -> list[dict]:
 def get_solvent_cn(name_en: str) -> str:
     """获取溶剂中文名"""
     cn_map = {
-        "Benzene": "苯",
-        "Carbon Tetrachloride": "四氯化碳",
-        "1,2-Dichloroethane": "1,2-二氯乙烷",
-        "1,1-Dichloroethane": "1,1-二氯乙烷",
-        "1,1,1-Trichloroethane": "1,1,1-三氯乙烷",
-        "1,2-Dichloroethylene": "1,2-二氯乙烯",
-        "Acetonitrile": "乙腈",
-        "Chlorobenzene": "氯苯",
-        "Chloroform": "氯仿",
-        "Cyclohexane": "环己烷",
-        "Dichloromethane": "二氯甲烷",
-        "1,2-Dichloroethene": "1,2-二氯乙烯",
-        "N,N-Dimethylformamide": "N,N-二甲基甲酰胺",
-        "1,4-Dioxane": "1,4-二氧六环",
-        "Ethylene Glycol": "乙二醇",
-        "Formamide": "甲酰胺",
-        "Hexane": "正己烷",
-        "Methanol": "甲醇",
-        "2-Ethoxyethanol": "2-乙氧基乙醇",
-        "Ethoxydiglycol": "乙氧基二甘醇",
+        "Benzene": "苯", "Carbon Tetrachloride": "四氯化碳",
+        "1,2-Dichloroethane": "1,2-二氯乙烷", "1,1-Dichloroethane": "1,1-二氯乙烷",
+        "1,1,1-Trichloroethane": "1,1,1-三氯乙烷", "1,2-Dichloroethylene": "1,2-二氯乙烯",
+        "Acetonitrile": "乙腈", "Chlorobenzene": "氯苯", "Chloroform": "氯仿",
+        "Cyclohexane": "环己烷", "Dichloromethane": "二氯甲烷",
+        "1,2-Dichloroethene": "1,2-二氯乙烯", "N,N-Dimethylformamide": "N,N-二甲基甲酰胺",
+        "1,4-Dioxane": "1,4-二氧六环", "Ethylene Glycol": "乙二醇",
+        "Formamide": "甲酰胺", "Hexane": "正己烷", "Methanol": "甲醇",
+        "2-Ethoxyethanol": "2-乙氧基乙醇", "Ethoxydiglycol": "乙氧基二甘醇",
         "Cyclopentyl Methyl Ether": "环戊基甲基醚",
-        "N,N-Dimethylacetamide": "N,N-二甲基乙酰胺",
-        "Dimethyl Sulfoxide": "二甲基亚砜",
-        "Ethyl Acetate": "乙酸乙酯",
-        "Ethyl Ether": "乙醚",
-        "Heptane": "庚烷",
-        "Isobutanol": "异丁醇",
-        "Isopropanol": "异丙醇",
-        "Methyl Acetate": "乙酸甲酯",
-        "Methyl Ethyl Ketone": "甲基乙基酮",
-        "Methyl Isobutyl Ketone": "甲基异丁基酮",
-        "2-Methyl-1-Propanol": "2-甲基-1-丙醇",
-        "Nitromethane": "硝基甲烷",
-        "Pentane": "戊烷",
-        "1-Pentanol": "1-戊醇",
-        "Propanol": "丙醇",
-        "Pyridine": "吡啶",
-        "Sulfolane": "环丁砜",
-        "Tetrahydrofuran": "四氢呋喃",
-        "Toluene": "甲苯",
-        "1,1,2-Trichloroethylene": "1,1,2-三氯乙烯",
-        "Xylene": "二甲苯",
-        "Cumene": "异丙苯",
-        "Dimethylacetamide": "二甲基乙酰胺",
-        "Diethylene Glycol": "二乙二醇",
-        "Diisopropyl Ether": "二异丙醚",
-        "Ethylbenzene": "乙苯",
-        "Ethylene Glycol Monobutyl Ether": "乙二醇单丁醚",
-        "Hexanes": "己烷",
-        "Isobutyl Acetate": "乙酸异丁酯",
-        "Isopentyl Acetate": "乙酸异戊酯",
-        "Methylethylcyclohexane": "甲基乙基环己烷",
-        "Methylcyclohexane": "甲基环己烷",
-        "Mineral Spirits": "矿物油精",
-        "N-Propyl Acetate": "乙酸正丙酯",
-        "n-Butanol": "正丁醇",
-        "n-Butyl Acetate": "乙酸正丁酯",
-        "n-Heptane": "正庚烷",
-        "n-Hexane": "正己烷",
-        "n-Pentane": "正戊烷",
-        "n-Propyl Acetate": "乙酸正丙酯",
-        "Petroleum Benzine": "石油醚",
-        "Petroleum Ether": "石油醚",
-        "Propyl Acetate": "乙酸丙酯",
-        "Stoddard Solvent": "斯托达德溶剂",
-        "tert-Butanol": "叔丁醇",
-        "tert-Butyl Acetate": "乙酸叔丁酯",
-        "Tetrahydronaphthalene": "四氢化萘",
-        "Water": "水",
-        "Acetic Acid": "乙酸",
-        "Ethanol": "乙醇",
-        "2-Propanol": "异丙醇",
-        "1-Butanol": "正丁醇",
-        "2-Butanol": "仲丁醇",
-        "1-Propanol": "丙醇",
-        "2-Methoxyethanol": "2-甲氧基乙醇",
+        "N,N-Dimethylacetamide": "N,N-二甲基乙酰胺", "Dimethyl Sulfoxide": "二甲基亚砜",
+        "Ethyl Acetate": "乙酸乙酯", "Ethyl Ether": "乙醚", "Heptane": "庚烷",
+        "Isobutanol": "异丁醇", "Isopropanol": "异丙醇", "Methyl Acetate": "乙酸甲酯",
+        "Methyl Ethyl Ketone": "甲基乙基酮", "Methyl Isobutyl Ketone": "甲基异丁基酮",
+        "2-Methyl-1-Propanol": "2-甲基-1-丙醇", "Nitromethane": "硝基甲烷",
+        "Pentane": "戊烷", "1-Pentanol": "1-戊醇", "Propanol": "丙醇",
+        "Pyridine": "吡啶", "Sulfolane": "环丁砜", "Tetrahydrofuran": "四氢呋喃",
+        "Toluene": "甲苯", "1,1,2-Trichloroethylene": "1,1,2-三氯乙烯",
+        "Xylene": "二甲苯", "Cumene": "异丙苯", "Dimethylacetamide": "二甲基乙酰胺",
+        "Diethylene Glycol": "二乙二醇", "Diisopropyl Ether": "二异丙醚",
+        "Ethylbenzene": "乙苯", "Ethylene Glycol Monobutyl Ether": "乙二醇单丁醚",
+        "Hexanes": "己烷", "Isobutyl Acetate": "乙酸异丁酯",
+        "Isopentyl Acetate": "乙酸异戊酯", "Methylethylcyclohexane": "甲基乙基环己烷",
+        "Methylcyclohexane": "甲基环己烷", "Mineral Spirits": "矿物油精",
+        "N-Propyl Acetate": "乙酸正丙酯", "n-Butanol": "正丁醇",
+        "n-Butyl Acetate": "乙酸正丁酯", "n-Heptane": "正庚烷",
+        "n-Hexane": "正己烷", "n-Pentane": "正戊烷", "Petroleum Benzine": "石油醚",
+        "Petroleum Ether": "石油醚", "Propyl Acetate": "乙酸丙酯",
+        "Stoddard Solvent": "斯托达德溶剂", "tert-Butanol": "叔丁醇",
+        "tert-Butyl Acetate": "乙酸叔丁酯", "Tetrahydronaphthalene": "四氢化萘",
+        "Water": "水", "Acetic Acid": "乙酸", "Ethanol": "乙醇",
+        "2-Propanol": "异丙醇", "1-Butanol": "正丁醇", "2-Butanol": "仲丁醇",
+        "1-Propanol": "丙醇", "2-Methoxyethanol": "2-甲氧基乙醇",
         "Methyl Isopropyl Ketone": "甲基异丙基酮",
     }
     return cn_map.get(name_en, name_en)
 
 
-def analyze_ich_q3d(file_content: bytes) -> dict:
+def assess_compliance(elements: list[dict], route: str = "oral") -> list[dict]:
+    """根据给药途径评估合规性"""
+    for elem in elements:
+        route_assess_key = f"{route}_assess"
+        if route == "oral":
+            elem["needs_assessment"] = elem.get("oral_assess", False)
+            elem["pde_for_route"] = elem.get("oral_pde")
+        elif route == "parenteral":
+            elem["needs_assessment"] = elem.get("parenteral_assess", True)
+            elem["pde_for_route"] = elem.get("parenteral_pde")
+        elif route == "inhalation":
+            elem["needs_assessment"] = elem.get("inhalation_assess", True)
+            elem["pde_for_route"] = elem.get("inhalation_pde")
+        elif route == "cutaneous":
+            elem["needs_assessment"] = elem.get("cutaneous_assess", False)
+            elem["pde_for_route"] = elem.get("cutaneous_pde")
+            # 检查 CTCL
+            if elem.get("ctcl"):
+                elem["ctcl_applicable"] = True
+        
+        # 控制阈值 = 30% PDE
+        pde = elem.get("pde_for_route")
+        if pde:
+            elem["control_threshold"] = pde * 0.3
+    
+    return elements
+
+
+def generate_q3d_report(elements: list[dict], route: str = "oral") -> str:
+    """生成 ICH Q3D 合规报告"""
+    report = []
+    report.append("# ICH Q3D 元素杂质评估报告")
+    report.append("")
+    report.append(f"**给药途径**: {route}")
+    report.append(f"**评估日期**: {Path().cwd()}")
+    report.append("")
+    
+    # 统计
+    needs_assess = [e for e in elements if e.get("needs_assessment")]
+    class_1 = [e for e in needs_assess if e.get("q3d_class") == "Class 1"]
+    class_2a = [e for e in needs_assess if e.get("q3d_class") == "Class 2A"]
+    class_2b = [e for e in needs_assess if e.get("q3d_class") == "Class 2B"]
+    class_3 = [e for e in needs_assess if e.get("q3d_class") == "Class 3"]
+    
+    report.append("## 评估摘要")
+    report.append("")
+    report.append(f"- 需要评估的元素总数: **{len(needs_assess)}**")
+    report.append(f"- Class 1 元素: **{len(class_1)}**")
+    report.append(f"- Class 2A 元素: **{len(class_2a)}**")
+    report.append(f"- Class 2B 元素: **{len(class_2b)}**")
+    report.append(f"- Class 3 元素: **{len(class_3)}**")
+    report.append("")
+    
+    if needs_assess:
+        report.append("## 需要评估的元素")
+        report.append("")
+        report.append("| 元素 | 分类 | PDE (μg/天) | 控制阈值 (μg/天) | 来源 |")
+        report.append("|------|------|-------------|------------------|------|")
+        
+        for elem in needs_assess:
+            pde = elem.get("pde_for_route", "-")
+            threshold = elem.get("control_threshold", "-")
+            report.append(f"| {elem['symbol']} | {elem['q3d_class']} | {pde} | {threshold} | {elem.get('source', '-')} |")
+        
+        report.append("")
+    
+    report.append("## 评估建议")
+    report.append("")
+    report.append("1. 对于 Class 1 和 Class 2A 元素，必须评估所有潜在来源")
+    report.append("2. 控制阈值 = 30% PDE，低于此值通常无需额外控制")
+    report.append("3. 如元素含量超过控制阈值，需制定控制策略")
+    report.append("")
+    
+    report.append("## 参考文献")
+    report.append("")
+    report.append("- ICH Q3D(R2) 元素杂质指导原则（2022年4月）")
+    
+    return "\n".join(report)
+
+
+def generate_q3c_report(solvents: list[dict]) -> str:
+    """生成 ICH Q3C 合规报告"""
+    report = []
+    report.append("# ICH Q3C 溶剂残留评估报告")
+    report.append("")
+    
+    # 统计
+    class_1 = [s for s in solvents if s.get("class") == "Class 1"]
+    class_2 = [s for s in solvents if s.get("class") == "Class 2"]
+    class_3 = [s for s in solvents if s.get("class") == "Class 3"]
+    
+    report.append("## 评估摘要")
+    report.append("")
+    report.append(f"- 识别溶剂总数: **{len(solvents)}**")
+    report.append(f"- Class 1 溶剂（避免使用）: **{len(class_1)}**")
+    report.append(f"- Class 2 溶剂（限制使用）: **{len(class_2)}**")
+    report.append(f"- Class 3 溶剂（低毒）: **{len(class_3)}**")
+    report.append("")
+    
+    if class_1:
+        report.append("## ⚠️ Class 1 溶剂（必须避免）")
+        report.append("")
+        for s in class_1:
+            report.append(f"- **{s['name_cn']}** ({s['name_en']}): 限度 {s.get('limit_ppm', '-')} ppm")
+        report.append("")
+    
+    if class_2:
+        report.append("## Class 2 溶剂（限制使用）")
+        report.append("")
+        report.append("| 溶剂 | PDE (mg/天) | 限度 (ppm) |")
+        report.append("|------|-------------|------------|")
+        for s in class_2:
+            report.append(f"| {s['name_cn']} | {s.get('pde_mg_day', '-')} | {s.get('limit_ppm', '-')} |")
+        report.append("")
+    
+    if class_3:
+        report.append("## Class 3 溶剂（低毒）")
+        report.append("")
+        report.append("Class 3 溶剂毒性低，通常按 GMP 或其他质量标准控制即可。")
+        report.append("")
+        for s in class_3:
+            report.append(f"- {s['name_cn']} ({s['name_en']})")
+        report.append("")
+    
+    report.append("## 评估建议")
+    report.append("")
+    report.append("1. Class 1 溶剂应避免使用，如必须使用需提供充分理由")
+    report.append("2. Class 2 溶剂应限制使用，确保低于限度")
+    report.append("3. Class 3 溶剂按 GMP 要求控制")
+    report.append("")
+    
+    report.append("## 参考文献")
+    report.append("")
+    report.append("- ICH Q3C(R9) 溶剂残留指导原则（2024年1月）")
+    
+    return "\n".join(report)
+
+
+def analyze_ich_q3d(file_content: bytes, route: str = "oral") -> dict:
     """分析 ICH Q3D 元素杂质"""
     text = extract_text_from_docx(file_content)
+    steps = parse_process_steps(text)
     elements = identify_elements_from_text(text)
     
-    # 统计各分类数量
-    summary = {
-        "class_1": 0,
-        "class_2a": 0,
-        "class_2b": 0,
-        "class_3": 0,
-        "other": 0,
-    }
+    # 合规评估
+    elements = assess_compliance(elements, route)
     
+    # 生成报告
+    report = generate_q3d_report(elements, route)
+    
+    # 统计
+    summary = {
+        "class_1": 0, "class_2a": 0, "class_2b": 0, "class_3": 0, "other": 0,
+    }
     for elem in elements:
         cls = elem.get("q3d_class", "")
         if cls == "Class 1":
@@ -421,25 +577,29 @@ def analyze_ich_q3d(file_content: bytes) -> dict:
     return {
         "type": "Q3D",
         "text_length": len(text),
+        "steps_count": len(steps),
+        "route": route,
         "elements_found": elements,
         "total_elements": len(elements),
+        "needs_assessment": len([e for e in elements if e.get("needs_assessment")]),
         "summary": summary,
+        "report": report,
     }
 
 
 def analyze_ich_q3c(file_content: bytes) -> dict:
     """分析 ICH Q3C 溶剂残留"""
     text = extract_text_from_docx(file_content)
+    steps = parse_process_steps(text)
     solvents = identify_solvents_from_text(text)
     
-    # 统计各分类数量
-    summary = {
-        "class_1": 0,
-        "class_2": 0,
-        "class_3": 0,
-        "unknown": 0,
-    }
+    # 生成报告
+    report = generate_q3c_report(solvents)
     
+    # 统计
+    summary = {
+        "class_1": 0, "class_2": 0, "class_3": 0, "unknown": 0,
+    }
     for solv in solvents:
         cls = solv.get("class", "")
         if cls == "Class 1":
@@ -454,7 +614,9 @@ def analyze_ich_q3c(file_content: bytes) -> dict:
     return {
         "type": "Q3C",
         "text_length": len(text),
+        "steps_count": len(steps),
         "solvents_found": solvents,
         "total_solvents": len(solvents),
         "summary": summary,
+        "report": report,
     }
