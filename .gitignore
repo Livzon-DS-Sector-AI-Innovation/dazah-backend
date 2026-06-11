@@ -28,10 +28,7 @@ Thumbs.db
 *.swo
 uploads
 
-<<<<<<< HEAD
 docs/superpowersscripts/bitable_inspect_result.json
-=======
 docs/superpowers
-uploads
 assets
->>>>>>> origin/feature/safety-module
+docs/superpowersuploads/
