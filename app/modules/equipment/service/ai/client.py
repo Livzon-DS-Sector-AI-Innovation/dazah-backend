@@ -63,9 +63,38 @@ class QwenClient:
             "response_format": {"type": "json_object"},
         }
 
+        return await self._request(body)
+
+    async def parse_correction(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.1,
+    ) -> str:
+        """发送纯文本修正请求，返回 AI 响应文本。
+
+        Args:
+            system_prompt: 系统提示词
+            user_prompt: 用户提示词（含当前结果和修改说明）
+            temperature: 温度参数
+        """
+        body: dict = {
+            "model": self.MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": 16384,
+            "response_format": {"type": "json_object"},
+        }
+
+        return await self._request(body)
+
+    async def _request(self, body: dict) -> str:
+        """发送请求到千文 API，返回响应文本。"""
         resp = await self._client.post("/chat/completions", json=body)
         if resp.is_error:
-            # 提取 DashScope 返回的详细错误信息
             detail = ""
             try:
                 err_data = resp.json()

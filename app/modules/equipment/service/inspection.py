@@ -375,20 +375,22 @@ async def _create_anomaly_work_order(
     await db.flush()
 
     # 发送飞书通知（非关键路径）
-    responsible_open_id: str | None = None
+    responsible_user_id_str: str | None = None
     if responsible_user_id:
         from app.platform.identity.models import User
 
         user_result = await db.execute(
-            select(User.feishu_open_id).where(User.id == responsible_user_id)
+            select(User.feishu_user_id).where(User.id == responsible_user_id)
         )
-        responsible_open_id = user_result.scalar_one_or_none()
+        responsible_user_id_str = user_result.scalar_one_or_none()
 
     from app.modules.equipment.service.inspection_notification import (
         send_work_order_notification,
     )
 
-    await send_work_order_notification(wo, equipment, task, responsible_open_id)
+    await send_work_order_notification(
+        wo, equipment, task, responsible_user_id_str,
+    )
 
     return wo
 

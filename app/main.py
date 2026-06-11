@@ -4,12 +4,11 @@ import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi.staticfiles import StaticFiles
-
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
@@ -62,6 +61,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         set_main_loop(asyncio.get_running_loop())
         start_ws_client()
 
+    # ── 设备模块飞书 WebSocket 长连接（独立交互机器人，原生 WebSocket） ──
+    equipment_ws_task: asyncio.Task | None = None
+    if settings.EQUIPMENT_FEISHU_APP_ID and settings.EQUIPMENT_FEISHU_APP_SECRET:
+        from app.modules.equipment.feishu.ws_client import start_equipment_ws
+
+        equipment_ws_task = asyncio.create_task(start_equipment_ws())
+
     # ── 安全模块专属飞书事件订阅（WebSocket 长连接，独立应用凭据）──
     import app.modules.safety.bot_handler as _  # noqa: F401 — 注册事件处理器
     from app.modules.safety.feishu.event_client import start_ws, stop_ws
@@ -80,15 +86,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await stop_ws()
     safety_ws_task.cancel()
 
+    # 停止设备模块 WebSocket
+    if equipment_ws_task:
+        from app.modules.equipment.feishu.ws_client import stop_equipment_ws
+
+        await stop_equipment_ws()
+        equipment_ws_task.cancel()
+
     member_task.cancel()
     timeout_task.cancel()
     energy_task.cancel()
 
-    # 停止平台级 WebSocket
-    if settings.FEISHU_WS_ENABLED:
-        from app.platform.integrations.feishu.ws_client import stop_ws_client
+    # 停止平台级飞书 WebSocket
+    from app.platform.integrations.feishu.ws_client import stop_ws_client
 
-        stop_ws_client()
+    stop_ws_client()
 
     logger.info("Background tasks stopped")
 
