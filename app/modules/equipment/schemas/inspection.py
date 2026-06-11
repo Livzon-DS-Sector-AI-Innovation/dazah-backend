@@ -161,6 +161,7 @@ class InspectionTaskResponse(BaseModel):
     assignee_name: str | None = None
     equipment_count: int = 0
     completed_count: int = 0
+    completed_equipment_ids: list[uuid.UUID] = []
     photo_count: int = 0
 
     model_config = {"from_attributes": True}

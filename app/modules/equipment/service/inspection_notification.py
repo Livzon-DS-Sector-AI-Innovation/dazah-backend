@@ -8,14 +8,19 @@ import logging
 import uuid
 from datetime import date as date_type
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.modules.equipment import repository as repo
+from app.modules.equipment.feishu.notification import send_user_card
 from app.modules.equipment.models.inspection import InspectionTask
 from app.platform.integrations.feishu.message import send_group_card
-from app.platform.integrations.feishu.notification import send_user_card
+
+if TYPE_CHECKING:
+    from app.modules.equipment.models.equipment import Equipment
+    from app.modules.equipment.models.work_order import WorkOrder
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -178,11 +183,11 @@ async def send_inspection_start_notification(
     """
     logger.info(
         "▶ send_inspection_start_notification called: task_no=%s, "
-        "status=%s, assignee=%s (feishu_open_id=%s), chat_id=%s",
+        "status=%s, assignee=%s (feishu_user_id=%s), chat_id=%s",
         task.task_no,
         task.status,
         task.assignee.name if task.assignee else "N/A",
-        task.assignee.feishu_open_id if task.assignee else "N/A",
+        task.assignee.feishu_user_id if task.assignee else "N/A",
         settings.FEISHU_EQUIPMENT_CHAT_ID or "(not set)",
     )
 
@@ -197,14 +202,14 @@ async def send_inspection_start_notification(
         content = _build_card_content(task, equipment_names, items)
 
         # 1) DM 通知巡检人员
-        if task.assignee and task.assignee.feishu_open_id:
+        if task.assignee and task.assignee.feishu_user_id:
             logger.info(
-                "  Sending DM to feishu_open_id=%s (name=%s)...",
-                task.assignee.feishu_open_id,
+                "  Sending DM to feishu_user_id=%s (name=%s)...",
+                task.assignee.feishu_user_id,
                 task.assignee.name,
             )
             dm_ok = await send_user_card(
-                open_id=task.assignee.feishu_open_id,
+                open_id=task.assignee.feishu_user_id,
                 title=title,
                 content=content,
             )
@@ -221,10 +226,10 @@ async def send_inspection_start_notification(
         else:
             logger.warning(
                 "  ⚠ Cannot send DM for task %s: "
-                "assignee=%s, feishu_open_id=%s",
+                "assignee=%s, feishu_user_id=%s",
                 task.task_no,
                 task.assignee.name if task.assignee else "None",
-                task.assignee.feishu_open_id if task.assignee else "N/A",
+                task.assignee.feishu_user_id if task.assignee else "N/A",
             )
 
         # 2) 群聊通知
@@ -254,3 +259,67 @@ async def send_inspection_start_notification(
             "❌ send_inspection_start_notification FAILED for task %s: %s: %s",
             task.task_no, type(e).__name__, e,
         )
+
+
+async def send_work_order_notification(
+    work_order: "WorkOrder",
+    equipment: "Equipment",
+    task: InspectionTask,
+    responsible_user_id: str | None,
+) -> None:
+    """向工单负责人发送飞书异常工单通知。
+
+    非关键路径：发送失败只记日志，不影响主流程。
+
+    Args:
+        work_order: 新创建的工单
+        equipment: 关联设备
+        task: 来源巡检任务
+        responsible_user_id: 负责人的 feishu_user_id（可为 None）
+    """
+    if not responsible_user_id:
+        logger.info(
+            "Skipping work order notification: no responsible person user_id "
+            "(work_order_no=%s)",
+            work_order.work_order_no,
+        )
+        return
+
+    try:
+        title = f"⚠️ 异常处理工单通知 - {work_order.work_order_no}"
+        lines = [
+            f"**工单编号：**{work_order.work_order_no}",
+            f"**设备名称：**{equipment.name}",
+            f"**设备编号：**{equipment.equipment_no}",
+            f"**优先级：**{work_order.priority}",
+            f"**异常描述：**{work_order.fault_description or '-'}",
+            f"**来源巡检：**{task.task_no}",
+            "",
+            "请及时处理该工单。",
+        ]
+        content = "\n".join(lines)
+
+        ok = await send_user_card(
+            open_id=responsible_user_id,
+            title=title,
+            content=content,
+        )
+        if ok:
+            logger.info(
+                "✅ Work order notification sent to %s for %s",
+                responsible_user_id,
+                work_order.work_order_no,
+            )
+        else:
+            logger.error(
+                "❌ Failed to send work order notification for %s",
+                work_order.work_order_no,
+            )
+    except Exception as e:
+        logger.error(
+            "❌ send_work_order_notification FAILED for %s: %s: %s",
+            work_order.work_order_no,
+            type(e).__name__,
+            e,
+        )
+

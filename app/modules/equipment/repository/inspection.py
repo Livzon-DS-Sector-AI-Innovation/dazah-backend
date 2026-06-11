@@ -307,6 +307,24 @@ async def get_task_equipment_completed_ids(
 
 
 # ═══════════ 巡检记录 ═══════════
+async def soft_delete_records_by_task_equipment(
+    db: AsyncSession, task_id: uuid.UUID, equipment_id: uuid.UUID
+) -> None:
+    """软删除某任务+设备的已有巡检记录（用于重新提交时替换旧数据）"""
+    from sqlalchemy import update
+
+    stmt = (
+        update(InspectionRecord)
+        .where(
+            InspectionRecord.task_id == task_id,
+            InspectionRecord.equipment_id == equipment_id,
+            InspectionRecord.is_deleted == False,  # noqa: E712
+        )
+        .values(is_deleted=True)
+    )
+    await db.execute(stmt)
+
+
 async def create_inspection_records(
     db: AsyncSession, records_data: list[dict]
 ) -> list[InspectionRecord]:

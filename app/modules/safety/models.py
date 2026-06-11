@@ -4,12 +4,21 @@ import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.base_model import BaseModel
-
 
 # ==================== Enums ====================
 
@@ -295,20 +304,6 @@ class ReviewOpinion(str, PyEnum):
     APPROVED = "approved"  # 已审核
 
 
-class IdentificationType(str, PyEnum):
-    """危险源辨识类型枚举"""
-
-    AUTO_TRIGGER = "auto_trigger"  # 自动触发
-    MANUAL_START = "manual_start"  # 手动启动
-
-
-class ArchiveStatus(str, PyEnum):
-    """存档状态枚举"""
-
-    ACTIVE = "active"  # 有效
-    ARCHIVED = "archived"  # 已归档
-
-
 class OperationType(str, PyEnum):
     """特殊作业类型枚举（GB 30871-2022 八大特殊作业）"""
 
@@ -508,6 +503,9 @@ class HazardReport(BaseModel):
     )
 
     hazard_no: Mapped[str] = mapped_column(String(64), nullable=False, comment="隐患编号")
+    inspection_category: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="检查类别（日常检查/专项检查…）"
+    )
     hazard_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="隐患分类（人/物/环/管）")
     hazard_level: Mapped[str] = mapped_column(
         String(16), nullable=False, default="general", comment="隐患等级（一般/较大/重大）"
@@ -556,6 +554,17 @@ class HazardReport(BaseModel):
     rectification_photos: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="整改后图片JSON数组"
     )
+    # ── 整改回复 ──
+    rectification_reply: Mapped[str | None] = mapped_column(Text, nullable=True, comment="整改回复内容")
+    rectification_replied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="整改回复时间"
+    )
+    rectification_replied_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="整改回复人ID"
+    )
+    rectification_replied_by_name: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="整改回复人姓名"
+    )
     rectification_status: Mapped[str] = mapped_column(
         String(32), default="pending", server_default="pending", nullable=False, comment="整改进度"
     )
@@ -566,6 +575,40 @@ class HazardReport(BaseModel):
     verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, comment="验证时间"
     )
+    # ── 三级复核 ──
+    verify_level_1_status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending", nullable=False, comment="一级复核状态: pending/approved/rejected"
+    )
+    verify_level_1_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="一级复核人ID"
+    )
+    verify_level_1_by_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="一级复核人姓名")
+    verify_level_1_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="一级复核时间"
+    )
+    verify_level_1_opinion: Mapped[str | None] = mapped_column(Text, nullable=True, comment="一级复核意见")
+    verify_level_2_status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending", nullable=False, comment="二级复核状态: pending/approved/rejected"
+    )
+    verify_level_2_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="二级复核人ID"
+    )
+    verify_level_2_by_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="二级复核人姓名")
+    verify_level_2_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="二级复核时间"
+    )
+    verify_level_2_opinion: Mapped[str | None] = mapped_column(Text, nullable=True, comment="二级复核意见")
+    verify_level_3_status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending", nullable=False, comment="三级复核状态: pending/approved/rejected"
+    )
+    verify_level_3_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="三级复核人ID"
+    )
+    verify_level_3_by_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="三级复核人姓名")
+    verify_level_3_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="三级复核时间"
+    )
+    verify_level_3_opinion: Mapped[str | None] = mapped_column(Text, nullable=True, comment="三级复核意见")
     status: Mapped[str] = mapped_column(
         String(32), default="open", server_default="open", nullable=False, comment="状态"
     )
@@ -573,6 +616,43 @@ class HazardReport(BaseModel):
         UUID(as_uuid=True), ForeignKey("safety.safety_checks.id"), nullable=True, comment="关联检查ID"
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+    # ── AI 流程状态 ──
+    ai_node_progress: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="pending_input",
+        server_default="pending_input",
+        comment="AI流程节点进度(pending_input/pending_script1/review_script1/pending_script2/review_script2/completed)",
+    )
+    overall_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="draft",
+        server_default="draft",
+        comment="整体状态(draft/ai_processing/completed/cancelled)",
+    )
+    ai_error_message: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="AI 脚本执行错误信息"
+    )
+    script1_review_status: Mapped[str] = mapped_column(
+        String(20),
+        default="pending",
+        server_default="pending",
+        comment="AI隐患识别审核状态(pending/approved/rejected)",
+    )
+    script2_review_status: Mapped[str] = mapped_column(
+        String(20),
+        default="pending",
+        server_default="pending",
+        comment="AI整改建议审核状态(pending/approved/rejected)",
+    )
+    ai_generated: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        comment="是否AI生成",
+    )
 
     # 关系
     safety_check: Mapped["SafetyCheck | None"] = relationship(
@@ -990,128 +1070,9 @@ class RegulationRevision(BaseModel):
     regulation: Mapped["OperationRegulation"] = relationship(
         "OperationRegulation", back_populates="revisions"
     )
-    hazard_revision_records: Mapped[list["HazardRevisionRecord"]] = relationship(
-        "HazardRevisionRecord", back_populates="regulation_revision", lazy="selectin"
-    )
 
 
-# ==================== 危险源辨识修订记录 ====================
-
-
-class HazardRevisionRecord(BaseModel):
-    """危险源辨识修订记录表 - 危险源辨识流程记录"""
-
-    __tablename__ = "hazard_revision_records"
-    __table_args__ = (
-        UniqueConstraint("hazard_revision_no", name="uq_hazard_revision_records_no"),
-        {"schema": "safety"},
-    )
-
-    hazard_revision_no: Mapped[str] = mapped_column(
-        String(64), nullable=False, comment="危险源辨识修订编号"
-    )
-    regulation_revision_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("safety.regulation_revisions.id"),
-        nullable=True,
-        comment="关联操规修订记录ID",
-    )
-    regulation_name: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="对应的操规名称"
-    )
-    identifier_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="辨识人"
-    )
-    identifier_name: Mapped[str | None] = mapped_column(
-        String(100), nullable=True, comment="辨识人姓名"
-    )
-    identification_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, comment="辨识时间"
-    )
-    identification_type: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="auto_trigger",
-        server_default="auto_trigger",
-        comment="辨识类型: auto_trigger/manual_start",
-    )
-    process_change_content: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="涉及工艺变更内容"
-    )
-    identification_scope: Mapped[str | None] = mapped_column(
-        String(200), nullable=True, comment="辨识范围（逗号分隔: 人/机/料/法/环）"
-    )
-    review_opinion: Mapped[str] = mapped_column(
-        String(32),
-        default="pending",
-        server_default="pending",
-        nullable=False,
-        comment="审核意见: pending/approved/rejected",
-    )
-    hazard_document_path: Mapped[str | None] = mapped_column(
-        String(500), nullable=True, comment="危险源辨识文档路径"
-    )
-    hazard_document_original_name: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, comment="文档原始文件名"
-    )
-    linked_hazard_archive_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("safety.hazard_revision_archives.id"),
-        nullable=True,
-        comment="关联的危险源辨识存档ID",
-    )
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
-
-    # 关系
-    regulation_revision: Mapped["RegulationRevision | None"] = relationship(
-        "RegulationRevision", back_populates="hazard_revision_records"
-    )
-    linked_archive: Mapped["HazardRevisionArchive | None"] = relationship(
-        "HazardRevisionArchive",
-        back_populates="revision_records",
-        foreign_keys=[linked_hazard_archive_id],
-    )
-
-
-# ==================== 危险源辨识存档 ====================
-
-
-class HazardRevisionArchive(BaseModel):
-    """危险源辨识存档表 - 危险源辨识文档存档"""
-
-    __tablename__ = "hazard_revision_archives"
-    __table_args__ = {"schema": "safety"}
-
-    regulation_name: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="对应的操规名称"
-    )
-    hazard_document_path: Mapped[str | None] = mapped_column(
-        String(500), nullable=True, comment="最新危险源辨识文档路径"
-    )
-    hazard_document_original_name: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, comment="文档原始文件名"
-    )
-    identification_date: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, comment="最后辨识日期"
-    )
-    status: Mapped[str] = mapped_column(
-        String(32),
-        default="active",
-        server_default="active",
-        nullable=False,
-        comment="状态: active/archived",
-    )
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
-
-    # 关系
-    revision_records: Mapped[list["HazardRevisionRecord"]] = relationship(
-        "HazardRevisionRecord",
-        back_populates="linked_archive",
-        foreign_keys="HazardRevisionRecord.linked_hazard_archive_id",
-    )
-
-
-# ==================== AI 工作流配置 ====================
+# ==================== AI 工作流配置 ==================
 
 
 class AIWorkflowConfig(BaseModel):
@@ -1158,6 +1119,13 @@ class APICallConfig(BaseModel):
 
     config_name: Mapped[str] = mapped_column(
         String(128), nullable=False, comment="配置名称"
+    )
+    config_type: Mapped[str] = mapped_column(
+        String(20),
+        default="text",
+        server_default="text",
+        nullable=False,
+        comment="配置类型: text(文本模型) / vision(视觉模型)",
     )
     api_base_url: Mapped[str] = mapped_column(
         String(500), nullable=False, comment="API 基础 URL"

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
@@ -32,6 +34,7 @@ logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("websockets").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +59,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     timeout_task = asyncio.ensure_future(timeout_scan_loop())
     energy_task = asyncio.ensure_future(energy_collection_loop())
 
-    # 飞书 WebSocket 长连接
+    # ── 平台级飞书 WebSocket 长连接 ──
     if settings.FEISHU_WS_ENABLED:
         from app.platform.integrations.feishu.event_handler import set_main_loop
         from app.platform.integrations.feishu.ws_client import start_ws_client
 
         set_main_loop(asyncio.get_running_loop())
         start_ws_client()
+
+    # ── 设备模块飞书 WebSocket 长连接（独立交互机器人，原生 WebSocket） ──
+    equipment_ws_task: asyncio.Task | None = None
+    if settings.EQUIPMENT_FEISHU_APP_ID and settings.EQUIPMENT_FEISHU_APP_SECRET:
+        from app.modules.equipment.feishu.ws_client import start_equipment_ws
+
+        equipment_ws_task = asyncio.create_task(start_equipment_ws())
+
+    # ── 安全模块专属飞书事件订阅（WebSocket 长连接，独立应用凭据）──
+    import app.modules.safety.bot_handler as _  # noqa: F401 — 注册事件处理器
+    from app.modules.safety.feishu.event_client import start_ws, stop_ws
+
+    safety_ws_task = asyncio.create_task(start_ws())
 
     logger.info("Background tasks started")
 
@@ -72,14 +88,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     stop_timeout_flag.set()
     stop_scheduler()
     stop_energy_collection_flag.set()
+
+    # 停止安全模块 WebSocket
+    await stop_ws()
+    safety_ws_task.cancel()
+
+    # 停止设备模块 WebSocket
+    if equipment_ws_task:
+        from app.modules.equipment.feishu.ws_client import stop_equipment_ws
+
+        await stop_equipment_ws()
+        equipment_ws_task.cancel()
+
     member_task.cancel()
     timeout_task.cancel()
     energy_task.cancel()
 
-    if settings.FEISHU_WS_ENABLED:
-        from app.platform.integrations.feishu.ws_client import stop_ws_client
+    # 停止平台级飞书 WebSocket
+    from app.platform.integrations.feishu.ws_client import stop_ws_client
 
-        stop_ws_client()
+    stop_ws_client()
 
     logger.info("Shutting down %s", settings.APP_NAME)
 
@@ -104,6 +132,11 @@ app.add_middleware(
 app.add_middleware(AuditMiddleware)
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+# 挂载静态文件目录（图片上传等）
+uploads_dir = os.path.abspath(settings.UPLOAD_DIR)
+os.makedirs(uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 
 @app.exception_handler(AppException)

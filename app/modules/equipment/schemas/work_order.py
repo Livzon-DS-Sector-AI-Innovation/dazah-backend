@@ -104,6 +104,7 @@ class WorkOrderResponse(BaseModel):
     checklist_template_id: uuid.UUID | None
     check_result: str | None
     spare_parts_cost: float | None
+    inspection_task_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
     created_by: uuid.UUID | None

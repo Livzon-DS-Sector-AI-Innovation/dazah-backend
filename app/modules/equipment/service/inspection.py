@@ -18,6 +18,7 @@ from app.modules.equipment.models.inspection import (
     InspectionTask,
 )
 from app.modules.equipment.models.inspection_template import InspectionRecord
+from app.modules.equipment.models.work_order import WorkOrder
 
 _UPLOAD_DIR = "uploads/inspection"
 _MAX_RETRIES = 3
@@ -274,6 +275,30 @@ async def close_task(
 ) -> InspectionTask:
     task = await _get_task(db, task_id)
     _validate_transition(task.status, "已关闭")
+
+    # 检查是否有未处理的关联工单
+    pending_wos = await repo.get_pending_work_orders_by_inspection_task(
+        db, task_id
+    )
+    if pending_wos:
+        wo_list = [
+            {
+                "id": str(wo.id),
+                "work_order_no": wo.work_order_no,
+                "equipment_name": wo.equipment.name if wo.equipment else None,
+                "status": wo.status,
+                "priority": wo.priority,
+            }
+            for wo in pending_wos
+        ]
+        raise AppException(
+            message=(
+                f"存在 {len(pending_wos)} 个未处理的异常工单，"
+                f"请先处理后再关闭巡检"
+            ),
+            detail={"pending_work_orders": wo_list},
+        )
+
     task.status = "已关闭"
     task.closed_at = datetime.now(UTC)
     task.closure_remark = remark
@@ -282,6 +307,94 @@ async def close_task(
 
 
 # ═══════════ 巡检执行 ═══════════
+async def _create_anomaly_work_order(
+    db: AsyncSession,
+    task: InspectionTask,
+    equipment_id: uuid.UUID,
+    abnormal_records: list[InspectionRecord],
+    template_item_map: dict[uuid.UUID, str],
+) -> WorkOrder | None:
+    """为巡检异常自动创建工单。
+
+    Returns:
+        创建的工单，或 None（设备不存在或已有未关闭工单时）。
+    """
+    from app.modules.equipment.models.work_order import WorkOrder as WOModel
+
+    # 获取设备信息
+    equipment = await repo.get_equipment_by_id(db, equipment_id)
+    if not equipment:
+        return None
+
+    # 去重：检查是否已有未关闭工单
+    if await repo.exists_unclosed_work_order(db, task.id, equipment_id):
+        return None
+
+    # 获取工单责任人：优先使用设备独立设置的负责人，否则由部门负责人推导
+    responsible_user_id: uuid.UUID | None = equipment.responsible_person_id
+    if not responsible_user_id and equipment.department_id:
+        dept_info = await repo.get_department_info(db, equipment.department_id)
+        if dept_info:
+            responsible_user_id = dept_info.get("leader_id")
+
+    # 构建异常描述
+    desc_parts: list[str] = []
+    for r in abnormal_records:
+        item_name = template_item_map.get(r.template_item_id, "未知检查项")
+        remark = r.remark or ""
+        desc_parts.append(f"{item_name}—{remark}" if remark else item_name)
+    fault_description = "巡检发现异常：" + "；".join(desc_parts)
+
+    # 生成工单号
+    wo_no = await repo.get_max_work_order_no(db)
+    today = datetime.now().strftime("%Y%m%d")
+    if wo_no:
+        seq = int(wo_no.split("-")[-1]) + 1
+    else:
+        seq = 1
+    new_wo_no = f"WO-{today}-{seq:04d}"
+
+    # 创建工单
+    wo = WOModel(
+        work_order_no=new_wo_no,
+        equipment_id=equipment_id,
+        order_type="异常处理",
+        priority=equipment.importance,
+        status="待处理",
+        responsible_person_id=responsible_user_id,
+        reporter_id=task.assigned_to,
+        fault_description=fault_description,
+        inspection_task_id=task.id,
+        original_equipment_status=equipment.status,
+    )
+    db.add(wo)
+    await db.flush()
+
+    # 设备状态改为维修中
+    equipment.status = "维修中"
+    await db.flush()
+
+    # 发送飞书通知（非关键路径）
+    responsible_user_id_str: str | None = None
+    if responsible_user_id:
+        from app.platform.identity.models import User
+
+        user_result = await db.execute(
+            select(User.feishu_user_id).where(User.id == responsible_user_id)
+        )
+        responsible_user_id_str = user_result.scalar_one_or_none()
+
+    from app.modules.equipment.service.inspection_notification import (
+        send_work_order_notification,
+    )
+
+    await send_work_order_notification(
+        wo, equipment, task, responsible_user_id_str,
+    )
+
+    return wo
+
+
 async def submit_equipment_check(
     db: AsyncSession,
     task_id: uuid.UUID,
@@ -298,7 +411,36 @@ async def submit_equipment_check(
         r["task_id"] = str(task_id)
         r["equipment_id"] = str(equipment_id)
 
-    return await repo.create_inspection_records(db, records)
+    # 替换旧记录：先软删除同设备的已有记录，再创建新记录
+    await repo.soft_delete_records_by_task_equipment(db, task_id, equipment_id)
+    created_records = await repo.create_inspection_records(db, records)
+
+    # 筛选异常记录
+    abnormal = [r for r in created_records if r.result == "异常"]
+
+    if abnormal:
+        # 查询检查项名称（用于构建工单描述）
+        item_ids = [r.template_item_id for r in abnormal]
+        from app.modules.equipment.models.inspection_template import (
+            InspectionTemplateItem,
+        )
+
+        item_result = await db.execute(
+            select(
+                InspectionTemplateItem.id,
+                InspectionTemplateItem.item_name,
+            ).where(InspectionTemplateItem.id.in_(item_ids))
+        )
+        template_item_map = {row.id: row.item_name for row in item_result.all()}
+
+        # 重新获取 task（含 assignee 关系，用于工单 reporter_id）
+        refreshed_task = await _refetch_task(db, task_id)
+
+        await _create_anomaly_work_order(
+            db, refreshed_task, equipment_id, abnormal, template_item_map
+        )
+
+    return created_records
 
 
 # ═══════════ 照片 ═══════════
