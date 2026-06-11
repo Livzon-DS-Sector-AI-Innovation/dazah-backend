@@ -237,3 +237,36 @@ async def export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=experiments_{project_id}.csv"},
     )
+
+
+# ============ ICH Q3C/Q3D 杂质识别 APIs ============
+@router.post("/ich/q3d/analyze", summary="ICH Q3D 元素杂质分析")
+async def analyze_ich_q3d(
+    file: UploadFile = File(...),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    """上传 DOCX 文件进行 ICH Q3D 元素杂质分析"""
+    from app.modules.research import ich_service
+    
+    if not file.filename.endswith('.docx'):
+        raise AppException("只支持 DOCX 格式文件")
+    
+    content = await file.read()
+    result = ich_service.analyze_ich_q3d(content)
+    return success_response(data=result)
+
+
+@router.post("/ich/q3c/analyze", summary="ICH Q3C 溶剂残留分析")
+async def analyze_ich_q3c(
+    file: UploadFile = File(...),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    """上传 DOCX 文件进行 ICH Q3C 溶剂残留分析"""
+    from app.modules.research import ich_service
+    
+    if not file.filename.endswith('.docx'):
+        raise AppException("只支持 DOCX 格式文件")
+    
+    content = await file.read()
+    result = ich_service.analyze_ich_q3c(content)
+    return success_response(data=result)
