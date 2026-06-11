@@ -148,6 +148,7 @@ def get_all_mandatory_elements() -> dict:
                     cutaneous_assess = data.get("cutaneous_assess", False)
                 
                 mandatory[symbol] = {
+                    "symbol": symbol,
                     "source": "起始物料、辅料、工艺用水或设备中的潜在杂质",
                     "intentionally_added": False,
                     "assessment_required": True,
@@ -274,6 +275,7 @@ def identify_elements_from_text(text: str) -> list[dict]:
                 elem_data = get_element_data(symbol)
                 if elem_data:
                     elements_found[symbol] = {
+                        "symbol": symbol,
                         "source": f"在工艺文本中检测到（{keyword}）",
                         "intentionally_added": True,
                         "assessment_required": True,
@@ -644,7 +646,7 @@ async def analyze_ich_q3d_with_llm(file_content: bytes, route: str = "oral") -> 
             continue
         
         # 查找是否已存在
-        existing = next((e for e in elements if e["symbol"] == symbol), None)
+        existing = next((e for e in elements if e.get("symbol") == symbol), None)
         if existing:
             # 更新来源信息
             if llm_elem.get("source"):
