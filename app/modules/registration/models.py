@@ -1,1 +1,64 @@
 """Registration ORM models live here."""
+
+
+from sqlalchemy import Index, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.shared.base_model import BaseModel
+
+
+class AuthorizationLetter(BaseModel):
+    """授权书生成记录表"""
+
+    __tablename__ = "authorization_letters"
+    __table_args__ = (
+        Index("ix_authorization_letters_product_name", "product_name"),
+        Index("ix_authorization_letters_registration_number", "registration_number"),
+        {"schema": "registration"},
+    )
+
+    # 原料药企业（固定）
+    api_company: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        server_default="珠海保税区丽珠合成制药有限公司",
+        comment="原料药企业名称",
+    )
+
+    # 产品信息
+    product_name: Mapped[str] = mapped_column(
+        String(128), nullable=False, comment="产品名称（对照表标准名）"
+    )
+    registration_number: Mapped[str] = mapped_column(
+        String(32), nullable=False, comment="产品登记号"
+    )
+
+    # 制剂信息
+    preparation_unit: Mapped[str] = mapped_column(
+        String(256), nullable=False, comment="制剂单位名称（药品上市许可持有人/申请人）"
+    )
+    preparation_name: Mapped[str] = mapped_column(
+        String(256), nullable=False, comment="制剂名称"
+    )
+    administration_route: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="给药途径"
+    )
+
+    # 文件信息
+    template_file_key: Mapped[str] = mapped_column(
+        String(256), nullable=False, comment="模板文件 key"
+    )
+    template_file_name: Mapped[str] = mapped_column(
+        String(256), nullable=True, comment="模板文件名"
+    )
+    output_file_key: Mapped[str] = mapped_column(
+        String(256), nullable=False, comment="生成文件 key"
+    )
+    output_file_name: Mapped[str] = mapped_column(
+        String(256), nullable=False, comment="生成文件名"
+    )
+
+    # 备注
+    remarks: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="备注"
+    )
