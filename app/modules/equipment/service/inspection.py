@@ -275,6 +275,30 @@ async def close_task(
 ) -> InspectionTask:
     task = await _get_task(db, task_id)
     _validate_transition(task.status, "已关闭")
+
+    # 检查是否有未处理的关联工单
+    pending_wos = await repo.get_pending_work_orders_by_inspection_task(
+        db, task_id
+    )
+    if pending_wos:
+        wo_list = [
+            {
+                "id": str(wo.id),
+                "work_order_no": wo.work_order_no,
+                "equipment_name": wo.equipment.name if wo.equipment else None,
+                "status": wo.status,
+                "priority": wo.priority,
+            }
+            for wo in pending_wos
+        ]
+        raise AppException(
+            message=(
+                f"存在 {len(pending_wos)} 个未处理的异常工单，"
+                f"请先处理后再关闭巡检"
+            ),
+            detail={"pending_work_orders": wo_list},
+        )
+
     task.status = "已关闭"
     task.closed_at = datetime.now(UTC)
     task.closure_remark = remark
