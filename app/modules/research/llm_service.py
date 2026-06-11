@@ -1,26 +1,97 @@
-"""LLM 服务模块 - 使用 httpx 直接调用 OpenAI API"""
+"""LLM 服务模块 - 支持动态配置管理"""
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 import httpx
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key, unset_key
 
 # 加载 .env 文件
 env_path = Path(__file__).parent.parent.parent.parent / ".env"
 load_dotenv(env_path)
 
-# OpenAI API 配置
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "deepseek-v4-flash")
+
+class LLMConfig:
+    """LLM 配置管理类"""
+    
+    def __init__(self):
+        self.reload()
+    
+    def reload(self):
+        """重新加载配置"""
+        load_dotenv(env_path, override=True)
+        self.api_key = os.getenv("OPENAI_API_KEY", "")
+        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
+        self.model = os.getenv("OPENAI_MODEL", "deepseek-v4-flash")
+    
+    def get_config(self) -> dict[str, str]:
+        """获取当前配置（隐藏 API Key）"""
+        return {
+            "api_key": self._mask_key(self.api_key),
+            "base_url": self.base_url,
+            "model": self.model,
+            "is_configured": bool(self.api_key)
+        }
+    
+    def update_config(self, api_key: str = None, base_url: str = None, model: str = None):
+        """更新配置并保存到 .env 文件"""
+        if api_key is not None:
+            self.api_key = api_key
+            set_key(env_path, "OPENAI_API_KEY", api_key)
+        
+        if base_url is not None:
+            self.base_url = base_url
+            set_key(env_path, "OPENAI_BASE_URL", base_url)
+        
+        if model is not None:
+            self.model = model
+            set_key(env_path, "OPENAI_MODEL", model)
+    
+    def _mask_key(self, key: str) -> str:
+        """隐藏 API Key，只显示前10位"""
+        if not key:
+            return ""
+        if len(key) <= 10:
+            return key
+        return key[:10] + "*" * (len(key) - 10)
+    
+    async def test_connection(self) -> dict[str, Any]:
+        """测试 LLM 连接"""
+        if not self.api_key:
+            return {"success": False, "message": "API Key 未配置"}
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": "Hello"}],
+                        "max_tokens": 5,
+                    },
+                )
+                response.raise_for_status()
+                return {"success": True, "message": f"连接成功！模型: {self.model}"}
+        except httpx.HTTPError as e:
+            return {"success": False, "message": f"连接失败: {str(e)}"}
+        except Exception as e:
+            return {"success": False, "message": f"错误: {str(e)}"}
+
+
+# 全局配置实例
+llm_config = LLMConfig()
 
 
 async def call_llm(prompt: str, system_prompt: str = "") -> dict:
     """调用 LLM API"""
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY 未配置")
+    if not llm_config.api_key:
+        raise ValueError("OPENAI_API_KEY 未配置，请先在界面中配置 LLM")
     
     messages = []
     if system_prompt:
@@ -29,13 +100,13 @@ async def call_llm(prompt: str, system_prompt: str = "") -> dict:
     
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
-            f"{OPENAI_BASE_URL}/chat/completions",
+            f"{llm_config.base_url}/chat/completions",
             headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Authorization": f"Bearer {llm_config.api_key}",
                 "Content-Type": "application/json",
             },
             json={
-                "model": OPENAI_MODEL,
+                "model": llm_config.model,
                 "messages": messages,
                 "temperature": 0.1,
                 "response_format": {"type": "json_object"},

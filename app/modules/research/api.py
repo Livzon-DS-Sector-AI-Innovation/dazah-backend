@@ -1,7 +1,7 @@
 """Research API routes for Bayesian optimization."""
 
 import uuid
-from fastapi import APIRouter, Depends, UploadFile, File, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Query, Body
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -286,3 +286,43 @@ async def analyze_ich_q3c(
         result = ich_service.analyze_ich_q3c(content)
     
     return success_response(data=result)
+
+
+# ============ LLM 配置管理 APIs ============
+
+@router.get("/llm/config", summary="获取 LLM 配置")
+async def get_llm_config(current_user: CurrentUser = None) -> JSONResponse:
+    """获取当前 LLM 配置"""
+    from app.modules.research.llm_service import llm_config
+    return success_response(data=llm_config.get_config())
+
+
+@router.put("/llm/config", summary="更新 LLM 配置")
+async def update_llm_config(
+    api_key: str = Body(None, description="API Key"),
+    base_url: str = Body(None, description="API Base URL"),
+    model: str = Body(None, description="模型名称"),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    """更新 LLM 配置"""
+    from app.modules.research.llm_service import llm_config
+    
+    llm_config.update_config(api_key=api_key, base_url=base_url, model=model)
+    
+    return success_response(
+        data=llm_config.get_config(),
+        message="配置已更新"
+    )
+
+
+@router.post("/llm/test", summary="测试 LLM 连接")
+async def test_llm_connection(current_user: CurrentUser = None) -> JSONResponse:
+    """测试 LLM 连接"""
+    from app.modules.research.llm_service import llm_config
+    
+    result = await llm_config.test_connection()
+    
+    if result["success"]:
+        return success_response(data=result)
+    else:
+        return error_response(message=result["message"])
