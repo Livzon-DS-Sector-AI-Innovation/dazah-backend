@@ -46,7 +46,6 @@ def load_solvent_synonyms() -> dict:
 # 加载数据
 Q3D_DATA = load_q3d_elements()
 Q3C_DATA = load_q3c_solvents()
-SOLVENT_SYNONYMS = load_solvent_synonyms()
 
 
 def extract_text_from_docx(file_content: bytes) -> str:
@@ -134,7 +133,7 @@ def get_element_data(symbol: str) -> dict:
 
 
 def get_all_mandatory_elements() -> dict:
-    """获取所有必须评估的元素（Class 1, 2A, 3）"""
+    """Get all elements that must be assessed per ICH Q3D(R2) Table 5.1."""
     mandatory = {}
     for class_name, class_data in Q3D_DATA.get("classes", {}).items():
         if class_name in ("Class 1", "Class 2A", "Class 3"):
@@ -148,7 +147,6 @@ def get_all_mandatory_elements() -> dict:
                     cutaneous_assess = data.get("cutaneous_assess", False)
                 
                 mandatory[symbol] = {
-                    "symbol": symbol,
                     "source": "起始物料、辅料、工艺用水或设备中的潜在杂质",
                     "intentionally_added": False,
                     "assessment_required": True,
@@ -167,612 +165,527 @@ def get_all_mandatory_elements() -> dict:
     return mandatory
 
 
-def build_solvent_index() -> dict:
-    """构建溶剂搜索索引"""
-    index = {}
+def get_option1_concentrations(symbol: str) -> dict:
+    """Get Option 1 permitted concentrations for an element (ICH Q3D Table 1)."""
+    option1_data = Q3D_DATA.get("option_1_concentrations", {})
+    return option1_data.get("elements", {}).get(symbol, {})
+
+
+def identify_elements(llm_response: dict) -> dict:
+    """Build element assessment from LLM-identified elements + Q3D rules.
     
-    classes_data = Q3C_DATA.get("classes", {})
+    LLM only needs to identify:
+    - symbol: Element symbol
+    - source: Where it comes from in the process
+    - intentionally_added: true if catalyst/reagent, false if equipment/impurity
     
-    # 添加 ICH 分类的溶剂
-    for class_name in ["class1", "class2", "class3"]:
-        class_solvents = classes_data.get(class_name, {})
-        if isinstance(class_solvents, dict):
-            solvent_list = class_solvents.get("solvents", [])
-        else:
-            solvent_list = class_solvents
+    Script decides everything else based on Q3D rules:
+    - Class 1, 2A: Always assess all routes
+    - Class 3: Assess based on per-element flags in q3d_elements.json
+    - Class 2B: Assess only if intentionally added
+    - Other: Assess only if intentionally added
+    """
+    # Start with all mandatory elements (Class 1, 2A, 3)
+    elements_found = get_all_mandatory_elements()
+    
+    # Track which elements LLM identified as intentionally added
+    llm_intentionally_added = set()
+    llm_sources = {}
+    
+    for elem_data in llm_response.get("elements", []):
+        symbol = elem_data.get("symbol", "")
+        if not symbol:
+            continue
         
-        for solvent in solvent_list:
-            if isinstance(solvent, str):
-                canonical = solvent.lower().strip()
-                index[canonical] = {
-                    "canonical": solvent,
-                    "class": "Class 3" if class_name == "class3" else class_name.replace("class", "Class "),
-                    "pde": None,
-                    "limit": "5000",
-                    "aliases": [canonical]
-                }
-            else:
-                canonical = solvent["name"].lower().strip()
-                class_display = "Class 1" if class_name == "class1" else "Class 2"
-                index[canonical] = {
-                    "canonical": solvent["name"],
-                    "class": class_display,
-                    "pde": solvent.get("pde_mg_day") or solvent.get("pde"),
-                    "limit": solvent.get("ppm") or solvent.get("limit"),
-                    "aliases": [canonical]
-                }
-    
-    # 添加同义词
-    for canonical, alias_list in SOLVENT_SYNONYMS.items():
-        canonical_lower = canonical.lower()
+        # Track LLM's source description
+        if elem_data.get("source"):
+            llm_sources[symbol] = elem_data["source"]
         
-        if canonical_lower in index:
-            for alias in alias_list:
-                alias_lower = alias.lower()
-                index[canonical_lower]["aliases"].append(alias_lower)
-                if alias_lower not in index:
-                    index[alias_lower] = index[canonical_lower]
+        # Track intentionally added status from LLM
+        if elem_data.get("intentionally_added", False):
+            llm_intentionally_added.add(symbol)
     
-    return index
-
-
-# 元素关键词映射
-ELEMENT_KEYWORDS = {
-    "钯": "Pd", "pd": "Pd", "palladium": "Pd",
-    "铂": "Pt", "pt": "Pt", "platinum": "Pt",
-    "铑": "Rh", "rh": "Rh", "rhodium": "Rh",
-    "钌": "Ru", "ru": "Ru", "ruthenium": "Ru",
-    "铱": "Ir", "ir": "Ir", "iridium": "Ir",
-    "锇": "Os", "os": "Os", "osmium": "Os",
-    "金": "Au", "au": "Au", "gold": "Au",
-    "银": "Ag", "ag": "Ag", "silver": "Ag",
-    "镍": "Ni", "ni": "Ni", "nickel": "Ni",
-    "钴": "Co", "co": "Co", "cobalt": "Co",
-    "钒": "V", "v": "V", "vanadium": "V",
-    "钨": "W", "w": "W", "tungsten": "W",
-    "硒": "Se", "se": "Se", "selenium": "Se",
-    "镉": "Cd", "cd": "Cd", "cadmium": "Cd",
-    "铅": "Pb", "pb": "Pb", "lead": "Pb",
-    "砷": "As", "as": "As", "arsenic": "As",
-    "汞": "Hg", "hg": "Hg", "mercury": "Hg",
-    "铊": "Tl", "tl": "Tl", "thallium": "Tl",
-    "钡": "Ba", "ba": "Ba", "barium": "Ba",
-    "铬": "Cr", "cr": "Cr", "chromium": "Cr",
-    "铜": "Cu", "cu": "Cu", "copper": "Cu",
-    "锂": "Li", "li": "Li", "lithium": "Li",
-    "锰": "Mn", "mn": "Mn", "manganese": "Mn",
-    "钼": "Mo", "mo": "Mo", "molybdenum": "Mo",
-    "锑": "Sb", "sb": "Sb", "antimony": "Sb",
-    "锡": "Sn", "sn": "Sn", "tin": "Sn",
-    "锌": "Zn", "zn": "Zn", "zinc": "Zn",
-    "铝": "Al", "al": "Al", "aluminum": "Al",
-    "铁": "Fe", "fe": "Fe", "iron": "Fe",
-    "镁": "Mg", "mg": "Mg", "magnesium": "Mg",
-    "钙": "Ca", "ca": "Ca", "calcium": "Ca",
-    "钾": "K", "k": "K", "potassium": "K",
-    "钠": "Na", "na": "Na", "sodium": "Na",
-}
-
-
-def identify_elements_from_text(text: str) -> list[dict]:
-    """从文本识别元素"""
-    elements_found = {}
-    text_lower = text.lower()
+    # Update mandatory elements with LLM source info
+    for symbol in elements_found:
+        if symbol in llm_sources:
+            elements_found[symbol]["source"] = llm_sources[symbol]
+        # If LLM says it's intentionally added, update that too
+        if symbol in llm_intentionally_added:
+            elements_found[symbol]["intentionally_added"] = True
     
-    # 获取所有必须评估的元素
-    mandatory = get_all_mandatory_elements()
-    
-    # 首先添加所有必须评估的元素
-    for symbol, data in mandatory.items():
-        elements_found[symbol] = data.copy()
-    
-    # 从文本中查找元素
-    for keyword, symbol in ELEMENT_KEYWORDS.items():
-        if keyword.lower() in text_lower:
-            if symbol in elements_found:
-                elements_found[symbol]["found_in_text"] = True
-            else:
-                elem_data = get_element_data(symbol)
-                if elem_data:
+    # Add intentionally added "Other" class elements
+    for symbol in llm_intentionally_added:
+        if symbol not in elements_found:
+            # Look up in q3d_elements.json
+            hardcoded = get_element_data(symbol)
+            if hardcoded:
+                # It's in our database
+                q3d_class = hardcoded.get("class", "Other")
+                if q3d_class == "Other":
                     elements_found[symbol] = {
-                        "symbol": symbol,
-                        "source": f"在工艺文本中检测到（{keyword}）",
+                        "source": llm_sources.get(symbol, "有意添加的试剂/催化剂"),
                         "intentionally_added": True,
                         "assessment_required": True,
-                        "q3d_class": elem_data.get("class"),
-                        "oral_pde": elem_data.get("oral_pde"),
-                        "parenteral_pde": elem_data.get("parenteral_pde"),
-                        "inhalation_pde": elem_data.get("inhalation_pde"),
-                        "cutaneous_pde": elem_data.get("cutaneous_pde"),
-                        "ctcl": elem_data.get("ctcl"),
-                        "oral_assess": True,
-                        "parenteral_assess": True,
-                        "inhalation_assess": True,
-                        "cutaneous_assess": True,
-                        "notes": elem_data.get("notes", ""),
-                        "found_in_text": True,
+                        "q3d_class": "Other",
+                        "oral_pde": hardcoded.get("oral_pde"),
+                        "parenteral_pde": hardcoded.get("parenteral_pde"),
+                        "inhalation_pde": hardcoded.get("inhalation_pde"),
+                        "cutaneous_pde": hardcoded.get("cutaneous_pde"),
+                        "ctcl": hardcoded.get("ctcl"),
+                        "notes": hardcoded.get("notes", ""),
                     }
-    
-    return list(elements_found.values())
-
-
-def identify_solvents_from_text(text: str) -> list[dict]:
-    """从文本识别溶剂（支持浓度前缀）"""
-    solvents_found = {}
-    text_lower = text.lower()
-    solvent_index = build_solvent_index()
-    
-    # 常见溶剂关键词映射
-    solvent_keywords = {
-        "甲醇": "methanol", "meoh": "methanol", "methanol": "methanol",
-        "乙醇": "ethanol", "etoh": "ethanol", "ethanol": "ethanol", "酒精": "ethanol",
-        "丙酮": "acetone", "acetone": "acetone",
-        "乙腈": "acetonitrile", "acetonitrile": "acetonitrile",
-        "二氯甲烷": "dichloromethane", "dichloromethane": "dichloromethane", "dcm": "dichloromethane",
-        "氯仿": "chloroform", "chloroform": "chloroform",
-        "四氢呋喃": "tetrahydrofuran", "tetrahydrofuran": "tetrahydrofuran", "thf": "tetrahydrofuran",
-        "甲苯": "toluene", "toluene": "toluene",
-        "二甲苯": "xylene", "xylene": "xylene",
-        "乙酸乙酯": "ethyl acetate", "ethyl acetate": "ethyl acetate",
-        "正己烷": "hexane", "hexane": "hexane",
-        "庚烷": "heptane", "heptane": "heptane",
-        "戊烷": "pentane", "pentane": "pentane",
-        "环己烷": "cyclohexane", "cyclohexane": "cyclohexane",
-        "苯": "benzene", "benzene": "benzene",
-        "吡啶": "pyridine", "pyridine": "pyridine",
-        "dmf": "n,n-dimethylformamide", "n,n-二甲基甲酰胺": "n,n-dimethylformamide",
-        "dmso": "dimethyl sulfoxide", "二甲基亚砜": "dimethyl sulfoxide",
-        "水": "water", "water": "water",
-        "乙酸": "acetic acid", "acetic acid": "acetic acid",
-        "异丙醇": "isopropanol", "isopropanol": "isopropanol", "ipa": "isopropanol",
-        "正丁醇": "butanol", "butanol": "butanol",
-        "乙醚": "diethyl ether", "diethyl ether": "diethyl ether",
-        "石油醚": "petroleum ether", "petroleum ether": "petroleum ether",
-        "丙醇": "propanol", "propanol": "propanol",
-        "异丁醇": "isobutanol", "isobutanol": "isobutanol",
-        "叔丁醇": "tert-butanol", "tert-butanol": "tert-butanol",
-        "二氧六环": "1,4-dioxane", "1,4-dioxane": "1,4-dioxane", "dioxane": "1,4-dioxane",
-        "nmp": "n-methylpyrrolidone", "n-甲基吡咯烷酮": "n-methylpyrrolidone",
-    }
-    
-    # 从文本中查找溶剂（支持浓度前缀）
-    for keyword, solvent_name in solvent_keywords.items():
-        # 支持带浓度前缀的匹配
-        pattern = rf'(?:\d+%|无水|绝对)?\s*{re.escape(keyword)}'
-        if re.search(pattern, text_lower):
-            if solvent_name in solvent_index:
-                solvent_data = solvent_index[solvent_name]
-                solvents_found[solvent_data["canonical"]] = {
-                    "name_en": solvent_data["canonical"],
-                    "name_cn": get_solvent_cn(solvent_data["canonical"]),
-                    "class": solvent_data["class"],
-                    "limit_ppm": solvent_data.get("limit"),
-                    "pde_mg_day": solvent_data.get("pde"),
-                    "found_in_text": True,
+            else:
+                # Not in database at all - still include if intentionally added
+                elements_found[symbol] = {
+                    "source": llm_sources.get(symbol, "有意添加的试剂/催化剂"),
+                    "intentionally_added": True,
+                    "assessment_required": True,
+                    "q3d_class": "Other",
+                    "oral_pde": None,
+                    "parenteral_pde": None,
+                    "inhalation_pde": None,
+                    "cutaneous_pde": None,
+                    "ctcl": None,
+                    "notes": "该元素不在ICH Q3D范围内，未建立PDE。需要逐案进行毒理学论证。",
                 }
     
-    # 也检查同义词索引
-    for name, data in solvent_index.items():
-        # 支持带浓度前缀的匹配
-        pattern = rf'(?:\d+%|无水|绝对)?\s*{re.escape(name)}'
-        if re.search(pattern, text_lower) and data["canonical"] not in solvents_found:
-            solvents_found[data["canonical"]] = {
-                "name_en": data["canonical"],
-                "name_cn": get_solvent_cn(data["canonical"]),
-                "class": data["class"],
-                "limit_ppm": data.get("limit"),
-                "pde_mg_day": data.get("pde"),
-                "found_in_text": True,
-            }
+    return elements_found
+
+
+def generate_report(process_text: str, elements: dict) -> str:
+    """Generate ICH Q3D report from skill's generate_report, returns markdown string."""
+    from datetime import datetime
     
-    return list(solvents_found.values())
+    report = []
+    report.append("# 元素杂质评估报告")
+    report.append("")
+    report.append("**评估依据：** ICH Q3D(R2) 元素杂质指导原则")
+    report.append(f"**生成日期：** {datetime.now().strftime('%Y-%m-%d')}")
+    report.append("")
+    report.append("---")
+    report.append("")
+    report.append("## 计算方法说明")
+    report.append("")
+    report.append("**本报告仅采用选项1：** 日剂量≤10g的药品各组分通用允许浓度")
+    report.append("- 公式：Concentration (μg/g) = PDE (μg/day) / 10 (g/day)")
+    report.append("")
+    report.append("**注意：** 本报告中所有浓度限度（μg/g）均基于选项1计算得出。选项2a、2b和3不在本评估范围内。")
+    report.append("")
+    report.append("---")
+    report.append("")
+
+    # Sort by class priority
+    class_priority = {"Class 1": 1, "Class 2A": 2, "Class 2B": 3, "Class 3": 4, "Other": 5}
+    sorted_elements = sorted(elements.items(), key=lambda x: class_priority.get(x[1].get("q3d_class", ""), 99))
+
+    # Summary table
+    report.append("## 风险评估汇总")
+    report.append("")
+    report.append("| 元素 | Q3D类别 | 有意添加 | 口服 | 注射 | 吸入 | 皮肤 |")
+    report.append("|------|---------|----------|------|------|------|------|")
+
+    for symbol, data in sorted_elements:
+        q3d_class = data.get("q3d_class", "")
+        intentionally = "是" if data.get("intentionally_added") else "否"
+
+        if q3d_class == "Other":
+            oral = parenteral = inhalation = cutaneous = "逐案评估"
+        elif q3d_class in ("Class 1", "Class 2A"):
+            oral = parenteral = inhalation = cutaneous = "需要"
+        elif q3d_class == "Class 2B":
+            if data.get("intentionally_added"):
+                oral = parenteral = inhalation = cutaneous = "需要"
+            else:
+                oral = parenteral = inhalation = cutaneous = "不需要"
+        elif q3d_class == "Class 3":
+            if data.get("intentionally_added"):
+                oral = parenteral = inhalation = cutaneous = "需要"
+            else:
+                oral = "不需要" if not data.get("oral_assess") else "需要"
+                parenteral = "不需要" if not data.get("parenteral_assess") else "需要"
+                inhalation = "不需要" if not data.get("inhalation_assess") else "需要"
+                cutaneous = "不需要" if not data.get("cutaneous_assess") else "需要"
+        else:
+            oral = parenteral = inhalation = cutaneous = "需要" if data.get("assessment_required") else "不需要"
+        report.append(f"| {symbol} | {q3d_class} | {intentionally} | {oral} | {parenteral} | {inhalation} | {cutaneous} |")
+
+    report.append("")
+    report.append("---")
+    report.append("")
+    report.append("## 元素杂质评估")
+    report.append("")
+
+    for symbol, data in sorted_elements:
+        q3d_class = data.get("q3d_class", "")
+        hardcoded = get_element_data(symbol)
+        source = data.get("source", "Unknown")
+        intentionally = data.get("intentionally_added", False)
+
+        report.append(f"### {symbol}")
+        report.append("")
+        report.append("**基本信息**")
+        report.append("")
+        report.append("| 属性 | 详情 |")
+        report.append("|------|------|")
+        report.append(f"| **Q3D类别** | {q3d_class} |")
+        report.append(f"| **来源** | {source} |")
+        report.append(f"| **有意添加** | {'是' if intentionally else '否'} |")
+
+        notes = data.get("notes") or hardcoded.get("notes", "")
+        if notes:
+            report.append(f"| **备注** | {notes} |")
+        report.append("")
+
+        # PDE values
+        oral = data.get("oral_pde")
+        parenteral = data.get("parenteral_pde")
+        inhalation = data.get("inhalation_pde")
+        cutaneous = data.get("cutaneous_pde")
+
+        option1 = get_option1_concentrations(symbol)
+        cutaneous_option1 = cutaneous / 10 if cutaneous is not None else None
+
+        report.append("**PDE值与选项1限度**")
+        report.append("")
+        report.append("| 途径 | PDE (μg/天) | 选项1限度 (μg/g) |")
+        report.append("|------|-------------|------------------|")
+        report.append(f"| 口服 | {oral if oral is not None else '未建立'} | {option1.get('oral', 'N/A') if option1 else 'N/A'} |")
+        report.append(f"| 注射 | {parenteral if parenteral is not None else '未建立'} | {option1.get('parenteral', 'N/A') if option1 else 'N/A'} |")
+        report.append(f"| 吸入 | {inhalation if inhalation is not None else '未建立'} | {option1.get('inhalation', 'N/A') if option1 else 'N/A'} |")
+        report.append(f"| 皮肤 | {cutaneous if cutaneous is not None else '未建立'} | {cutaneous_option1 if cutaneous_option1 is not None else 'N/A'} |")
+        report.append("")
+
+        # CTCL for Ni and Co
+        ctcl = data.get("ctcl") or hardcoded.get("ctcl")
+        if ctcl:
+            report.append("**皮肤途径**")
+            report.append("")
+            report.append(f"- 皮肤PDE = {cutaneous} μg/天（Table A.5.1）")
+            report.append(f"- 皮肤选项1限度 = {cutaneous_option1} μg/g")
+            report.append(f"- 皮肤毒性浓度限度（CTCL）= {ctcl} μg/g")
+            report.append("")
+        elif cutaneous is not None and q3d_class != "Other":
+            report.append("**皮肤途径**")
+            report.append("")
+            report.append(f"- 皮肤PDE = {cutaneous} μg/天（Table A.5.1）")
+            report.append(f"- 皮肤选项1限度 = {cutaneous_option1} μg/g")
+            report.append("")
+
+        # Assessment logic
+        if q3d_class == "Class 1":
+            report.append("**评估：** 1类元素必须在风险评估中评估所有潜在来源和给药途径。")
+        elif q3d_class == "Class 2A":
+            report.append("**评估：** 2A类元素出现概率较高，需要对所有潜在来源进行风险评估。")
+        elif q3d_class == "Class 2B":
+            if intentionally:
+                report.append("**评估：** 2B类元素有意添加，需要评估。")
+            else:
+                report.append("**评估：** 2B类元素未有意添加，可从风险评估中排除。")
+        elif q3d_class == "Class 3":
+            if intentionally:
+                report.append("**评估：** 3类元素有意添加，需要评估。")
+            else:
+                parts = []
+                if data.get("oral_assess"):
+                    parts.append("口服途径需评估")
+                else:
+                    parts.append("口服途径无需评估")
+                if data.get("parenteral_assess"):
+                    parts.append("注射途径需评估")
+                else:
+                    parts.append("注射途径无需评估")
+                if data.get("inhalation_assess"):
+                    parts.append("吸入途径需评估")
+                else:
+                    parts.append("吸入途径无需评估")
+                if data.get("cutaneous_assess"):
+                    parts.append("皮肤途径需评估")
+                else:
+                    parts.append("皮肤途径无需评估")
+                report.append("**评估：** " + "；".join(parts) + "。")
+        elif q3d_class == "Other":
+            report.append("**评估：** 该元素不在ICH Q3D范围内，未建立PDE。需要逐案进行毒理学论证。")
+
+        report.append("")
+
+    report.append("")
+    report.append("---")
+    report.append("")
+    report.append("## 关键要点")
+    report.append("")
+
+    counts = {"Class 1": 0, "Class 2A": 0, "Class 2B": 0, "Class 3": 0, "Other": 0}
+    for _, d in elements.items():
+        cls = d.get("q3d_class", "")
+        if cls in counts:
+            counts[cls] += 1
+
+    report.append(f"1. 识别出 {len(elements)} 个元素杂质需要关注")
+    if counts["Class 1"] > 0:
+        report.append(f"2. {counts['Class 1']} 个1类元素必须评估所有来源和给药途径")
+    if counts["Class 2A"] > 0:
+        report.append(f"3. {counts['Class 2A']} 个2A类元素需要评估所有潜在来源")
+    if counts["Class 2B"] > 0:
+        report.append(f"4. {counts['Class 2B']} 个2B类元素（仅有意添加时需要评估）")
+    if counts["Class 3"] > 0:
+        report.append(f"5. {counts['Class 3']} 个3类元素（口服途径除非有意添加否则无需评估）")
+    if counts["Other"] > 0:
+        report.append(f"6. {counts['Other']} 个元素不在Q3D范围内，需要单独毒理学论证")
+
+    report.append("")
+    report.append("---")
+    report.append("")
+    report.append("## 特殊考虑")
+    report.append("")
+    report.append("### 控制阈值")
+    report.append("")
+    report.append("- 控制阈值 = **30% of PDE**")
+    report.append("- 如果药品中元素杂质总量持续低于控制阈值，则无需额外控制措施")
+    report.append("")
+    report.append("### 皮肤/经皮给药途径（附录5）")
+    report.append("")
+    report.append("- 皮肤PDE = 注射PDE × CMF（转换系数）")
+    report.append("- 默认CMF = 10（As的CMF = 2，Tl的CMF = 1）")
+    report.append("- Ni和Co的皮肤毒性浓度限度（CTCL）= 35 μg/g")
+    report.append("- 控制阈值 = 30% of PDE AND 30% of CTCL")
+    report.append("")
+    report.append("### 形态分析")
+    report.append("")
+    report.append("- 可使用总元素含量评估合规性")
+    report.append("- 如已知特定形态毒性不同，可调整限度")
+    report.append("")
+    report.append("### 生命周期管理")
+    report.append("")
+    report.append("以下变更可能改变元素杂质含量，需重新评估：")
+    report.append("- 合成路线变更")
+    report.append("- 辅料供应商变更")
+    report.append("- 设备变更")
+    report.append("- 容器密封系统变更")
+    report.append("")
+    report.append("---")
+    report.append("")
+    report.append("## 参考文献")
+    report.append("")
+    report.append("- ICH Q3D(R2) 元素杂质指导原则（2022年4月）")
+    report.append("")
+
+    return "\n".join(report)
 
 
-def get_solvent_cn(name_en: str) -> str:
-    """获取溶剂中文名"""
-    cn_map = {
-        "Benzene": "苯", "Carbon Tetrachloride": "四氯化碳",
-        "1,2-Dichloroethane": "1,2-二氯乙烷", "1,1-Dichloroethane": "1,1-二氯乙烷",
-        "1,1,1-Trichloroethane": "1,1,1-三氯乙烷", "1,2-Dichloroethylene": "1,2-二氯乙烯",
-        "Acetonitrile": "乙腈", "Chlorobenzene": "氯苯", "Chloroform": "氯仿",
-        "Cyclohexane": "环己烷", "Dichloromethane": "二氯甲烷",
-        "1,2-Dichloroethene": "1,2-二氯乙烯", "N,N-Dimethylformamide": "N,N-二甲基甲酰胺",
-        "1,4-Dioxane": "1,4-二氧六环", "Ethylene Glycol": "乙二醇",
-        "Formamide": "甲酰胺", "Hexane": "正己烷", "Methanol": "甲醇",
-        "2-Ethoxyethanol": "2-乙氧基乙醇", "Ethoxydiglycol": "乙氧基二甘醇",
-        "Cyclopentyl Methyl Ether": "环戊基甲基醚",
-        "N,N-Dimethylacetamide": "N,N-二甲基乙酰胺", "Dimethyl Sulfoxide": "二甲基亚砜",
-        "Ethyl Acetate": "乙酸乙酯", "Ethyl Ether": "乙醚", "Heptane": "庚烷",
-        "Isobutanol": "异丁醇", "Isopropanol": "异丙醇", "Methyl Acetate": "乙酸甲酯",
-        "Methyl Ethyl Ketone": "甲基乙基酮", "Methyl Isobutyl Ketone": "甲基异丁基酮",
-        "2-Methyl-1-Propanol": "2-甲基-1-丙醇", "Nitromethane": "硝基甲烷",
-        "Pentane": "戊烷", "1-Pentanol": "1-戊醇", "Propanol": "丙醇",
-        "Pyridine": "吡啶", "Sulfolane": "环丁砜", "Tetrahydrofuran": "四氢呋喃",
-        "Toluene": "甲苯", "1,1,2-Trichloroethylene": "1,1,2-三氯乙烯",
-        "Xylene": "二甲苯", "Cumene": "异丙苯", "Dimethylacetamide": "二甲基乙酰胺",
-        "Diethylene Glycol": "二乙二醇", "Diisopropyl Ether": "二异丙醚",
-        "Ethylbenzene": "乙苯", "Ethylene Glycol Monobutyl Ether": "乙二醇单丁醚",
-        "Hexanes": "己烷", "Isobutyl Acetate": "乙酸异丁酯",
-        "Isopentyl Acetate": "乙酸异戊酯", "Methylethylcyclohexane": "甲基乙基环己烷",
-        "Methylcyclohexane": "甲基环己烷", "Mineral Spirits": "矿物油精",
-        "N-Propyl Acetate": "乙酸正丙酯", "n-Butanol": "正丁醇",
-        "n-Butyl Acetate": "乙酸正丁酯", "n-Heptane": "正庚烷",
-        "n-Hexane": "正己烷", "n-Pentane": "正戊烷", "Petroleum Benzine": "石油醚",
-        "Petroleum Ether": "石油醚", "Propyl Acetate": "乙酸丙酯",
-        "Stoddard Solvent": "斯托达德溶剂", "tert-Butanol": "叔丁醇",
-        "tert-Butyl Acetate": "乙酸叔丁酯", "Tetrahydronaphthalene": "四氢化萘",
-        "Water": "水", "Acetic Acid": "乙酸", "Ethanol": "乙醇",
-        "2-Propanol": "异丙醇", "1-Butanol": "正丁醇", "2-Butanol": "仲丁醇",
-        "1-Propanol": "丙醇", "2-Methoxyethanol": "2-甲氧基乙醇",
-        "Methyl Isopropyl Ketone": "甲基异丙基酮",
-    }
-    return cn_map.get(name_en, name_en)
-
-
-def assess_compliance(elements: list[dict], route: str = "oral") -> list[dict]:
-    """根据给药途径评估合规性"""
-    for elem in elements:
-        route_assess_key = f"{route}_assess"
-        if route == "oral":
-            elem["needs_assessment"] = elem.get("oral_assess", False)
-            elem["pde_for_route"] = elem.get("oral_pde")
-        elif route == "parenteral":
-            elem["needs_assessment"] = elem.get("parenteral_assess", True)
-            elem["pde_for_route"] = elem.get("parenteral_pde")
-        elif route == "inhalation":
-            elem["needs_assessment"] = elem.get("inhalation_assess", True)
-            elem["pde_for_route"] = elem.get("inhalation_pde")
-        elif route == "cutaneous":
-            elem["needs_assessment"] = elem.get("cutaneous_assess", False)
-            elem["pde_for_route"] = elem.get("cutaneous_pde")
-            # 检查 CTCL
-            if elem.get("ctcl"):
-                elem["ctcl_applicable"] = True
+def _add_frontend_fields(elements: dict, llm_response: dict) -> dict:
+    """Add fields needed by frontend table display.
+    
+    The skill's identify_elements returns dict keyed by symbol,
+    but frontend needs:
+    - symbol field on each element
+    - found_in_text flag
+    - needs_assessment boolean (computed per Q3D rules)
+    """
+    llm_symbols = set()
+    for elem_data in llm_response.get("elements", []):
+        symbol = elem_data.get("symbol", "")
+        if symbol:
+            llm_symbols.add(symbol)
+    
+    for symbol, data in elements.items():
+        # Add symbol field
+        data["symbol"] = symbol
         
-        # 控制阈值 = 30% PDE
-        pde = elem.get("pde_for_route")
-        if pde:
-            elem["control_threshold"] = pde * 0.3
+        # Add found_in_text flag
+        data["found_in_text"] = symbol in llm_symbols
+        
+        # Compute needs_assessment based on Q3D class rules
+        q3d_class = data.get("q3d_class", "")
+        intentionally = data.get("intentionally_added", False)
+        
+        if q3d_class in ("Class 1", "Class 2A"):
+            # Always need assessment
+            data["needs_assessment"] = True
+        elif q3d_class == "Class 2B":
+            # Only if intentionally added
+            data["needs_assessment"] = intentionally
+        elif q3d_class == "Class 3":
+            # Per-element flags if not intentionally added, otherwise all
+            if intentionally:
+                data["needs_assessment"] = True
+            else:
+                # At least one route needs assessment
+                data["needs_assessment"] = (
+                    data.get("oral_assess", False) or
+                    data.get("parenteral_assess", False) or
+                    data.get("inhalation_assess", False) or
+                    data.get("cutaneous_assess", False)
+                )
+        elif q3d_class == "Other":
+            # Only if intentionally added
+            data["needs_assessment"] = intentionally
+        else:
+            data["needs_assessment"] = data.get("assessment_required", False)
     
     return elements
 
 
-def generate_q3d_report(elements: list[dict], route: str = "oral") -> str:
-    """生成 ICH Q3D 合规报告"""
-    report = []
-    report.append("# ICH Q3D 元素杂质评估报告")
-    report.append("")
-    report.append(f"**给药途径**: {route}")
-    report.append(f"**评估日期**: {Path().cwd()}")
-    report.append("")
+async def analyze_ich_q3d_with_llm(file_content: bytes) -> dict:
+    """Analyze ICH Q3D elemental impurities using LLM.
     
-    # 统计
-    needs_assess = [e for e in elements if e.get("needs_assessment")]
-    class_1 = [e for e in needs_assess if e.get("q3d_class") == "Class 1"]
-    class_2a = [e for e in needs_assess if e.get("q3d_class") == "Class 2A"]
-    class_2b = [e for e in needs_assess if e.get("q3d_class") == "Class 2B"]
-    class_3 = [e for e in needs_assess if e.get("q3d_class") == "Class 3"]
-    
-    report.append("## 评估摘要")
-    report.append("")
-    report.append(f"- 需要评估的元素总数: **{len(needs_assess)}**")
-    report.append(f"- Class 1 元素: **{len(class_1)}**")
-    report.append(f"- Class 2A 元素: **{len(class_2a)}**")
-    report.append(f"- Class 2B 元素: **{len(class_2b)}**")
-    report.append(f"- Class 3 元素: **{len(class_3)}**")
-    report.append("")
-    
-    if needs_assess:
-        report.append("## 需要评估的元素")
-        report.append("")
-        report.append("| 元素 | 分类 | PDE (μg/天) | 控制阈值 (μg/天) | 来源 |")
-        report.append("|------|------|-------------|------------------|------|")
-        
-        for elem in needs_assess:
-            pde = elem.get("pde_for_route", "-")
-            threshold = elem.get("control_threshold", "-")
-            report.append(f"| {elem['symbol']} | {elem['q3d_class']} | {pde} | {threshold} | {elem.get('source', '-')} |")
-        
-        report.append("")
-    
-    report.append("## 评估建议")
-    report.append("")
-    report.append("1. 对于 Class 1 和 Class 2A 元素，必须评估所有潜在来源")
-    report.append("2. 控制阈值 = 30% PDE，低于此值通常无需额外控制")
-    report.append("3. 如元素含量超过控制阈值，需制定控制策略")
-    report.append("")
-    
-    report.append("## 参考文献")
-    report.append("")
-    report.append("- ICH Q3D(R2) 元素杂质指导原则（2022年4月）")
-    
-    return "\n".join(report)
-
-
-def generate_q3c_report(solvents: list[dict]) -> str:
-    """生成 ICH Q3C 合规报告"""
-    report = []
-    report.append("# ICH Q3C 溶剂残留评估报告")
-    report.append("")
-    
-    # 统计
-    class_1 = [s for s in solvents if s.get("class") == "Class 1"]
-    class_2 = [s for s in solvents if s.get("class") == "Class 2"]
-    class_3 = [s for s in solvents if s.get("class") == "Class 3"]
-    
-    report.append("## 评估摘要")
-    report.append("")
-    report.append(f"- 识别溶剂总数: **{len(solvents)}**")
-    report.append(f"- Class 1 溶剂（避免使用）: **{len(class_1)}**")
-    report.append(f"- Class 2 溶剂（限制使用）: **{len(class_2)}**")
-    report.append(f"- Class 3 溶剂（低毒）: **{len(class_3)}**")
-    report.append("")
-    
-    if class_1:
-        report.append("## ⚠️ Class 1 溶剂（必须避免）")
-        report.append("")
-        for s in class_1:
-            report.append(f"- **{s['name_cn']}** ({s['name_en']}): 限度 {s.get('limit_ppm', '-')} ppm")
-        report.append("")
-    
-    if class_2:
-        report.append("## Class 2 溶剂（限制使用）")
-        report.append("")
-        report.append("| 溶剂 | PDE (mg/天) | 限度 (ppm) |")
-        report.append("|------|-------------|------------|")
-        for s in class_2:
-            report.append(f"| {s['name_cn']} | {s.get('pde_mg_day', '-')} | {s.get('limit_ppm', '-')} |")
-        report.append("")
-    
-    if class_3:
-        report.append("## Class 3 溶剂（低毒）")
-        report.append("")
-        report.append("Class 3 溶剂毒性低，通常按 GMP 或其他质量标准控制即可。")
-        report.append("")
-        for s in class_3:
-            report.append(f"- {s['name_cn']} ({s['name_en']})")
-        report.append("")
-    
-    report.append("## 评估建议")
-    report.append("")
-    report.append("1. Class 1 溶剂应避免使用，如必须使用需提供充分理由")
-    report.append("2. Class 2 溶剂应限制使用，确保低于限度")
-    report.append("3. Class 3 溶剂按 GMP 要求控制")
-    report.append("")
-    
-    report.append("## 参考文献")
-    report.append("")
-    report.append("- ICH Q3C(R9) 溶剂残留指导原则（2024年1月）")
-    
-    return "\n".join(report)
-
-
-def analyze_ich_q3d(file_content: bytes, route: str = "oral") -> dict:
-    """分析 ICH Q3D 元素杂质"""
-    text = extract_text_from_docx(file_content)
-    steps = parse_process_steps(text)
-    elements = identify_elements_from_text(text)
-    
-    # 合规评估
-    elements = assess_compliance(elements, route)
-    
-    # 生成报告
-    report = generate_q3d_report(elements, route)
-    
-    # 统计
-    summary = {
-        "class_1": 0, "class_2a": 0, "class_2b": 0, "class_3": 0, "other": 0,
-    }
-    for elem in elements:
-        cls = elem.get("q3d_class", "")
-        if cls == "Class 1":
-            summary["class_1"] += 1
-        elif cls == "Class 2A":
-            summary["class_2a"] += 1
-        elif cls == "Class 2B":
-            summary["class_2b"] += 1
-        elif cls == "Class 3":
-            summary["class_3"] += 1
-        elif cls == "Other":
-            summary["other"] += 1
-    
-    return {
-        "type": "Q3D",
-        "text_length": len(text),
-        "steps_count": len(steps),
-        "route": route,
-        "elements_found": elements,
-        "total_elements": len(elements),
-        "needs_assessment": len([e for e in elements if e.get("needs_assessment")]),
-        "summary": summary,
-        "report": report,
-    }
-
-
-def analyze_ich_q3c(file_content: bytes) -> dict:
-    """分析 ICH Q3C 溶剂残留"""
-    text = extract_text_from_docx(file_content)
-    steps = parse_process_steps(text)
-    solvents = identify_solvents_from_text(text)
-    
-    # 生成报告
-    report = generate_q3c_report(solvents)
-    
-    # 统计
-    summary = {
-        "class_1": 0, "class_2": 0, "class_3": 0, "unknown": 0,
-    }
-    for solv in solvents:
-        cls = solv.get("class", "")
-        if cls == "Class 1":
-            summary["class_1"] += 1
-        elif cls == "Class 2":
-            summary["class_2"] += 1
-        elif cls == "Class 3":
-            summary["class_3"] += 1
-        else:
-            summary["unknown"] += 1
-    
-    return {
-        "type": "Q3C",
-        "text_length": len(text),
-        "steps_count": len(steps),
-        "solvents_found": solvents,
-        "total_solvents": len(solvents),
-        "summary": summary,
-        "report": report,
-    }
-
-
-# ==================== LLM 集成版本 ====================
-
-async def analyze_ich_q3d_with_llm(file_content: bytes, route: str = "oral") -> dict:
-    """使用 LLM 分析 ICH Q3D 元素杂质"""
+    LLM only identifies elements (symbol, source, intentionally_added).
+    Script applies Q3D rules from q3d_elements.json.
+    """
     from app.modules.research.llm_service import extract_elements_with_llm
     
+    # Extract text from DOCX
     text = extract_text_from_docx(file_content)
     steps = parse_process_steps(text)
     
-    # 使用 LLM 提取元素
+    # LLM extracts elements
     llm_elements = await extract_elements_with_llm(text)
     
-    # 合并 LLM 结果和关键词匹配结果
-    elements = identify_elements_from_text(text)
+    # Build element assessment using skill's identify_elements
+    elements_dict = identify_elements({"elements": llm_elements})
     
-    # 处理 LLM 识别的元素
-    for llm_elem in llm_elements:
-        symbol = llm_elem.get("symbol", "")
-        if not symbol:
-            continue
-        
-        # 查找是否已存在
-        existing = next((e for e in elements if e.get("symbol") == symbol), None)
-        if existing:
-            # 更新来源信息
-            if llm_elem.get("source"):
-                existing["source"] = llm_elem["source"]
-            existing["intentionally_added"] = llm_elem.get("intentionally_added", False)
-            existing["found_in_text"] = True
-        else:
-            # 添加新元素
-            elem_data = get_element_data(symbol)
-            if elem_data:
-                elements.append({
-                    "symbol": symbol,
-                    "source": llm_elem.get("source", "LLM 识别"),
-                    "intentionally_added": llm_elem.get("intentionally_added", False),
-                    "assessment_required": True,
-                    "q3d_class": elem_data.get("class"),
-                    "oral_pde": elem_data.get("oral_pde"),
-                    "parenteral_pde": elem_data.get("parenteral_pde"),
-                    "inhalation_pde": elem_data.get("inhalation_pde"),
-                    "cutaneous_pde": elem_data.get("cutaneous_pde"),
-                    "ctcl": elem_data.get("ctcl"),
-                    "oral_assess": True,
-                    "parenteral_assess": True,
-                    "inhalation_assess": True,
-                    "cutaneous_assess": True,
-                    "notes": elem_data.get("notes", ""),
-                    "found_in_text": True,
-                })
+    # Add frontend-specific fields
+    elements_dict = _add_frontend_fields(elements_dict, {"elements": llm_elements})
     
-    # 合规评估
-    elements = assess_compliance(elements, route)
+    # Convert to list for JSON serialization
+    elements_list = list(elements_dict.values())
     
-    # 生成报告
-    report = generate_q3d_report(elements, route)
+    # Generate markdown report
+    report = generate_report(text, elements_dict)
     
-    # 统计
-    summary = {
-        "class_1": 0, "class_2a": 0, "class_2b": 0, "class_3": 0, "other": 0,
-    }
-    for elem in elements:
-        cls = elem.get("q3d_class", "")
-        if cls == "Class 1":
-            summary["class_1"] += 1
-        elif cls == "Class 2A":
-            summary["class_2a"] += 1
-        elif cls == "Class 2B":
-            summary["class_2b"] += 1
-        elif cls == "Class 3":
-            summary["class_3"] += 1
-        elif cls == "Other":
-            summary["other"] += 1
+    # Count elements needing assessment
+    needs_assessment_count = sum(1 for e in elements_list if e.get("needs_assessment"))
+    
+    # Count by class
+    class_counts = {"Class 1": 0, "Class 2A": 0, "Class 2B": 0, "Class 3": 0, "Other": 0}
+    for elem in elements_list:
+        q3d_class = elem.get("q3d_class", "")
+        if q3d_class in class_counts:
+            class_counts[q3d_class] += 1
     
     return {
         "type": "Q3D",
         "text_length": len(text),
         "steps_count": len(steps),
-        "route": route,
-        "elements_found": elements,
-        "total_elements": len(elements),
-        "needs_assessment": len([e for e in elements if e.get("needs_assessment")]),
-        "summary": summary,
+        "elements_found": elements_list,
+        "total_elements": len(elements_list),
+        "needs_assessment": needs_assessment_count,
+        "summary": {
+            "class_1": class_counts["Class 1"],
+            "class_2a": class_counts["Class 2A"],
+            "class_2b": class_counts["Class 2B"],
+            "class_3": class_counts["Class 3"],
+            "other": class_counts["Other"]
+        },
         "report": report,
         "llm_used": True,
-        "llm_elements_count": len(llm_elements),
+        "llm_elements_count": len(llm_elements)
     }
 
 
 async def analyze_ich_q3c_with_llm(file_content: bytes) -> dict:
-    """使用 LLM 分析 ICH Q3C 溶剂残留"""
-    from app.modules.research.llm_service import extract_solvents_with_llm
+    """Analyze ICH Q3C solvent residues using LLM (skill's pipeline).
     
+    LLM extracts AND classifies solvents using the full ICH Q3C database.
+    Script enriches with PDE/limit values from database and generates report.
+    """
+    from app.modules.research.llm_service import extract_solvents_with_llm
+    from app.modules.research.q3c_solvent_match import (
+        load_synonyms, build_solvent_index, classify_solvents
+    )
+    from app.modules.research.q3c_report_gen import generate_q3c_report
+    
+    # 1. Extract text and parse steps
     text = extract_text_from_docx(file_content)
     steps = parse_process_steps(text)
     
-    # 使用 LLM 提取溶剂
-    llm_solvents = await extract_solvents_with_llm(text)
+    # 2. LLM extracts and classifies solvents (step-based structure)
+    llm_result = await extract_solvents_with_llm(steps)
     
-    # 合并 LLM 结果和关键词匹配结果
-    solvents = identify_solvents_from_text(text)
-    solvent_index = build_solvent_index()
+    # 3. Build solvent index for enrichment
+    synonyms = load_synonyms()
+    ich_data = Q3C_DATA
+    solvent_index = build_solvent_index(ich_data, synonyms)
     
-    # 处理 LLM 识别的溶剂
-    for llm_solv in llm_solvents:
-        name = llm_solv.get("name", "")
-        if not name:
-            continue
+    # 4. Process each step's solvents
+    step_analysis = []
+    all_solvents = {}
+    
+    for step_data in llm_result.get("steps", []):
+        step_number = step_data.get("step_number", "")
+        step_title = step_data.get("step_title", "")
         
-        # 去除浓度前缀
-        name = remove_concentration_prefix(name)
-        name_lower = name.lower()
+        # Collect solvents for this step
+        raw_solvents = []
+        for solvent_info in step_data.get("solvents", []):
+            matched_name = solvent_info.get("matched_name") or solvent_info.get("original_name", "")
+            original_name = solvent_info.get("original_name", matched_name)
+            ich_class = solvent_info.get("ich_class", "Unlisted")
+            
+            if not matched_name:
+                continue
+            
+            raw_solvents.append({
+                "solvent": matched_name,
+                "original_name": original_name,
+                "ich_class": ich_class,
+                "purpose": solvent_info.get("purpose", ""),
+                "amount": solvent_info.get("amount")
+            })
         
-        # 查找是否已存在
-        existing = next((s for s in solvents if s["name_en"].lower() == name_lower or s["name_cn"] == name), None)
-        if existing:
-            # 更新用途信息
-            if llm_solv.get("purpose"):
-                existing["purpose"] = llm_solv["purpose"]
-            existing["found_in_text"] = True
-        else:
-            # 尝试在索引中查找
-            if name_lower in solvent_index:
-                solvent_data = solvent_index[name_lower]
-                solvents.append({
-                    "name_en": solvent_data["canonical"],
-                    "name_cn": get_solvent_cn(solvent_data["canonical"]),
-                    "class": solvent_data["class"],
-                    "limit_ppm": solvent_data.get("limit"),
-                    "pde_mg_day": solvent_data.get("pde"),
-                    "purpose": llm_solv.get("purpose", ""),
-                    "found_in_text": True,
-                })
+        # Classify and enrich with PDE/limit
+        classified = classify_solvents(raw_solvents, solvent_index)
+        
+        step_analysis.append({
+            "step_number": step_number,
+            "step_title": step_title,
+            "solvents": classified,
+            "solvent_count": len(classified)
+        })
+        
+        # Aggregate all solvents
+        for solvent_entry in classified:
+            solvent_name = solvent_entry["solvent"]
+            if solvent_name not in all_solvents:
+                all_solvents[solvent_name] = {
+                    **solvent_entry,
+                    "steps_used": []
+                }
+            all_solvents[solvent_name]["steps_used"].append(step_number)
     
-    # 生成报告
-    report = generate_q3c_report(solvents)
-    
-    # 统计
-    summary = {
-        "class_1": 0, "class_2": 0, "class_3": 0, "unknown": 0,
+    # 5. Build analysis structure for report generation
+    analysis = {
+        "step_analysis": step_analysis,
+        "all_solvents": all_solvents,
+        "total_unique_solvents": len(all_solvents),
+        "extraction_method": "llm"
     }
-    for solv in solvents:
+    
+    # 6. Generate markdown report
+    report = generate_q3c_report(analysis, flag_class1=True, ich_data_source="ICH Q3C(R9) 数据库")
+    
+    # 7. Convert to frontend format (flat list)
+    solvents_list = []
+    for solvent_name, data in all_solvents.items():
+        solvents_list.append({
+            "name_en": data.get("solvent", solvent_name),
+            "name_cn": data.get("original_name", solvent_name),
+            "class": data.get("class", "Unknown"),
+            "limit_ppm": data.get("limit"),
+            "pde_mg_day": data.get("pde"),
+            "purpose": data.get("purpose", ""),
+            "found_in_text": True,
+            "steps_used": data.get("steps_used", [])
+        })
+    
+    # 8. Compute summary
+    summary = {"class_1": 0, "class_2": 0, "class_3": 0, "unknown": 0}
+    for solv in solvents_list:
         cls = solv.get("class", "")
-        if cls == "Class 1":
+        if "1" in str(cls):
             summary["class_1"] += 1
-        elif cls == "Class 2":
+        elif "2" in str(cls):
             summary["class_2"] += 1
-        elif cls == "Class 3":
+        elif "3" in str(cls):
             summary["class_3"] += 1
         else:
             summary["unknown"] += 1
@@ -781,10 +694,12 @@ async def analyze_ich_q3c_with_llm(file_content: bytes) -> dict:
         "type": "Q3C",
         "text_length": len(text),
         "steps_count": len(steps),
-        "solvents_found": solvents,
-        "total_solvents": len(solvents),
+        "solvents_found": solvents_list,
+        "total_solvents": len(solvents_list),
         "summary": summary,
         "report": report,
+        "step_analysis": step_analysis,
         "llm_used": True,
-        "llm_solvents_count": len(llm_solvents),
+        "llm_solvents_count": len(solvents_list)
     }
+

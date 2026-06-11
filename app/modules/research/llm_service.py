@@ -38,6 +38,11 @@ class LLMConfig:
     def update_config(self, api_key: str = None, base_url: str = None, model: str = None):
         """更新配置并保存到 .env 文件"""
         if api_key is not None:
+            # Reject masked keys (prevent saving masked version back to .env)
+            if "***" in api_key:
+                print("Warning: Ignoring masked API key, not saving to .env")
+                return
+            
             self.api_key = api_key
             self._save_to_env("OPENAI_API_KEY", api_key)
         
@@ -130,7 +135,7 @@ llm_config = LLMConfig()
 async def call_llm(prompt: str, system_prompt: str = "") -> dict:
     """调用 LLM API"""
     if not llm_config.api_key:
-        raise ValueError("OPENAI_API_KEY 未配置，请先在界面中配置 LLM")
+        raise ValueError("大语言模型未配置，请先在界面中配置大语言模型")
     
     messages = []
     if system_prompt:
@@ -188,68 +193,211 @@ def build_q3d_prompt(text: str) -> str:
 """
 
 
-def build_q3c_prompt(text: str) -> str:
-    """构建 Q3C 溶剂识别 prompt"""
-    return f"""你是一个制药工艺分析专家。请从以下药品合成工艺文本中提取所有使用的溶剂。
+def build_q3c_prompt(steps: list[dict]) -> str:
+    """构建 Q3C 溶剂识别 prompt (skill's version with ICH Q3C database)"""
+    
+    # ICH Q3C Solvent Database
+    ich_class1 = ["Benzene", "Carbon tetrachloride", "1,2-Dichloroethane", "1,1-Dichloroethene", "1,1,1-Trichloroethane"]
+    
+    ich_class2 = [
+        "Acetonitrile", "Chlorobenzene", "Chloroform", "Cumene", "Cyclohexane",
+        "Cyclopentyl methyl ether", "1,2-Dichloroethene", "Dichloromethane",
+        "1,2-Dimethoxyethane", "N,N-Dimethylacetamide", "N,N-Dimethylformamide",
+        "1,4-Dioxane", "2-Ethoxyethanol", "Ethyleneglycol", "Formamide", "Hexane",
+        "Methanol", "2-Methoxyethanol", "Methylbutyl ketone", "Methylcyclohexane",
+        "Methylisobutylketone", "N-Methylpyrrolidone", "Nitromethane", "Pyridine",
+        "Sulfolane", "Tertiary-butyl alcohol", "Tetrahydrofuran", "Tetralin",
+        "Toluene", "1,1,2-Trichloroethene", "Xylene"
+    ]
+    
+    ich_class3 = [
+        "Acetic acid", "Acetone", "Anisole", "1-Butanol", "2-Butanol", "Butyl acetate",
+        "tert-Butylmethyl ether", "Dimethyl sulfoxide", "Ethanol", "Ethyl acetate",
+        "Ethyl ether", "Ethyl formate", "Formic acid", "Heptane", "Isobutyl acetate",
+        "Isopropyl acetate", "Methyl acetate", "3-Methyl-1-butanol", "Methylethyl ketone",
+        "2-Methyl-1-propanol", "2-Methyltetrahydrofuran", "Pentane", "1-Pentanol",
+        "1-Propanol", "2-Propanol", "Propyl acetate", "Triethylamine"
+    ]
+    
+    # Solvent synonyms (Chinese + English + abbreviations)
+    solvent_synonyms = {
+        "dichloromethane": ["DCM", "methylene chloride", "二氯甲烷"],
+        "dimethylformamide": ["DMF", "N,N-dimethylformamide", "N,N-二甲基甲酰胺"],
+        "dimethylsulfoxide": ["DMSO", "二甲基亚砜"],
+        "tetrahydrofuran": ["THF", "四氢呋喃"],
+        "acetonitrile": ["MeCN", "ACN", "乙腈"],
+        "methanol": ["MeOH", "methyl alcohol", "甲醇"],
+        "ethanol": ["EtOH", "ethyl alcohol", "乙醇", "无水乙醇"],
+        "isopropanol": ["IPA", "isopropyl alcohol", "2-propanol", "异丙醇"],
+        "acetone": ["propanone", "丙酮"],
+        "ethyl acetate": ["EtOAc", "乙酸乙酯"],
+        "toluene": ["methylbenzene", "甲苯"],
+        "benzene": ["苯"],
+        "chloroform": ["trichloromethane", "氯仿"],
+        "carbon tetrachloride": ["四氯化碳"],
+        "1,2-dichloroethane": ["DCE", "1,2-二氯乙烷"],
+        "1,4-dioxane": ["dioxane", "1,4-二氧六环"],
+        "n-methyl-2-pyrrolidone": ["NMP", "N-甲基吡咯烷酮"],
+        "pyridine": ["吡啶"],
+        "hexane": ["n-hexane", "正己烷"],
+        "heptane": ["n-heptane", "正庚烷"],
+        "cyclohexane": ["环己烷"],
+        "diethyl ether": ["ether", "乙醚"],
+        "tert-butyl methyl ether": ["MTBE", "甲基叔丁基醚"],
+        "2-methyltetrahydrofuran": ["2-MeTHF", "2-甲基四氢呋喃"],
+        "trichloroethylene": ["TCE", "三氯乙烯"],
+        "tetrachloroethylene": ["PERC", "四氯乙烯"],
+        "1,1,1-trichloroethane": ["1,1,1-三氯乙烷"],
+        "chlorobenzene": ["monochlorobenzene", "氯苯"],
+        "xylene": ["xylenes", "二甲苯"],
+        "o-xylene": ["邻二甲苯"],
+        "m-xylene": ["间二甲苯"],
+        "p-xylene": ["对二甲苯"],
+        "n,n-dimethylacetamide": ["DMA", "DMAc", "N,N-二甲基乙酰胺"],
+        "triethylamine": ["TEA", "三乙胺"],
+        "methyl isobutyl ketone": ["MIBK", "甲基异丁基酮"],
+        "ethyl methyl ketone": ["MEK", "butanone", "丁酮"],
+        "tert-butanol": ["t-butanol", "叔丁醇"],
+        "ethylene glycol": ["乙二醇"],
+        "glycerol": ["glycerin", "甘油"],
+        "formic acid": ["甲酸"],
+        "acetic acid": ["乙酸"],
+        "trifluoroacetic acid": ["TFA", "三氟乙酸"],
+        "sulfuric acid": ["硫酸"],
+        "hydrochloric acid": ["HCl", "盐酸"],
+        "nitric acid": ["硝酸"],
+        "phosphoric acid": ["磷酸"]
+    }
+    
+    prompt = f"""你是一个制药工艺分析专家。请从以下合成工艺步骤中提取所有使用的溶剂，并根据 ICH Q3C(R9) 指南进行分类。
 
 ## 任务
 1. 识别每个步骤中作为溶剂使用的有机挥发性化学品
-2. 忽略水、酸碱试剂、固体试剂
-3. 忽略浓度前缀（95%乙醇→乙醇，无水乙醇→乙醇）
+2. 将每个溶剂与 ICH Q3C 数据库匹配
+3. 确定 ICH 分类 (Class 1/2/3) 或标记为未列出
+
+## ICH Q3C 溶剂数据库
+
+### Class 1 - 避免使用 (已知致癌物)
+{", ".join(ich_class1)}
+
+### Class 2 - 限制使用 (动物致癌物或不可逆毒性)
+{", ".join(ich_class2)}
+
+### Class 3 - 低毒潜在 (PDE ≥ 50 mg/天)
+{", ".join(ich_class3)}
+
+## 溶剂同义词参考
+
+以下是常见溶剂的中文/英文/缩写名称 (匹配时请考虑所有这些变体):
+"""
+    
+    for canonical, synonyms in solvent_synonyms.items():
+        prompt += f"- {canonical}: {', '.join(synonyms)}\n"
+    
+    prompt += """
+## 匹配规则
+
+**重要**: 当匹配溶剂时:
+1. **忽略浓度前缀**: 95% 乙醇、无水乙醇、Absolute ethanol → 都匹配到 Ethanol
+2. **考虑多语言名称**: 
+   - 中文名：乙醇，二氯甲烷，四氢呋喃
+   - 英文名：Ethanol, Dichloromethane, Tetrahydrofuran
+   - 缩写：DCM, THF, EtOH, MeOH
+3. **匹配优先级**:
+   - 先检查同义词表 → 找到规范名
+   - 再用规范名匹配 ICH 数据库
+   - 如果仍无匹配 → 标记为 "Unlisted"
 
 ## 区分标准
 
-**溶剂**（需要提取）：
+**溶剂** (需要提取):
 - 作为反应介质
 - 作为萃取溶剂
 - 作为纯化/重结晶溶剂
 - 作为洗涤溶剂
+- 有机挥发性化学品
 
-**不是溶剂**（忽略）：
-- 纯化水/注射用水
+**不是溶剂** (忽略):
+- 纯化水/注射用水 (水不是 ICH Q3C 监管的溶剂)
 - 氨水、氢氧化钠溶液等 pH 调节试剂
-- 固体试剂
+- 固体试剂 (即使溶解在其他溶剂中)
 - 反应物/底物/产物
-- 催化剂（除非同时作为溶剂使用）
-
-## 文本内容
-{text}
+- 催化剂 (除非同时作为溶剂使用)
+- 干燥剂 (如无水硫酸钠)
 
 ## 输出格式
-请输出 JSON 格式：
-{{
-  "solvents": [
-    {{
-      "name": "溶剂名称（中文或英文）",
-      "purpose": "用途（反应/萃取/洗涤/重结晶等）"
-    }}
-  ]
-}}
 
-注意：
-- 只输出 JSON，不要输出其他内容
-- 如果没有找到溶剂，返回 {{"solvents": []}}
-- 忽略浓度前缀，如 95%乙醇 输出为 乙醇
+返回 JSON 格式，结构如下:
+{
+  "steps": [
+    {
+      "step_number": "Step 1",
+      "step_title": "步骤标题",
+      "solvents": [
+        {
+          "original_name": "原文中的溶剂名称 (如：95% 乙醇)",
+          "matched_name": "匹配到的 ICH 规范名 (如：Ethanol)",
+          "ich_class": "Class 1/2/3 或 Unlisted",
+          "purpose": "反应/萃取/纯化/洗涤",
+          "amount": "用量 (如果有，没有则为 null)"
+        }
+      ]
+    }
+  ]
+}
+
+## 示例
+
+输入文本："使用 95% 乙醇进行重结晶"
+输出：
+{
+  "original_name": "95% 乙醇",
+  "matched_name": "Ethanol",
+  "ich_class": "Class 3",
+  "purpose": "纯化",
+  "amount": null
+}
+
+输入文本："加入 DCM 萃取"
+输出：
+{
+  "original_name": "DCM",
+  "matched_name": "Dichloromethane",
+  "ich_class": "Class 2",
+  "purpose": "萃取",
+  "amount": null
+}
+
+## 工艺步骤文本
 """
+    
+    # Add each step's content
+    for step in steps:
+        step_text = step.get("content", "")
+        prompt += f"\n\n{step.get('title', 'Step')}: {step_text}\n"
+    
+    prompt += "\n\n请只返回 JSON，不要其他解释。确保每个溶剂都包含 ich_class 字段。"
+    
+    return prompt
 
 
 async def extract_elements_with_llm(text: str) -> list[dict]:
     """使用 LLM 从文本中提取元素"""
-    try:
-        prompt = build_q3d_prompt(text)
-        result = await call_llm(prompt)
-        return result.get("elements", [])
-    except Exception as e:
-        print(f"LLM 调用失败: {e}")
-        return []
+    prompt = build_q3d_prompt(text)
+    result = await call_llm(prompt)
+    return result.get("elements", [])
 
 
-async def extract_solvents_with_llm(text: str) -> list[dict]:
-    """使用 LLM 从文本中提取溶剂"""
-    try:
-        prompt = build_q3c_prompt(text)
-        result = await call_llm(prompt)
-        return result.get("solvents", [])
-    except Exception as e:
-        print(f"LLM 调用失败: {e}")
-        return []
+async def extract_solvents_with_llm(steps: list[dict]) -> dict:
+    """使用 LLM 从工艺步骤中提取溶剂并分类 (skill's version)
+    
+    Args:
+        steps: List of parsed process steps from ich_service.parse_process_steps
+        
+    Returns:
+        Full LLM response with steps structure
+    """
+    prompt = build_q3c_prompt(steps)
+    result = await call_llm(prompt)
+    return result

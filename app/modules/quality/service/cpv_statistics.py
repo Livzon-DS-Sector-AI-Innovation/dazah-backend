@@ -41,7 +41,12 @@ def _calc_cpk(
     lower_limit: float | None,
     upper_limit: float | None,
 ) -> float:
-    """计算CPK值"""
+    """计算CPK值
+
+    当 lower_limit 或 upper_limit 为 None 时，自动从数据中计算：
+    - LSL = min(values)
+    - USL = max(values)
+    """
     if not values:
         return 0.0
     
@@ -51,13 +56,11 @@ def _calc_cpk(
     if std_dev == 0:
         return 0.0
     
-    cpk = 0.0
-    if upper_limit is not None and lower_limit is not None:
-        cpk = min(upper_limit - mean, mean - lower_limit) / (3 * std_dev)
-    elif upper_limit is not None:
-        cpk = (upper_limit - mean) / (3 * std_dev)
-    elif lower_limit is not None:
-        cpk = (mean - lower_limit) / (3 * std_dev)
+    # Auto-calculate limits from data when not provided
+    usl = upper_limit if upper_limit is not None else max(values)
+    lsl = lower_limit if lower_limit is not None else min(values)
+    
+    cpk = min(usl - mean, mean - lsl) / (3 * std_dev)
     
     return max(0.0, cpk) if math.isfinite(cpk) else 0.0
 
@@ -131,6 +134,10 @@ async def get_statistics(
     std_dev = _calc_std_dev(numeric_values)
     cpk_value = _calc_cpk(numeric_values, parameter.lower_limit, parameter.upper_limit)
     
+    # Use auto-calculated limits from data when parameter limits are not set
+    effective_lower = parameter.lower_limit if parameter.lower_limit is not None else min_value
+    effective_upper = parameter.upper_limit if parameter.upper_limit is not None else max_value
+    
     return CpvStatisticsResponse(
         total_batches=len(batches),
         min_value=min_value,
@@ -139,8 +146,8 @@ async def get_statistics(
         std_dev=std_dev,
         cpk_value=cpk_value,
         abnormal_count=abnormal_count,
-        lower_limit=parameter.lower_limit or 0.0,
-        upper_limit=parameter.upper_limit or 0.0,
+        lower_limit=effective_lower,
+        upper_limit=effective_upper,
     )
 
 
@@ -171,6 +178,18 @@ async def get_trend_data(
     # 构建批次映射
     batch_map = {b.id: b for b in batches}
     
+    # Collect numeric values first to compute auto-limits
+    all_numeric = []
+    for v in values:
+        if v.parameter_id == parameter_id:
+            num_val = _to_float(v.actual_value)
+            if num_val is not None:
+                all_numeric.append(num_val)
+    
+    # Auto-calculate limits from data when parameter limits are not set
+    effective_lower = parameter.lower_limit if parameter.lower_limit is not None else (min(all_numeric) if all_numeric else 0.0)
+    effective_upper = parameter.upper_limit if parameter.upper_limit is not None else (max(all_numeric) if all_numeric else 0.0)
+    
     # 构建趋势数据
     items = []
     for v in values:
@@ -184,8 +203,8 @@ async def get_trend_data(
                             batch_no=batch.batch_no,
                             production_date=batch.production_date.isoformat(),
                             value=num_val,
-                            lower_limit=parameter.lower_limit or 0.0,
-                            upper_limit=parameter.upper_limit or 0.0,
+                            lower_limit=effective_lower,
+                            upper_limit=effective_upper,
                             is_abnormal=v.is_abnormal,
                         )
                     )

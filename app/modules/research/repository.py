@@ -52,6 +52,7 @@ async def get_projects(
     stage: str | None = None,
     status: str | None = None,
     keyword: str | None = None,
+    project_type: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[ResearchProject], int]:
@@ -76,6 +77,13 @@ async def get_projects(
         )
         query = query.where(like_filter)
         count_query = count_query.where(like_filter)
+    if project_type is not None:
+        if project_type == "":
+            query = query.where(ResearchProject.project_type == None)
+            count_query = count_query.where(ResearchProject.project_type == None)
+        else:
+            query = query.where(ResearchProject.project_type == project_type)
+            count_query = count_query.where(ResearchProject.project_type == project_type)
 
     total = (await db.execute(count_query)).scalar_one()
 

@@ -42,11 +42,13 @@ async def get_projects(
     stage: str | None = None,
     status: str | None = None,
     keyword: str | None = None,
+    project_type: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[ResearchProject], int]:
     return await repo.get_projects(
-        db, stage=stage, status=status, keyword=keyword, page=page, page_size=page_size
+        db, stage=stage, status=status, keyword=keyword, project_type=project_type,
+        page=page, page_size=page_size
     )
 
 
