@@ -26,6 +26,21 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
+    # Route to bayesian_projects if project_type=bayesian
+    if data.project_type == "bayesian":
+        project = await service.create_bayesian_project(db, {
+            "name": data.name,
+            "description": data.description,
+            "status": "draft",
+        })
+        return success_response(data={
+            "id": str(project.id),
+            "name": project.name,
+            "description": project.description,
+            "status": project.status,
+            "created_at": project.created_at.isoformat(),
+        })
+    
     project = await service.create_project(db, data)
     return success_response(data=ResearchProjectResponse.model_validate(project))
 
@@ -40,6 +55,25 @@ async def get_projects(
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
+    # Route to bayesian_projects if project_type=bayesian
+    if project_type == "bayesian":
+        projects, total = await service.get_bayesian_projects(
+            db, keyword=keyword, page=page, page_size=page_size
+        )
+        return paginated_response(
+            data=[{
+                "id": str(p.id),
+                "name": p.name,
+                "description": p.description,
+                "status": p.status,
+                "created_at": p.created_at.isoformat(),
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+            } for p in projects],
+            page=page,
+            page_size=page_size,
+            total=total,
+        )
+    
     projects, total = await service.get_projects(
         db, stage=stage, status=status, keyword=keyword, project_type=project_type,
         page=page, page_size=page_size
@@ -55,8 +89,60 @@ async def get_projects(
 @router.get("/projects/{project_id}", summary="获取研发项目详情")
 async def get_project(
     project_id: uuid.UUID,
+    project_type: str | None = Query(None, description="项目类型"),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
+    # Route to bayesian_projects if project_type=bayesian
+    if project_type == "bayesian":
+        project = await service.get_bayesian_project(db, project_id)
+        components = await service.get_components(db, project_id)
+        objectives = await service.get_objectives(db, project_id)
+        experiments = await service.get_experiments(db, project_id)
+        
+        return success_response(data={
+            "id": str(project.id),
+            "name": project.name,
+            "description": project.description,
+            "status": project.status,
+            "created_at": project.created_at.isoformat(),
+            "updated_at": project.updated_at.isoformat() if project.updated_at else None,
+            "components": [
+                {
+                    "id": str(c.id),
+                    "project_id": str(c.project_id),
+                    "name": c.name,
+                    "component_type": c.component_type,
+                    "lower_bound": c.lower_bound,
+                    "upper_bound": c.upper_bound,
+                    "data_points": c.data_points,
+                    "categorical_values": c.categorical_values,
+                    "created_at": c.created_at.isoformat(),
+                } for c in components
+            ],
+            "objectives": [
+                {
+                    "id": str(o.id),
+                    "project_id": str(o.project_id),
+                    "name": o.name,
+                    "direction": o.direction,
+                    "threshold": o.threshold,
+                    "created_at": o.created_at.isoformat(),
+                } for o in objectives
+            ],
+            "experiments": [
+                {
+                    "id": str(e.id),
+                    "project_id": str(e.project_id),
+                    "batch_number": e.batch_number,
+                    "parameters": e.parameters,
+                    "results": e.results,
+                    "is_suggested": e.is_suggested,
+                    "status": e.status,
+                    "created_at": e.created_at.isoformat(),
+                } for e in experiments
+            ],
+        })
+    
     project = await service.get_project(db, project_id)
     return success_response(data=ResearchProjectResponse.model_validate(project))
 
@@ -75,10 +161,15 @@ async def update_project(
 @router.delete("/projects/{project_id}", summary="删除研发项目")
 async def delete_project(
     project_id: uuid.UUID,
+    project_type: str | None = Query(None, description="项目类型"),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
-    await service.delete_project(db, project_id)
+    # Route to bayesian_projects if project_type=bayesian
+    if project_type == "bayesian":
+        await service.delete_bayesian_project(db, project_id)
+    else:
+        await service.delete_project(db, project_id)
     return success_response(message="删除成功")
 
 
@@ -285,3 +376,98 @@ async def delete_ich_record(
     await db.commit()
     
     return success_response(message="删除成功")
+
+
+# ============ Bayesian Optimization APIs ============
+
+@router.post("/projects/{project_id}/components", summary="添加贝叶斯优化参数")
+async def add_component(
+    project_id: uuid.UUID,
+    data: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    component = await service.create_component(db, project_id, data)
+    return success_response(data={"id": str(component.id), **data})
+
+
+@router.get("/projects/{project_id}/components", summary="获取项目参数列表")
+async def get_components(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    components = await service.get_components(db, project_id)
+    return success_response(data=components)
+
+
+@router.delete("/components/{component_id}", summary="删除参数")
+async def delete_component(
+    component_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    await service.delete_component(db, component_id)
+    return success_response(message="参数已删除")
+
+
+@router.post("/projects/{project_id}/objectives", summary="添加优化目标")
+async def add_objective(
+    project_id: uuid.UUID,
+    data: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    objective = await service.create_objective(db, project_id, data)
+    return success_response(data={"id": str(objective.id), **data})
+
+
+@router.get("/projects/{project_id}/objectives", summary="获取优化目标列表")
+async def get_objectives(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    objectives = await service.get_objectives(db, project_id)
+    return success_response(data=objectives)
+
+
+@router.delete("/objectives/{objective_id}", summary="删除优化目标")
+async def delete_objective(
+    objective_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    await service.delete_objective(db, objective_id)
+    return success_response(message="目标已删除")
+
+
+@router.get("/projects/{project_id}/experiments", summary="获取实验列表")
+async def get_experiments(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    experiments = await service.get_experiments(db, project_id)
+    return success_response(data=experiments)
+
+
+@router.post("/experiments/{experiment_id}/result", summary="记录实验结果")
+async def record_result(
+    experiment_id: uuid.UUID,
+    data: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    experiment = await service.record_experiment_result(db, experiment_id, data)
+    return success_response(data=experiment)
+
+
+@router.post("/projects/{project_id}/suggest", summary="推荐实验")
+async def suggest_experiments(
+    project_id: uuid.UUID,
+    data: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    from app.modules.research.edbo_service import suggest_experiments as edbo_suggest
+    batch_size = data.get("batch_size", 5)
+    experiments = await edbo_suggest(db, project_id, batch_size)
+    return success_response(data=experiments)

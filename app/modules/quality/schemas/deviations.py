@@ -159,3 +159,23 @@ class SubmitInvestigationRequest(BaseModel):
     risk_assessment: str | None = None
     urgent_measures: str | None = None
     capa_proposals: list[dict] | None = None
+
+
+class CompleteAiAnalysisRequest(BaseModel):
+    ai_analysis: dict | None = None
+
+
+class BatchUpdateStatusRequest(BaseModel):
+    deviation_ids: list[uuid.UUID]
+    target_status: str
+
+
+class BatchUpdateStatusResponse(BaseModel):
+    updated_count: int
+    failed_count: int
+    failures: list[dict]
+
+
+    class Config:
+        from_attributes = True
+

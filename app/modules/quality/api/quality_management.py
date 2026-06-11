@@ -7,17 +7,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.modules.quality.schemas import (
-    CreateAttachmentReviewRequest,
+    BatchUpdateStatusRequest,
     CapaApprovalRequest,
+    CapaAutoFillFromDeviation,
+    CapaDeptHeadConfirmRequest,
     CapaDetail,
+    CapaEvaluationRequest,
     CapaListItem,
     CapaStatistics,
+    CompleteAiAnalysisRequest,
+    CompletePartRequest,
+    ConfirmProductionStatusRequest,
+    CreateAttachmentReviewRequest,
     CreateCapaRequest,
     CreateDepartmentContactRequest,
     CreateDeviationRequest,
+    DepartmentWeeklyConfirmationOut,
     DeviationDetail,
     DeviationListItem,
     DeviationStatistics,
+    ExecutionTrack,
+    LinkDeviationRequest,
     SubmitInvestigationRequest,
     SubmitReviewRequest,
     UpdateCapaRequest,
@@ -30,6 +40,7 @@ router = APIRouter()
 
 
 # ============ Deviations ============
+
 @router.get("/deviations", summary="获取偏差列表")
 async def list_deviations(
     status: str | None = None,
@@ -42,6 +53,35 @@ async def list_deviations(
 ) -> dict:
     result = await service.get_deviation_list(db, status, level, department, keyword, page, page_size)
     return {"data": result["items"], "meta": {"total": result["total"], "page": result["page"], "page_size": result["page_size"]}}
+
+
+@router.patch("/deviations/batch", summary="批量更新偏差状态")
+async def batch_update_deviation_status(data: BatchUpdateStatusRequest, db: AsyncSession = Depends(get_db)) -> dict:
+    result = await service.batch_update_status(db, data.deviation_ids, data.target_status, "system")
+    return {"data": result}
+
+
+@router.get("/deviations/department-confirmations", summary="获取部门周确认列表")
+async def list_department_confirmations(
+    week_key: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    result = await service.get_department_confirmations(db, week_key, page, page_size)
+    return {"data": result["items"], "meta": {"total": result["total"], "page": result["page"], "page_size": result["page_size"]}}
+
+
+@router.post("/deviations/department-confirmations", summary="确认部门生产状态")
+async def confirm_department_status(data: ConfirmProductionStatusRequest, db: AsyncSession = Depends(get_db)) -> dict:
+    result = await service.confirm_production_status(db, data, "system")
+    return {"data": result}
+
+
+@router.get("/deviations/stopped-departments", summary="获取停产部门列表")
+async def get_stopped_departments(week_key: str, db: AsyncSession = Depends(get_db)) -> dict:
+    departments = await service.get_stopped_departments(db, week_key)
+    return {"data": departments}
 
 
 @router.get("/deviations/{deviation_id}", summary="获取偏差详情")
@@ -75,6 +115,28 @@ async def delete_deviation(deviation_id: uuid.UUID, db: AsyncSession = Depends(g
         return {"data": result}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/deviations/{deviation_id}/submit", summary="提交偏差启动审核流程")
+async def submit_deviation_for_review(deviation_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        result = await service.submit_for_review(db, deviation_id, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/deviations/{deviation_id}/complete-ai-analysis", summary="完成AI分析")
+async def complete_ai_analysis(
+    deviation_id: uuid.UUID,
+    data: CompleteAiAnalysisRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        result = await service.complete_ai_analysis(db, deviation_id, data.ai_analysis, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/deviations/{deviation_id}/submit-investigation", summary="提交调查报告")
@@ -114,6 +176,7 @@ async def resubmit_deviation(deviation_id: uuid.UUID, db: AsyncSession = Depends
 
 
 # ============ CAPAs ============
+
 @router.get("/capas", summary="获取CAPA列表")
 async def list_capas(
     status: str | None = None,
@@ -126,6 +189,21 @@ async def list_capas(
 ) -> dict:
     result = await service.get_capa_list(db, status, source, category, keyword, page, page_size)
     return {"data": result["items"], "meta": {"total": result["total"], "page": result["page"], "page_size": result["page_size"]}}
+
+
+@router.get("/capas/departments", summary="获取所有部门列表")
+async def get_capa_departments(db: AsyncSession = Depends(get_db)) -> dict:
+    departments = await service.get_capa_departments(db)
+    return {"data": departments}
+
+
+@router.get("/capas/auto-fill/{deviation_id}", summary="从偏差自动填充CAPA表单")
+async def auto_fill_capa_from_deviation(deviation_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        result = await service.auto_fill_from_deviation(db, deviation_id)
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/capas/{capa_id}", summary="获取CAPA详情")
@@ -161,7 +239,126 @@ async def delete_capa(capa_id: uuid.UUID, db: AsyncSession = Depends(get_db)) ->
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.post("/capas/{capa_id}/link-deviation", summary="关联偏差到CAPA")
+async def link_capa_to_deviation(
+    capa_id: uuid.UUID,
+    data: LinkDeviationRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        result = await service.link_deviation(db, capa_id, data.deviation_id, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/capas/{capa_id}/complete-part", summary="完成CAPA部分")
+async def complete_capa_part(
+    capa_id: uuid.UUID,
+    data: CompletePartRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        result = await service.complete_part(db, capa_id, data.part, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/capas/{capa_id}/submit", summary="提交CAPA审核")
+async def submit_capa_for_review(capa_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        result = await service.submit_capa(db, capa_id, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/capas/{capa_id}/confirm-dept-head", summary="部门主管确认CAPA")
+async def confirm_capa_by_dept_head(
+    capa_id: uuid.UUID,
+    data: CapaDeptHeadConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        result = await service.confirm_dept_head(db, capa_id, data, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/capas/{capa_id}/approve", summary="QA审批CAPA")
+async def approve_capa(
+    capa_id: uuid.UUID,
+    data: CapaApprovalRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        result = await service.approve_capa(db, capa_id, data, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/capas/{capa_id}/resubmit", summary="重新提交CAPA")
+async def resubmit_capa(capa_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        result = await service.resubmit_capa(db, capa_id, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/capas/{capa_id}/add-execution-track", summary="添加CAPA执行记录")
+async def add_capa_execution_track(
+    capa_id: uuid.UUID,
+    data: ExecutionTrack,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        result = await service.add_execution_track(db, capa_id, data.model_dump(), "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/capas/{capa_id}/delete-execution-track", summary="删除CAPA执行记录")
+async def delete_capa_execution_track(
+    capa_id: uuid.UUID,
+    index: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        result = await service.delete_execution_track(db, capa_id, index, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/capas/{capa_id}/confirm-execution", summary="确认CAPA执行完成")
+async def confirm_capa_execution(capa_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        result = await service.confirm_execution(db, capa_id, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/capas/{capa_id}/submit-evaluation", summary="提交CAPA效果评价")
+async def submit_capa_evaluation(
+    capa_id: uuid.UUID,
+    data: CapaEvaluationRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        result = await service.submit_evaluation(db, capa_id, data, "system")
+        return {"data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ============ Department Contacts ============
+
 @router.get("/department-contacts", summary="获取部门联系人列表")
 async def list_department_contacts(
     page: int = 1,
@@ -188,6 +385,7 @@ async def delete_department_contact(contact_id: uuid.UUID, db: AsyncSession = De
 
 
 # ============ Statistics ============
+
 @router.get("/statistics/deviations", summary="获取偏差统计")
 async def get_deviation_statistics(db: AsyncSession = Depends(get_db)) -> dict:
     stats = await service.get_deviation_statistics(db)
@@ -201,6 +399,7 @@ async def get_capa_statistics(db: AsyncSession = Depends(get_db)) -> dict:
 
 
 # ============ Attachment Reviews ============
+
 @router.get("/attachment-reviews", summary="获取附件审阅列表")
 async def list_attachment_reviews(
     deviation_id: uuid.UUID | None = None,

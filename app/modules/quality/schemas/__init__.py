@@ -35,6 +35,9 @@ from app.modules.quality.schemas.cpv_statistics import (
 from app.modules.quality.schemas.shared import PageParams
 from app.modules.quality.schemas.deviations import (
     AiAnalysis,
+    BatchUpdateStatusRequest,
+    BatchUpdateStatusResponse,
+    CompleteAiAnalysisRequest,
     CreateDeviationRequest,
     CrossDeptReviewer,
     DeviationDetail,
@@ -46,10 +49,15 @@ from app.modules.quality.schemas.deviations import (
     UpdateDeviationRequest,
 )
 from app.modules.quality.schemas.capa import (
+    LinkDeviationRequest,
     CapaApprovalRequest,
+    CapaAutoFillFromDeviation,
+    CapaDeptHeadConfirmRequest,
     CapaDetail,
+    CapaEvaluationRequest,
     CapaItem,
     CapaListItem,
+    CompletePartRequest,
     CreateCapaRequest,
     DeptHeadConfirmation,
     ExecutionTrack,
@@ -113,6 +121,9 @@ __all__ = [
     "UpdateDeviationRequest",
     "SubmitReviewRequest",
     "SubmitInvestigationRequest",
+    "CompleteAiAnalysisRequest",
+    "BatchUpdateStatusRequest",
+    "BatchUpdateStatusResponse",
     # CAPA
     "CapaItem",
     "ExecutionTrack",
@@ -122,6 +133,11 @@ __all__ = [
     "CreateCapaRequest",
     "UpdateCapaRequest",
     "CapaApprovalRequest",
+    "LinkDeviationRequest",
+    "CapaAutoFillFromDeviation",
+    "CapaDeptHeadConfirmRequest",
+    "CapaEvaluationRequest",
+    "CompletePartRequest",
     # Department Contacts
     "DepartmentContactOut",
     "CreateDepartmentContactRequest",

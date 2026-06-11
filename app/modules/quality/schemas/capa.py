@@ -146,3 +146,34 @@ class CapaApprovalRequest(BaseModel):
     step: str
     result: str = "approved"
     opinion: str = ""
+
+
+class CapaAutoFillFromDeviation(BaseModel):
+    title: str | None = None
+    non_conformity_description: str | None = None
+    root_cause_analysis: str | None = None
+    capa_content: str | None = None
+    expected_completion_date: str | None = None
+
+
+class CompletePartRequest(BaseModel):
+    part: str  # "a" | "b"
+
+
+class CapaDeptHeadConfirmRequest(BaseModel):
+    department: str
+    dept_head_user_id: str
+    result: str  # "approved" | "rejected"
+    opinion: str
+
+
+class CapaEvaluationRequest(BaseModel):
+    evaluation_target: str
+    evaluation_result: str
+    evaluation_confirmer: str
+    evaluation_confirm_date: str
+    closure_date: str
+
+
+class LinkDeviationRequest(BaseModel):
+    deviation_id: str

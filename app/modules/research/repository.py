@@ -108,3 +108,199 @@ async def update_project(
 async def delete_project(db: AsyncSession, project: ResearchProject) -> None:
     project.is_deleted = True
     await db.flush()
+
+
+# ============ Bayesian Component Operations ============
+
+async def create_component(db: AsyncSession, data: dict[str, Any]) -> Any:
+    from app.modules.research.models import BayesianComponent
+    component = BayesianComponent(**data)
+    db.add(component)
+    await db.flush()
+    return component
+
+
+async def get_components_by_project(
+    db: AsyncSession, project_id: uuid.UUID
+) -> list[Any]:
+    from app.modules.research.models import BayesianComponent
+    result = await db.execute(
+        select(BayesianComponent).where(
+            BayesianComponent.project_id == project_id,
+            BayesianComponent.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalars().all()
+
+
+async def get_component_by_id(
+    db: AsyncSession, component_id: uuid.UUID
+) -> Any | None:
+    from app.modules.research.models import BayesianComponent
+    result = await db.execute(
+        select(BayesianComponent).where(
+            BayesianComponent.id == component_id,
+            BayesianComponent.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def delete_component(db: AsyncSession, component: Any) -> None:
+    component.is_deleted = True
+    await db.flush()
+
+
+# ============ Bayesian Objective Operations ============
+
+async def create_objective(db: AsyncSession, data: dict[str, Any]) -> Any:
+    from app.modules.research.models import BayesianObjective
+    objective = BayesianObjective(**data)
+    db.add(objective)
+    await db.flush()
+    return objective
+
+
+async def get_objectives_by_project(
+    db: AsyncSession, project_id: uuid.UUID
+) -> list[Any]:
+    from app.modules.research.models import BayesianObjective
+    result = await db.execute(
+        select(BayesianObjective).where(
+            BayesianObjective.project_id == project_id,
+            BayesianObjective.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalars().all()
+
+
+async def get_objective_by_id(
+    db: AsyncSession, objective_id: uuid.UUID
+) -> Any | None:
+    from app.modules.research.models import BayesianObjective
+    result = await db.execute(
+        select(BayesianObjective).where(
+            BayesianObjective.id == objective_id,
+            BayesianObjective.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def delete_objective(db: AsyncSession, objective: Any) -> None:
+    objective.is_deleted = True
+    await db.flush()
+
+
+# ============ Bayesian Experiment Operations ============
+
+async def create_experiment(db: AsyncSession, data: dict[str, Any]) -> Any:
+    from app.modules.research.models import BayesianExperiment
+    experiment = BayesianExperiment(**data)
+    db.add(experiment)
+    await db.flush()
+    return experiment
+
+
+async def get_experiments_by_project(
+    db: AsyncSession, project_id: uuid.UUID
+) -> list[Any]:
+    from app.modules.research.models import BayesianExperiment
+    result = await db.execute(
+        select(BayesianExperiment).where(
+            BayesianExperiment.project_id == project_id,
+            BayesianExperiment.is_deleted == False,  # noqa: E712
+        ).order_by(BayesianExperiment.batch_number.desc(), BayesianExperiment.created_at.asc())
+    )
+    return result.scalars().all()
+
+
+async def get_experiment_by_id(
+    db: AsyncSession, experiment_id: uuid.UUID
+) -> Any | None:
+    from app.modules.research.models import BayesianExperiment
+    result = await db.execute(
+        select(BayesianExperiment).where(
+            BayesianExperiment.id == experiment_id,
+            BayesianExperiment.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_experiment_results(
+    db: AsyncSession,
+    experiment: Any,
+    results: dict[str, Any],
+) -> Any:
+    experiment.results = results
+    experiment.status = "completed"
+    await db.flush()
+    return experiment
+
+
+# ============ Bayesian Project Operations ============
+
+async def create_bayesian_project(db: AsyncSession, data: dict[str, Any]) -> Any:
+    from app.modules.research.models import BayesianProject
+    project = BayesianProject(**data)
+    db.add(project)
+    await db.flush()
+    return project
+
+
+async def get_bayesian_projects(
+    db: AsyncSession,
+    keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[Any], int]:
+    from app.modules.research.models import BayesianProject
+    query = select(BayesianProject).where(
+        BayesianProject.is_deleted == False,  # noqa: E712
+    )
+    count_query = select(func.count()).select_from(BayesianProject).where(
+        BayesianProject.is_deleted == False,  # noqa: E712
+    )
+    
+    if keyword:
+        pattern = f"%{_escape_like(keyword)}%"
+        query = query.where(BayesianProject.name.ilike(pattern))
+        count_query = count_query.where(BayesianProject.name.ilike(pattern))
+    
+    total = (await db.execute(count_query)).scalar_one()
+    
+    query = query.order_by(BayesianProject.updated_at.desc()).offset(
+        (page - 1) * page_size
+    ).limit(page_size)
+    result = await db.execute(query)
+    return result.scalars().all(), total
+
+
+async def get_bayesian_project_by_id(
+    db: AsyncSession, project_id: uuid.UUID
+) -> Any | None:
+    from app.modules.research.models import BayesianProject
+    result = await db.execute(
+        select(BayesianProject).where(
+            BayesianProject.id == project_id,
+            BayesianProject.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_bayesian_project(
+    db: AsyncSession,
+    project: Any,
+    data: dict[str, Any],
+) -> Any:
+    for key, value in data.items():
+        setattr(project, key, value)
+    await db.flush()
+    return project
+
+
+async def delete_bayesian_project(db: AsyncSession, project: Any) -> None:
+    project.is_deleted = True
+    await db.flush()

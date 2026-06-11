@@ -58,6 +58,23 @@ class ResearchProject(BaseModel):
     )
 
 
+class BayesianProject(BaseModel):
+    """贝叶斯优化项目"""
+
+    __tablename__ = "bayesian_projects"
+    __table_args__ = {"schema": "research"}
+
+    name: Mapped[str] = mapped_column(
+        String(200), comment="项目名称"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="项目描述"
+    )
+    status: Mapped[str] = mapped_column(
+        String(50), default="draft", comment="项目状态: draft, running, completed, failed"
+    )
+
+
 class ICHAnalysisRecord(BaseModel):
     """ICH Q3C/Q3D 杂质识别分析记录"""
 
@@ -81,4 +98,79 @@ class ICHAnalysisRecord(BaseModel):
     )
     notes: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="备注"
+    )
+
+
+class BayesianComponent(BaseModel):
+    """贝叶斯优化参数"""
+
+    __tablename__ = "bayesian_components"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        comment="关联项目 ID"
+    )
+    name: Mapped[str] = mapped_column(
+        String(200), comment="参数名称"
+    )
+    component_type: Mapped[str] = mapped_column(
+        String(20), comment="参数类型: numerical 或 categorical"
+    )
+    lower_bound: Mapped[float | None] = mapped_column(
+        nullable=True, comment="数值型下限"
+    )
+    upper_bound: Mapped[float | None] = mapped_column(
+        nullable=True, comment="数值型上限"
+    )
+    data_points: Mapped[int | None] = mapped_column(
+        nullable=True, comment="数值型取值数量"
+    )
+    categorical_values: Mapped[list | None] = mapped_column(
+        JSON, nullable=True, comment="类别型取值列表"
+    )
+
+
+class BayesianObjective(BaseModel):
+    """贝叶斯优化目标"""
+
+    __tablename__ = "bayesian_objectives"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        comment="关联项目 ID"
+    )
+    name: Mapped[str] = mapped_column(
+        String(200), comment="目标名称"
+    )
+    direction: Mapped[str] = mapped_column(
+        String(20), comment="优化方向: maximize 或 minimize"
+    )
+    threshold: Mapped[float | None] = mapped_column(
+        nullable=True, comment="阈值（可选）"
+    )
+
+
+class BayesianExperiment(BaseModel):
+    """贝叶斯优化实验"""
+
+    __tablename__ = "bayesian_experiments"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        comment="关联项目 ID"
+    )
+    batch_number: Mapped[int] = mapped_column(
+        comment="批次号"
+    )
+    parameters: Mapped[dict] = mapped_column(
+        JSON, comment="参数配置"
+    )
+    results: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="实验结果"
+    )
+    is_suggested: Mapped[bool] = mapped_column(
+        default=True, comment="是否为推荐实验"
+    )
+    status: Mapped[str] = mapped_column(
+        String(50), comment="状态: pending, running, completed, failed"
     )
