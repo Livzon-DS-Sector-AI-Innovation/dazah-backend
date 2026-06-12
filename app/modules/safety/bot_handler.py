@@ -9,6 +9,7 @@
 
 import json
 import logging
+import uuid
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -387,6 +388,18 @@ async def handle_card_action(event: dict) -> None:
         open_message_id = event.get("context", {}).get("open_message_id", "")
         return await _handle_approve(open_id, hazard_id, open_message_id)
 
+    if act_type == "verify_hazard":
+        hazard_id = action_value.get("hazard_id", "") if isinstance(action_value, dict) else ""
+        level = action_value.get("level", 0) if isinstance(action_value, dict) else 0
+        open_message_id = event.get("context", {}).get("open_message_id", "")
+        return await _handle_verify(open_id, hazard_id, level, open_message_id)
+
+    if act_type == "reject_hazard":
+        hazard_id = action_value.get("hazard_id", "") if isinstance(action_value, dict) else ""
+        level = action_value.get("level", 0) if isinstance(action_value, dict) else 0
+        open_message_id = event.get("context", {}).get("open_message_id", "")
+        return await _handle_verify_reject(open_id, hazard_id, level, open_message_id)
+
     if act_type != "submit_hazard":
         logger.info("卡片事件未识别的 action，忽略: act_type=%s", act_type)
         return
@@ -443,7 +456,7 @@ async def handle_card_action(event: dict) -> None:
                 "actions": [
                     {
                         "tag": "button",
-                        "text": {"tag": "plain_text", "content": "📋 前往台账"},
+                        "text": {"tag": "plain_text", "content": "📋 查看详情"},
                         "type": "default",
                         "url": detail_url,
                     },
@@ -480,7 +493,6 @@ async def _handle_approve(open_id: str, hazard_id: int, open_message_id: str = "
         from app.modules.safety.service import SafetyService
 
         service = SafetyService(session)
-        import uuid
         hazard_uuid = uuid.UUID(str(hazard_id)) if not isinstance(hazard_id, uuid.UUID) else hazard_id
         item = await service.review_hazard_ai_script(hazard_uuid, 0, "approved")
         await session.commit()
@@ -515,7 +527,7 @@ async def _handle_approve(open_id: str, hazard_id: int, open_message_id: str = "
                 {"tag": "action", "actions": [
                     {
                         "tag": "button",
-                        "text": {"tag": "plain_text", "content": "📋 前往台账"},
+                        "text": {"tag": "plain_text", "content": "📋 查看详情"},
                         "type": "default",
                         "url": detail_url,
                     },
@@ -538,6 +550,183 @@ async def _handle_approve(open_id: str, hazard_id: int, open_message_id: str = "
         await session.rollback()
         await send_user_card(open_id=open_id, title="❌ 操作失败",
                              content="审核操作异常，请重试或在网页端操作。")
+        return None
+    finally:
+        await session.close()
+
+
+async def _resolve_user_from_open_id(open_id: str) -> tuple[uuid.UUID, str]:
+    """通过飞书 open_id 解析用户身份，失败时返回占位信息。"""
+    try:
+        from app.platform.identity.repository import UserRepository
+        session = await _get_db_session()
+        try:
+            repo = UserRepository()
+            user = await repo.get_by_feishu_open_id(session, open_id)
+            if user:
+                return user.id, user.name or f"飞书用户({open_id[:8]})"
+        finally:
+            await session.close()
+    except Exception:
+        logger.exception("解析用户身份失败: open_id=%s", open_id)
+    # 回退：使用零 UUID + open_id 标识
+    return uuid.UUID("00000000-0000-0000-0000-000000000000"), f"飞书审核({open_id[:8]})"
+
+
+async def _handle_verify(open_id: str, hazard_id_str: str, level: int, open_message_id: str = "") -> dict | None:
+    """处理复核通过操作：调用 verify_level，返回更新后的卡片（通过 WebSocket 响应）。"""
+    if not hazard_id_str or not level:
+        logger.warning("复核通过缺少参数: hazard_id=%s level=%s", hazard_id_str, level)
+        return None
+
+    try:
+        hazard_uuid = uuid.UUID(hazard_id_str)
+    except (ValueError, TypeError):
+        logger.warning("复核通过无效 UUID: %s", hazard_id_str)
+        return None
+
+    user_id, user_name = await _resolve_user_from_open_id(open_id)
+
+    session = await _get_db_session()
+    try:
+        from app.modules.safety.service import SafetyService
+        service = SafetyService(session)
+        item = await service.verify_level(hazard_uuid, level, "approved", None, user_id, user_name)
+        await session.commit()
+
+        if not item:
+            await send_user_card(open_id=open_id, title="❌ 操作失败",
+                                 content="隐患状态不允许当前复核操作，可能已被其他人处理。")
+            return None
+
+        logger.info("复核通过成功: hazard_id=%s level=%s open_id=%s user=%s",
+                     hazard_id_str, level, open_id, user_name)
+
+        level_labels = {1: "（部门负责人）", 2: "（分管领导）", 3: "（隐患发现人）"}
+        level_text = level_labels.get(level, f"{level}级")
+
+        detail_url = f"{settings.FRONTEND_URL}/safety/hazard/{item.id}"
+        is_closed = item.rectification_status == "closed"
+
+        updated_card = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": f"🔔 隐患整改审核{level_text}"},
+                "template": "green" if not is_closed else "blue",
+            },
+            "elements": [
+                {"tag": "markdown", "content": (
+                    f"**隐患编号：** {item.hazard_no or '-'}\n"
+                    f"**隐患描述：** {item.description or '-'}\n"
+                    f"**地点/部位：** {item.location or '-'}\n"
+                    f"**责任部门：** {item.department or '-'}\n"
+                    f"**整改回复：** {item.rectification_reply or '-'}\n"
+                    f"\n✅ **{level_text}复核已通过** — {user_name}"
+                    + ("\n🎉 全部复核完成，隐患已关闭。" if is_closed else f"\n📌 已通知下一级复核人。")
+                )},
+                {"tag": "action", "actions": [
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "📋 查看详情"},
+                        "type": "default",
+                        "url": detail_url,
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "✅ 已审核通过"},
+                        "type": "primary",
+                        "disabled": True,
+                    },
+                ]},
+            ],
+        }
+        return {
+            "toast": {"type": "success", "content": f"{level_text}复核通过" + ("，隐患已关闭" if is_closed else "")},
+            "card": {"type": "raw", "data": updated_card},
+        }
+
+    except Exception:
+        logger.exception("复核通过失败: hazard_id=%s level=%s", hazard_id_str, level)
+        await session.rollback()
+        return None
+    finally:
+        await session.close()
+
+
+async def _handle_verify_reject(open_id: str, hazard_id_str: str, level: int, open_message_id: str = "") -> dict | None:
+    """处理复核驳回操作：调用 verify_level(rejected)，返回更新后的卡片（通过 WebSocket 响应）。"""
+    if not hazard_id_str or not level:
+        logger.warning("复核驳回缺少参数: hazard_id=%s level=%s", hazard_id_str, level)
+        return None
+
+    try:
+        hazard_uuid = uuid.UUID(hazard_id_str)
+    except (ValueError, TypeError):
+        logger.warning("复核驳回无效 UUID: %s", hazard_id_str)
+        return None
+
+    user_id, user_name = await _resolve_user_from_open_id(open_id)
+
+    session = await _get_db_session()
+    try:
+        from app.modules.safety.service import SafetyService
+        service = SafetyService(session)
+        item = await service.verify_level(hazard_uuid, level, "rejected", None, user_id, user_name)
+        await session.commit()
+
+        if not item:
+            await send_user_card(open_id=open_id, title="❌ 操作失败",
+                                 content="隐患状态不允许当前驳回操作，可能已被其他人处理。")
+            return None
+
+        logger.info("复核驳回成功: hazard_id=%s level=%s open_id=%s user=%s",
+                     hazard_id_str, level, open_id, user_name)
+
+        level_labels = {1: "（部门负责人）", 2: "（分管领导）", 3: "（隐患发现人）"}
+        level_text = level_labels.get(level, f"{level}级")
+
+        detail_url = f"{settings.FRONTEND_URL}/safety/hazard/{item.id}"
+
+        updated_card = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": f"🔔 隐患整改审核{level_text}"},
+                "template": "red",
+            },
+            "elements": [
+                {"tag": "markdown", "content": (
+                    f"**隐患编号：** {item.hazard_no or '-'}\n"
+                    f"**隐患描述：** {item.description or '-'}\n"
+                    f"**地点/部位：** {item.location or '-'}\n"
+                    f"**责任部门：** {item.department or '-'}\n"
+                    f"**整改回复：** {item.rectification_reply or '-'}\n"
+                    f"\n❌ **{level_text}复核已驳回** — {user_name}\n"
+                    f"📌 隐患已退回整改阶段，需要责任人重新整改回复。"
+                )},
+                {"tag": "action", "actions": [
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "📋 查看详情"},
+                        "type": "default",
+                        "url": detail_url,
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "❌ 已驳回"},
+                        "type": "danger",
+                        "disabled": True,
+                    },
+                ]},
+            ],
+        }
+        return {
+            "toast": {"type": "warning", "content": f"{level_text}复核已驳回，隐患退回整改"},
+            "card": {"type": "raw", "data": updated_card},
+        }
+
+    except Exception:
+        logger.exception("复核驳回失败: hazard_id=%s level=%s", hazard_id_str, level)
+        await session.rollback()
         return None
     finally:
         await session.close()

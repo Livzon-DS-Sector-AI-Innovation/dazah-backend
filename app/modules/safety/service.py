@@ -1,6 +1,7 @@
 """Safety business workflows."""
 
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -807,8 +808,8 @@ class SafetyService:
     async def _send_hazard_notification(self, hazard: HazardReport) -> None:
         """异步发送隐患整改通知到飞书（测试阶段：固定发送给许康福）。"""
         try:
-            # 测试阶段：固定通知人 open_id（许康福）
-            target_open_id = "ou_5773c42e1fc7ce3e554b83242c87aa0b"
+            # 测试阶段：固定通知人 union_id（许康福）— 安全管理系统应用
+            target_user_id = "on_7686557a838993d36b115a47a1323b50"
 
             settings = get_settings()
             detail_url = f"{settings.FRONTEND_URL}/safety/hazard/{hazard.id}"
@@ -844,27 +845,32 @@ class SafetyService:
             ]
 
             success = await send_user_card(
-                open_id=target_open_id,
+                open_id=target_user_id,
                 title="🔔 隐患整改通知",
                 content=content,
                 elements=elements,
+                id_type="union_id",
             )
             if success:
-                logger.info("隐患整改通知已发送: hazard_no=%s, open_id=%s", hazard.hazard_no, target_open_id)
+                logger.info("隐患整改通知已发送: hazard_no=%s, union_id=%s", hazard.hazard_no, target_user_id)
             else:
                 logger.warning("隐患整改通知发送失败: hazard_no=%s", hazard.hazard_no)
         except Exception as e:
             logger.warning("隐患整改通知异常: %s", e)
 
     async def _send_verify_notification(self, hazard: HazardReport, level: int) -> None:
-        """异步发送复核通知到飞书（测试阶段：固定发送给许康福）。"""
+        """异步发送复核通知到飞书（测试阶段：固定发送给许康福）。
+
+        卡片包含审核通过/驳回/查看详情按钮 + 整改照片，点击后直接更新卡片状态。
+        """
         try:
-            target_open_id = "ou_5773c42e1fc7ce3e554b83242c87aa0b"
+            # 测试阶段：固定通知人 union_id（许康福）— 安全管理系统应用
+            target_user_id = "on_7686557a838993d36b115a47a1323b50"
 
             settings = get_settings()
             detail_url = f"{settings.FRONTEND_URL}/safety/hazard/{hazard.id}"
 
-            level_labels = {1: "一级", 2: "二级", 3: "三级"}
+            level_labels = {1: "一级（部门负责人）", 2: "二级（分管领导）", 3: "三级（隐患发现人）"}
             level_text = level_labels.get(level, f"{level}级")
 
             content = (
@@ -873,30 +879,80 @@ class SafetyService:
                 f"**地点/部位：** {hazard.location or '-'}\n"
                 f"**责任部门：** {hazard.department or '-'}\n"
                 f"**整改回复：** {hazard.rectification_reply or '-'}\n"
+                f"\n👆 请在下方操作按钮中选择「审核通过」或「驳回整改」"
             )
 
-            elements = [
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": f"📋 前往{level_text}复核"},
-                            "type": "primary",
-                            "url": detail_url,
-                        }
-                    ],
-                }
-            ]
+            elements: list[dict] = []
+
+            # ── 整改照片展示 ──
+            if hazard.rectification_photos:
+                try:
+                    photos = json.loads(hazard.rectification_photos)
+                    if photos and isinstance(photos, list):
+                        from app.modules.safety.feishu.notification import upload_images_batch
+                        image_keys = await upload_images_batch(photos)
+                        if image_keys:
+                            elements.append({"tag": "hr"})
+                            elements.append({"tag": "markdown", "content": "📷 **整改后照片：**"})
+                            for key in image_keys:
+                                elements.append({
+                                    "tag": "img",
+                                    "img_key": key,
+                                    "alt": {"tag": "plain_text", "content": "整改照片"},
+                                })
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # ── 操作按钮（审核通过 / 驳回整改 / 查看详情 并列）──
+            elements.append({
+                "tag": "action",
+                "actions": [
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "✅ 审核通过"},
+                        "type": "primary",
+                        "value": {
+                            "action": "verify_hazard",
+                            "hazard_id": str(hazard.id),
+                            "level": level,
+                        },
+                        "confirm": {
+                            "title": {"tag": "plain_text", "content": f"确认{level_text}审核通过"},
+                            "text": {"tag": "plain_text", "content": f"确认审核通过？隐患将{'关闭' if level == 3 else '进入下一级复核'}。"},
+                        },
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "❌ 驳回整改"},
+                        "type": "danger",
+                        "value": {
+                            "action": "reject_hazard",
+                            "hazard_id": str(hazard.id),
+                            "level": level,
+                        },
+                        "confirm": {
+                            "title": {"tag": "plain_text", "content": "确认驳回整改"},
+                            "text": {"tag": "plain_text", "content": "驳回后隐患将退回整改阶段，需要责任人重新整改回复。"},
+                        },
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "📋 查看详情"},
+                        "type": "default",
+                        "url": detail_url,
+                    },
+                ],
+            })
 
             success = await send_user_card(
-                open_id=target_open_id,
+                open_id=target_user_id,
                 title=f"🔔 隐患{level_text}复核通知",
                 content=content,
                 elements=elements,
+                id_type="union_id",
             )
             if success:
-                logger.info("复核通知已发送: hazard_no=%s, level=%s", hazard.hazard_no, level)
+                logger.info("复核通知已发送（含审核按钮+照片）: hazard_no=%s, level=%s", hazard.hazard_no, level)
             else:
                 logger.warning("复核通知发送失败: hazard_no=%s, level=%s", hazard.hazard_no, level)
         except Exception as e:
