@@ -15,6 +15,11 @@ from app.modules.hr.models import (
     OffboardingRecord,
     OnboardingRecord,
     Team,
+    TrainingApproval,
+    TrainingAssessment,
+    TrainingPlan,
+    TrainingPlanSop,
+    TrainingRecord,
 )
 
 
@@ -697,4 +702,315 @@ class DepartureRecordRepository:
 
     async def soft_delete(self, record: DepartureRecord) -> None:
         record.is_deleted = True
+        await self.session.flush()
+
+
+class TrainingPlanRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, plan_id: UUID) -> TrainingPlan | None:
+        result = await self.session.execute(
+            select(TrainingPlan).where(TrainingPlan.id == plan_id, TrainingPlan.is_deleted.is_(False))
+        )
+        return result.scalar_one_or_none()
+
+    async def list_plans(
+        self,
+        *,
+        training_type: str | None = None,
+        status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingPlan], int]:
+        stmt = select(TrainingPlan).where(TrainingPlan.is_deleted.is_(False))
+
+        if training_type:
+            stmt = stmt.where(TrainingPlan.training_type == training_type)
+        if status:
+            stmt = stmt.where(TrainingPlan.status == status)
+        if keyword:
+            stmt = stmt.where(TrainingPlan.plan_name.ilike(f"%{keyword}%"))
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        sort_column = getattr(TrainingPlan, sort_by, TrainingPlan.created_at)
+        order_func = desc if sort_order == "desc" else asc
+        data_stmt = (
+            stmt.order_by(order_func(sort_column))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        data_result = await self.session.execute(data_stmt)
+        return list(data_result.scalars().all()), total
+
+    async def create(self, plan: TrainingPlan) -> TrainingPlan:
+        self.session.add(plan)
+        await self.session.flush()
+        await self.session.refresh(plan)
+        return plan
+
+    async def update(self, plan: TrainingPlan) -> TrainingPlan:
+        await self.session.flush()
+        await self.session.refresh(plan)
+        return plan
+
+    async def soft_delete(self, plan: TrainingPlan) -> None:
+        plan.is_deleted = True
+        await self.session.flush()
+
+
+class TrainingPlanSopRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, sop_id: UUID) -> TrainingPlanSop | None:
+        result = await self.session.execute(
+            select(TrainingPlanSop).where(TrainingPlanSop.id == sop_id, TrainingPlanSop.is_deleted.is_(False))
+        )
+        return result.scalar_one_or_none()
+
+    async def list_sops(
+        self,
+        *,
+        plan_id: UUID | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingPlanSop], int]:
+        stmt = select(TrainingPlanSop).where(TrainingPlanSop.is_deleted.is_(False))
+
+        if plan_id:
+            stmt = stmt.where(TrainingPlanSop.plan_id == plan_id)
+        if keyword:
+            stmt = stmt.where(TrainingPlanSop.sop_name.ilike(f"%{keyword}%"))
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        sort_column = getattr(TrainingPlanSop, sort_by, TrainingPlanSop.created_at)
+        order_func = desc if sort_order == "desc" else asc
+        data_stmt = (
+            stmt.order_by(order_func(sort_column))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        data_result = await self.session.execute(data_stmt)
+        return list(data_result.scalars().all()), total
+
+    async def create(self, sop: TrainingPlanSop) -> TrainingPlanSop:
+        self.session.add(sop)
+        await self.session.flush()
+        await self.session.refresh(sop)
+        return sop
+
+    async def update(self, sop: TrainingPlanSop) -> TrainingPlanSop:
+        await self.session.flush()
+        await self.session.refresh(sop)
+        return sop
+
+    async def soft_delete(self, sop: TrainingPlanSop) -> None:
+        sop.is_deleted = True
+        await self.session.flush()
+
+
+class TrainingRecordRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, record_id: UUID) -> TrainingRecord | None:
+        result = await self.session.execute(
+            select(TrainingRecord).where(TrainingRecord.id == record_id, TrainingRecord.is_deleted.is_(False))
+        )
+        return result.scalar_one_or_none()
+
+    async def list_records(
+        self,
+        *,
+        plan_id: UUID | None = None,
+        employee_id: UUID | None = None,
+        completion_status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingRecord], int]:
+        stmt = select(TrainingRecord).where(TrainingRecord.is_deleted.is_(False))
+
+        if plan_id:
+            stmt = stmt.where(TrainingRecord.plan_id == plan_id)
+        if employee_id:
+            stmt = stmt.where(TrainingRecord.employee_id == employee_id)
+        if completion_status:
+            stmt = stmt.where(TrainingRecord.completion_status == completion_status)
+        if keyword:
+            stmt = stmt.where(TrainingRecord.remarks.ilike(f"%{keyword}%"))
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        sort_column = getattr(TrainingRecord, sort_by, TrainingRecord.created_at)
+        order_func = desc if sort_order == "desc" else asc
+        data_stmt = (
+            stmt.order_by(order_func(sort_column))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        data_result = await self.session.execute(data_stmt)
+        return list(data_result.scalars().all()), total
+
+    async def create(self, record: TrainingRecord) -> TrainingRecord:
+        self.session.add(record)
+        await self.session.flush()
+        await self.session.refresh(record)
+        return record
+
+    async def update(self, record: TrainingRecord) -> TrainingRecord:
+        await self.session.flush()
+        await self.session.refresh(record)
+        return record
+
+    async def soft_delete(self, record: TrainingRecord) -> None:
+        record.is_deleted = True
+        await self.session.flush()
+
+
+class TrainingAssessmentRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, assessment_id: UUID) -> TrainingAssessment | None:
+        result = await self.session.execute(
+            select(TrainingAssessment).where(TrainingAssessment.id == assessment_id, TrainingAssessment.is_deleted.is_(False))
+        )
+        return result.scalar_one_or_none()
+
+    async def list_assessments(
+        self,
+        *,
+        plan_id: UUID | None = None,
+        employee_id: UUID | None = None,
+        result: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingAssessment], int]:
+        stmt = select(TrainingAssessment).where(TrainingAssessment.is_deleted.is_(False))
+
+        if plan_id:
+            stmt = stmt.where(TrainingAssessment.plan_id == plan_id)
+        if employee_id:
+            stmt = stmt.where(TrainingAssessment.employee_id == employee_id)
+        if result:
+            stmt = stmt.where(TrainingAssessment.result == result)
+        if keyword:
+            stmt = stmt.where(TrainingAssessment.remarks.ilike(f"%{keyword}%"))
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        sort_column = getattr(TrainingAssessment, sort_by, TrainingAssessment.created_at)
+        order_func = desc if sort_order == "desc" else asc
+        data_stmt = (
+            stmt.order_by(order_func(sort_column))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        data_result = await self.session.execute(data_stmt)
+        return list(data_result.scalars().all()), total
+
+    async def create(self, assessment: TrainingAssessment) -> TrainingAssessment:
+        self.session.add(assessment)
+        await self.session.flush()
+        await self.session.refresh(assessment)
+        return assessment
+
+    async def update(self, assessment: TrainingAssessment) -> TrainingAssessment:
+        await self.session.flush()
+        await self.session.refresh(assessment)
+        return assessment
+
+    async def soft_delete(self, assessment: TrainingAssessment) -> None:
+        assessment.is_deleted = True
+        await self.session.flush()
+
+
+class TrainingApprovalRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, approval_id: UUID) -> TrainingApproval | None:
+        result = await self.session.execute(
+            select(TrainingApproval).where(TrainingApproval.id == approval_id, TrainingApproval.is_deleted.is_(False))
+        )
+        return result.scalar_one_or_none()
+
+    async def list_approvals(
+        self,
+        *,
+        plan_id: UUID | None = None,
+        employee_id: UUID | None = None,
+        approval_status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingApproval], int]:
+        stmt = select(TrainingApproval).where(TrainingApproval.is_deleted.is_(False))
+
+        if plan_id:
+            stmt = stmt.where(TrainingApproval.plan_id == plan_id)
+        if employee_id:
+            stmt = stmt.where(TrainingApproval.employee_id == employee_id)
+        if approval_status:
+            stmt = stmt.where(TrainingApproval.approval_status == approval_status)
+        if keyword:
+            stmt = stmt.where(TrainingApproval.approval_remarks.ilike(f"%{keyword}%"))
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        sort_column = getattr(TrainingApproval, sort_by, TrainingApproval.created_at)
+        order_func = desc if sort_order == "desc" else asc
+        data_stmt = (
+            stmt.order_by(order_func(sort_column))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        data_result = await self.session.execute(data_stmt)
+        return list(data_result.scalars().all()), total
+
+    async def create(self, approval: TrainingApproval) -> TrainingApproval:
+        self.session.add(approval)
+        await self.session.flush()
+        await self.session.refresh(approval)
+        return approval
+
+    async def update(self, approval: TrainingApproval) -> TrainingApproval:
+        await self.session.flush()
+        await self.session.refresh(approval)
+        return approval
+
+    async def soft_delete(self, approval: TrainingApproval) -> None:
+        approval.is_deleted = True
         await self.session.flush()

@@ -22,6 +22,21 @@ from app.modules.hr.schemas import (
     TeamCreate,
     TeamResponse,
     TeamUpdate,
+    TrainingApprovalCreate,
+    TrainingApprovalResponse,
+    TrainingApprovalUpdate,
+    TrainingAssessmentCreate,
+    TrainingAssessmentResponse,
+    TrainingAssessmentUpdate,
+    TrainingPlanCreate,
+    TrainingPlanResponse,
+    TrainingPlanSopCreate,
+    TrainingPlanSopResponse,
+    TrainingPlanSopUpdate,
+    TrainingPlanUpdate,
+    TrainingRecordCreate,
+    TrainingRecordResponse,
+    TrainingRecordUpdate,
 )
 from app.modules.hr.analysis_api import router as analysis_router
 from app.modules.hr.service import (
@@ -31,6 +46,11 @@ from app.modules.hr.service import (
     OffboardingRecordService,
     OnboardingRecordService,
     TeamService,
+    TrainingApprovalService,
+    TrainingAssessmentService,
+    TrainingPlanService,
+    TrainingPlanSopService,
+    TrainingRecordService,
 )
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
@@ -71,6 +91,36 @@ def get_departure_service(
     session: AsyncSession = Depends(get_db),
 ) -> DepartureRecordService:
     return DepartureRecordService(session)
+
+
+def get_training_plan_service(
+    session: AsyncSession = Depends(get_db),
+) -> TrainingPlanService:
+    return TrainingPlanService(session)
+
+
+def get_training_plan_sop_service(
+    session: AsyncSession = Depends(get_db),
+) -> TrainingPlanSopService:
+    return TrainingPlanSopService(session)
+
+
+def get_training_record_service(
+    session: AsyncSession = Depends(get_db),
+) -> TrainingRecordService:
+    return TrainingRecordService(session)
+
+
+def get_training_assessment_service(
+    session: AsyncSession = Depends(get_db),
+) -> TrainingAssessmentService:
+    return TrainingAssessmentService(session)
+
+
+def get_training_approval_service(
+    session: AsyncSession = Depends(get_db),
+) -> TrainingApprovalService:
+    return TrainingApprovalService(session)
 
 
 # ─── Employee Routes ───
@@ -617,6 +667,385 @@ async def get_departure_sync_status(
     return success_response(
         data=status.model_dump(mode="json"),
     )
+
+
+# ─── TrainingPlan Routes ───
+
+@router.get("/training-plans", summary="培训计划列表")
+async def list_training_plans(
+    training_type: str | None = Query(None, description="培训类型筛选"),
+    status: str | None = Query(None, description="状态筛选"),
+    keyword: str | None = Query(None, description="计划名称关键词"),
+    page_params: PageParams = Depends(),
+    service: TrainingPlanService = Depends(get_training_plan_service),
+):
+    plans, total = await service.list_plans(
+        training_type=training_type,
+        status=status,
+        keyword=keyword,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    data = [
+        TrainingPlanResponse.model_validate(p).model_dump(mode="json")
+        for p in plans
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/training-plans", summary="创建培训计划")
+async def create_training_plan(
+    payload: TrainingPlanCreate,
+    service: TrainingPlanService = Depends(get_training_plan_service),
+):
+    plan = await service.create_plan(payload)
+    return success_response(
+        data=TrainingPlanResponse.model_validate(plan).model_dump(mode="json"),
+        message="培训计划创建成功",
+        status_code=201,
+    )
+
+
+@router.get("/training-plans/{plan_id}", summary="培训计划详情")
+async def get_training_plan(
+    plan_id: UUID,
+    service: TrainingPlanService = Depends(get_training_plan_service),
+):
+    plan = await service.get_plan(plan_id)
+    return success_response(
+        data=TrainingPlanResponse.model_validate(plan).model_dump(mode="json"),
+    )
+
+
+@router.put("/training-plans/{plan_id}", summary="更新培训计划")
+async def update_training_plan(
+    plan_id: UUID,
+    payload: TrainingPlanUpdate,
+    service: TrainingPlanService = Depends(get_training_plan_service),
+):
+    plan = await service.update_plan(plan_id, payload)
+    return success_response(
+        data=TrainingPlanResponse.model_validate(plan).model_dump(mode="json"),
+        message="培训计划更新成功",
+    )
+
+
+@router.delete("/training-plans/{plan_id}", summary="删除培训计划")
+async def delete_training_plan(
+    plan_id: UUID,
+    service: TrainingPlanService = Depends(get_training_plan_service),
+):
+    await service.delete_plan(plan_id)
+    return success_response(message="培训计划删除成功")
+
+
+# ─── TrainingPlanSop Routes ───
+
+@router.get("/training-plan-sops", summary="培训计划SOP列表")
+async def list_training_plan_sops(
+    plan_id: UUID | None = Query(None, description="培训计划ID筛选"),
+    keyword: str | None = Query(None, description="SOP名称关键词"),
+    page_params: PageParams = Depends(),
+    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
+):
+    sops, total = await service.list_sops(
+        plan_id=plan_id,
+        keyword=keyword,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    data = [
+        TrainingPlanSopResponse.model_validate(s).model_dump(mode="json")
+        for s in sops
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/training-plan-sops", summary="创建培训计划SOP")
+async def create_training_plan_sop(
+    payload: TrainingPlanSopCreate,
+    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
+):
+    sop = await service.create_sop(payload)
+    return success_response(
+        data=TrainingPlanSopResponse.model_validate(sop).model_dump(mode="json"),
+        message="培训计划SOP创建成功",
+        status_code=201,
+    )
+
+
+@router.get("/training-plan-sops/{sop_id}", summary="培训计划SOP详情")
+async def get_training_plan_sop(
+    sop_id: UUID,
+    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
+):
+    sop = await service.get_sop(sop_id)
+    return success_response(
+        data=TrainingPlanSopResponse.model_validate(sop).model_dump(mode="json"),
+    )
+
+
+@router.put("/training-plan-sops/{sop_id}", summary="更新培训计划SOP")
+async def update_training_plan_sop(
+    sop_id: UUID,
+    payload: TrainingPlanSopUpdate,
+    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
+):
+    sop = await service.update_sop(sop_id, payload)
+    return success_response(
+        data=TrainingPlanSopResponse.model_validate(sop).model_dump(mode="json"),
+        message="培训计划SOP更新成功",
+    )
+
+
+@router.delete("/training-plan-sops/{sop_id}", summary="删除培训计划SOP")
+async def delete_training_plan_sop(
+    sop_id: UUID,
+    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
+):
+    await service.delete_sop(sop_id)
+    return success_response(message="培训计划SOP删除成功")
+
+
+# ─── TrainingRecord Routes ───
+
+@router.get("/training-records", summary="培训记录列表")
+async def list_training_records(
+    plan_id: UUID | None = Query(None, description="培训计划ID筛选"),
+    employee_id: UUID | None = Query(None, description="员工ID筛选"),
+    completion_status: str | None = Query(None, description="完成状态筛选"),
+    keyword: str | None = Query(None, description="备注关键词"),
+    page_params: PageParams = Depends(),
+    service: TrainingRecordService = Depends(get_training_record_service),
+):
+    records, total = await service.list_records(
+        plan_id=plan_id,
+        employee_id=employee_id,
+        completion_status=completion_status,
+        keyword=keyword,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    data = [
+        TrainingRecordResponse.model_validate(r).model_dump(mode="json")
+        for r in records
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/training-records", summary="创建培训记录")
+async def create_training_record(
+    payload: TrainingRecordCreate,
+    service: TrainingRecordService = Depends(get_training_record_service),
+):
+    record = await service.create_record(payload)
+    return success_response(
+        data=TrainingRecordResponse.model_validate(record).model_dump(mode="json"),
+        message="培训记录创建成功",
+        status_code=201,
+    )
+
+
+@router.get("/training-records/{record_id}", summary="培训记录详情")
+async def get_training_record(
+    record_id: UUID,
+    service: TrainingRecordService = Depends(get_training_record_service),
+):
+    record = await service.get_record(record_id)
+    return success_response(
+        data=TrainingRecordResponse.model_validate(record).model_dump(mode="json"),
+    )
+
+
+@router.put("/training-records/{record_id}", summary="更新培训记录")
+async def update_training_record(
+    record_id: UUID,
+    payload: TrainingRecordUpdate,
+    service: TrainingRecordService = Depends(get_training_record_service),
+):
+    record = await service.update_record(record_id, payload)
+    return success_response(
+        data=TrainingRecordResponse.model_validate(record).model_dump(mode="json"),
+        message="培训记录更新成功",
+    )
+
+
+@router.delete("/training-records/{record_id}", summary="删除培训记录")
+async def delete_training_record(
+    record_id: UUID,
+    service: TrainingRecordService = Depends(get_training_record_service),
+):
+    await service.delete_record(record_id)
+    return success_response(message="培训记录删除成功")
+
+
+# ─── TrainingAssessment Routes ───
+
+@router.get("/training-assessments", summary="培训考核列表")
+async def list_training_assessments(
+    plan_id: UUID | None = Query(None, description="培训计划ID筛选"),
+    employee_id: UUID | None = Query(None, description="员工ID筛选"),
+    result: str | None = Query(None, description="考核结果筛选"),
+    keyword: str | None = Query(None, description="备注关键词"),
+    page_params: PageParams = Depends(),
+    service: TrainingAssessmentService = Depends(get_training_assessment_service),
+):
+    assessments, total = await service.list_assessments(
+        plan_id=plan_id,
+        employee_id=employee_id,
+        result=result,
+        keyword=keyword,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    data = [
+        TrainingAssessmentResponse.model_validate(a).model_dump(mode="json")
+        for a in assessments
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/training-assessments", summary="创建培训考核")
+async def create_training_assessment(
+    payload: TrainingAssessmentCreate,
+    service: TrainingAssessmentService = Depends(get_training_assessment_service),
+):
+    assessment = await service.create_assessment(payload)
+    return success_response(
+        data=TrainingAssessmentResponse.model_validate(assessment).model_dump(mode="json"),
+        message="培训考核创建成功",
+        status_code=201,
+    )
+
+
+@router.get("/training-assessments/{assessment_id}", summary="培训考核详情")
+async def get_training_assessment(
+    assessment_id: UUID,
+    service: TrainingAssessmentService = Depends(get_training_assessment_service),
+):
+    assessment = await service.get_assessment(assessment_id)
+    return success_response(
+        data=TrainingAssessmentResponse.model_validate(assessment).model_dump(mode="json"),
+    )
+
+
+@router.put("/training-assessments/{assessment_id}", summary="更新培训考核")
+async def update_training_assessment(
+    assessment_id: UUID,
+    payload: TrainingAssessmentUpdate,
+    service: TrainingAssessmentService = Depends(get_training_assessment_service),
+):
+    assessment = await service.update_assessment(assessment_id, payload)
+    return success_response(
+        data=TrainingAssessmentResponse.model_validate(assessment).model_dump(mode="json"),
+        message="培训考核更新成功",
+    )
+
+
+@router.delete("/training-assessments/{assessment_id}", summary="删除培训考核")
+async def delete_training_assessment(
+    assessment_id: UUID,
+    service: TrainingAssessmentService = Depends(get_training_assessment_service),
+):
+    await service.delete_assessment(assessment_id)
+    return success_response(message="培训考核删除成功")
+
+
+# ─── TrainingApproval Routes ───
+
+@router.get("/training-approvals", summary="培训审批列表")
+async def list_training_approvals(
+    plan_id: UUID | None = Query(None, description="培训计划ID筛选"),
+    employee_id: UUID | None = Query(None, description="员工ID筛选"),
+    approval_status: str | None = Query(None, description="审批状态筛选"),
+    keyword: str | None = Query(None, description="审批备注关键词"),
+    page_params: PageParams = Depends(),
+    service: TrainingApprovalService = Depends(get_training_approval_service),
+):
+    approvals, total = await service.list_approvals(
+        plan_id=plan_id,
+        employee_id=employee_id,
+        approval_status=approval_status,
+        keyword=keyword,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    data = [
+        TrainingApprovalResponse.model_validate(a).model_dump(mode="json")
+        for a in approvals
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/training-approvals", summary="创建培训审批")
+async def create_training_approval(
+    payload: TrainingApprovalCreate,
+    service: TrainingApprovalService = Depends(get_training_approval_service),
+):
+    approval = await service.create_approval(payload)
+    return success_response(
+        data=TrainingApprovalResponse.model_validate(approval).model_dump(mode="json"),
+        message="培训审批创建成功",
+        status_code=201,
+    )
+
+
+@router.get("/training-approvals/{approval_id}", summary="培训审批详情")
+async def get_training_approval(
+    approval_id: UUID,
+    service: TrainingApprovalService = Depends(get_training_approval_service),
+):
+    approval = await service.get_approval(approval_id)
+    return success_response(
+        data=TrainingApprovalResponse.model_validate(approval).model_dump(mode="json"),
+    )
+
+
+@router.put("/training-approvals/{approval_id}", summary="更新培训审批")
+async def update_training_approval(
+    approval_id: UUID,
+    payload: TrainingApprovalUpdate,
+    service: TrainingApprovalService = Depends(get_training_approval_service),
+):
+    approval = await service.update_approval(approval_id, payload)
+    return success_response(
+        data=TrainingApprovalResponse.model_validate(approval).model_dump(mode="json"),
+        message="培训审批更新成功",
+    )
+
+
+@router.delete("/training-approvals/{approval_id}", summary="删除培训审批")
+async def delete_training_approval(
+    approval_id: UUID,
+    service: TrainingApprovalService = Depends(get_training_approval_service),
+):
+    await service.delete_approval(approval_id)
+    return success_response(message="培训审批删除成功")
 
 
 router.include_router(analysis_router)

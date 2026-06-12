@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel
@@ -35,6 +35,8 @@ class Vehicle(BaseModel):
     feishu_synced_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, comment="上次飞书同步时间"
     )
+    photo_data: Mapped[str | None] = mapped_column(Text, nullable=True, comment="车辆照片base64数据")
+    photo_type: Mapped[str | None] = mapped_column(String(128), nullable=True, comment="照片MIME类型")
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
 
 
@@ -62,6 +64,23 @@ class VehicleRequest(BaseModel):
     )
     approver: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="审批人")
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="审批时间")
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class Regulation(BaseModel):
+    __tablename__ = "regulations"
+    __table_args__ = (
+        Index("ix_regulations_title", "title"),
+        {"schema": "administration"},
+    )
+
+    title: Mapped[str] = mapped_column(String(256), nullable=False, comment="制度名称")
+    category: Mapped[str] = mapped_column(String(32), nullable=False, default="其它", server_default="其它", comment="类别: 人事, 行政, 其它")
+    version: Mapped[str | None] = mapped_column(String(32), nullable=True, comment="版本号")
+    content: Mapped[str] = mapped_column(Text, nullable=False, comment="制度内容")
+    file_name: Mapped[str | None] = mapped_column(String(256), nullable=True, comment="原始文件名")
+    file_type: Mapped[str | None] = mapped_column(String(128), nullable=True, comment="文件类型")
+    file_data: Mapped[str | None] = mapped_column(Text, nullable=True, comment="原始文件base64数据")
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
 
 
@@ -99,5 +118,27 @@ class ITServiceTicket(BaseModel):
     )
     feishu_synced_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, comment="上次飞书同步时间"
+    )
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class GiftInventory(BaseModel):
+    __tablename__ = "gift_inventories"
+    __table_args__ = (
+        Index("ix_gift_inventories_name", "name"),
+        Index("ix_gift_inventories_status", "status"),
+        {"schema": "administration"},
+    )
+
+    name: Mapped[str] = mapped_column(String(128), nullable=False, comment="物品名称")
+    specification: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="规格")
+    unit: Mapped[str | None] = mapped_column(String(16), nullable=True, comment="计量单位")
+    opening_stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0", comment="月初库存")
+    incoming_qty: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="本期入库/领用数量")
+    closing_stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0", comment="月底库存")
+    unit_price: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True, comment="单价")
+    total_amount: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True, comment="金额")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="可用", server_default="可用", comment="状态: 可用, 库存不足, 停用"
     )
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")

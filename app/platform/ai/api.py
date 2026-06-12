@@ -363,9 +363,13 @@ async def chat_stream(
 
     page = request.page_context.page if request.page_context else None
     is_vehicle_page = page and "用车" in page
+    is_regulation_page = page and ("制度" in page or "regulation" in page.lower())
 
     # 1. Build base system prompt
-    if is_vehicle_page:
+    # 制度页面使用前端传来的 system prompt（包含制度内容），后端不覆盖
+    if is_regulation_page:
+        system_prompt = None
+    elif is_vehicle_page:
         system_prompt = AiChatService.build_vehicle_system_prompt(page=page)
     else:
         system_prompt = AiChatService.build_system_prompt(page=page)
@@ -376,7 +380,7 @@ async def chat_stream(
         user_text = request.messages[-1].content
         if is_vehicle_page:
             db_context = await _build_vehicle_db_context(session, user_text)
-        else:
+        elif not is_regulation_page:
             db_context = await _build_db_context(session, user_text)
 
     # 3. Build messages list and convert attachments

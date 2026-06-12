@@ -517,3 +517,199 @@ class OnboardingRecordResponse(OnboardingRecordBase):
     feishu_synced_at: date | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+# ─── TrainingPlan Schemas ───
+
+class TrainingPlanBase(BaseModel):
+    plan_name: str = Field(..., max_length=128, description="培训计划名称")
+    training_type: str = Field("新入职", max_length=16, description="培训类型")
+    target_departments: list[str] | None = Field(None, description="目标部门列表")
+    target_positions: list[str] | None = Field(None, description="目标岗位列表")
+    planned_start_date: date | None = Field(None, description="计划开始日期")
+    planned_end_date: date | None = Field(None, description="计划结束日期")
+    status: str = Field("draft", max_length=16, description="状态")
+    approver_name: str | None = Field(None, max_length=64, description="审批人姓名")
+    approved_at: datetime | None = Field(None, description="审批时间")
+    approval_remarks: str | None = Field(None, max_length=512, description="审批备注")
+
+
+class TrainingPlanCreate(TrainingPlanBase):
+    pass
+
+
+class TrainingPlanUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    plan_name: str | None = Field(None, max_length=128)
+    training_type: str | None = Field(None, max_length=16)
+    target_departments: list[str] | None = Field(None)
+    target_positions: list[str] | None = Field(None)
+    planned_start_date: date | None = Field(None)
+    planned_end_date: date | None = Field(None)
+    status: str | None = Field(None, max_length=16)
+    approver_name: str | None = Field(None, max_length=64)
+    approved_at: datetime | None = Field(None)
+    approval_remarks: str | None = Field(None, max_length=512)
+
+
+class TrainingPlanResponse(TrainingPlanBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+# ─── TrainingPlanSop Schemas ───
+
+class TrainingPlanSopBase(BaseModel):
+    plan_id: UUID = Field(..., description="所属培训计划ID")
+    sop_name: str = Field(..., max_length=128, description="SOP名称")
+    sop_code: str | None = Field(None, max_length=32, description="SOP编号")
+    description: str | None = Field(None, description="SOP描述")
+    duration_minutes: int | None = Field(None, description="培训时长(分钟)")
+    version: str | None = Field(None, max_length=16, description="版本号")
+    file_url: str | None = Field(None, max_length=512, description="文件链接")
+
+
+class TrainingPlanSopCreate(TrainingPlanSopBase):
+    pass
+
+
+class TrainingPlanSopUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    plan_id: UUID | None = Field(None)
+    sop_name: str | None = Field(None, max_length=128)
+    sop_code: str | None = Field(None, max_length=32)
+    description: str | None = Field(None)
+    duration_minutes: int | None = Field(None)
+    version: str | None = Field(None, max_length=16)
+    file_url: str | None = Field(None, max_length=512)
+
+
+class TrainingPlanSopResponse(TrainingPlanSopBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+# ─── TrainingRecord Schemas ───
+
+class TrainingRecordBase(BaseModel):
+    plan_id: UUID = Field(..., description="培训计划ID")
+    sop_id: UUID | None = Field(None, description="SOP ID")
+    employee_id: UUID = Field(..., description="员工ID")
+    training_date: date | None = Field(None, description="培训日期")
+    trainer_name: str | None = Field(None, max_length=64, description="培训师姓名")
+    training_location: str | None = Field(None, max_length=128, description="培训地点")
+    completion_status: str = Field("未开始", max_length=16, description="完成状态")
+    signature_image_url: str | None = Field(None, max_length=512, description="员工签名图片URL")
+    remarks: str | None = Field(None, max_length=512, description="备注")
+
+
+class TrainingRecordCreate(TrainingRecordBase):
+    pass
+
+
+class TrainingRecordUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    plan_id: UUID | None = Field(None)
+    sop_id: UUID | None = Field(None)
+    employee_id: UUID | None = Field(None)
+    training_date: date | None = Field(None)
+    trainer_name: str | None = Field(None, max_length=64)
+    training_location: str | None = Field(None, max_length=128)
+    completion_status: str | None = Field(None, max_length=16)
+    signature_image_url: str | None = Field(None, max_length=512)
+    remarks: str | None = Field(None, max_length=512)
+
+
+class TrainingRecordResponse(TrainingRecordBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+# ─── TrainingAssessment Schemas ───
+
+class TrainingAssessmentBase(BaseModel):
+    plan_id: UUID = Field(..., description="培训计划ID")
+    employee_id: UUID = Field(..., description="员工ID")
+    assessment_date: date | None = Field(None, description="考核日期")
+    assessment_type: str = Field("综合", max_length=16, description="考核类型")
+    score: int | None = Field(None, description="得分")
+    max_score: int | None = Field(None, description="满分")
+    result: str = Field("待考核", max_length=8, description="考核结果")
+    assessor_name: str | None = Field(None, max_length=64, description="考核人姓名")
+    remarks: str | None = Field(None, max_length=512, description="备注")
+
+
+class TrainingAssessmentCreate(TrainingAssessmentBase):
+    pass
+
+
+class TrainingAssessmentUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    plan_id: UUID | None = Field(None)
+    employee_id: UUID | None = Field(None)
+    assessment_date: date | None = Field(None)
+    assessment_type: str | None = Field(None, max_length=16)
+    score: int | None = Field(None)
+    max_score: int | None = Field(None)
+    result: str | None = Field(None, max_length=8)
+    assessor_name: str | None = Field(None, max_length=64)
+    remarks: str | None = Field(None, max_length=512)
+
+
+class TrainingAssessmentResponse(TrainingAssessmentBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+# ─── TrainingApproval Schemas ───
+
+class TrainingApprovalBase(BaseModel):
+    plan_id: UUID = Field(..., description="培训计划ID")
+    employee_id: UUID = Field(..., description="员工ID")
+    assessment_id: UUID | None = Field(None, description="关联考核ID")
+    approval_status: str = Field("pending", max_length=16, description="审批状态")
+    approver_name: str | None = Field(None, max_length=64, description="审批人姓名")
+    approved_at: datetime | None = Field(None, description="审批时间")
+    approval_remarks: str | None = Field(None, max_length=512, description="审批备注")
+    is_qualified: bool | None = Field(None, description="是否合格上岗")
+
+
+class TrainingApprovalCreate(TrainingApprovalBase):
+    pass
+
+
+class TrainingApprovalUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    plan_id: UUID | None = Field(None)
+    employee_id: UUID | None = Field(None)
+    assessment_id: UUID | None = Field(None)
+    approval_status: str | None = Field(None, max_length=16)
+    approver_name: str | None = Field(None, max_length=64)
+    approved_at: datetime | None = Field(None)
+    approval_remarks: str | None = Field(None, max_length=512)
+    is_qualified: bool | None = Field(None)
+
+
+class TrainingApprovalResponse(TrainingApprovalBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

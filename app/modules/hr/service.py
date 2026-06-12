@@ -14,6 +14,11 @@ from app.modules.hr.models import (
     OffboardingRecord,
     OnboardingRecord,
     Team,
+    TrainingApproval,
+    TrainingAssessment,
+    TrainingPlan,
+    TrainingPlanSop,
+    TrainingRecord,
 )
 from app.modules.hr.repository import (
     DepartureRecordRepository,
@@ -22,6 +27,11 @@ from app.modules.hr.repository import (
     OffboardingRecordRepository,
     OnboardingRecordRepository,
     TeamRepository,
+    TrainingApprovalRepository,
+    TrainingAssessmentRepository,
+    TrainingPlanRepository,
+    TrainingPlanSopRepository,
+    TrainingRecordRepository,
 )
 from app.modules.hr.schemas import (
     DepartureRecordCreate,
@@ -37,6 +47,16 @@ from app.modules.hr.schemas import (
     SyncStatusResponse,
     TeamCreate,
     TeamUpdate,
+    TrainingApprovalCreate,
+    TrainingApprovalUpdate,
+    TrainingAssessmentCreate,
+    TrainingAssessmentUpdate,
+    TrainingPlanCreate,
+    TrainingPlanUpdate,
+    TrainingPlanSopCreate,
+    TrainingPlanSopUpdate,
+    TrainingRecordCreate,
+    TrainingRecordUpdate,
 )
 from app.platform.integrations.feishu import FeishuBitableSync
 from app.platform.integrations.feishu.employee_datasource import (
@@ -828,3 +848,242 @@ class DepartureRecordService:
             conflict_count=0,
             last_sync_at=None,
         )
+
+
+class TrainingPlanService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = TrainingPlanRepository(session)
+
+    async def get_plan(self, plan_id: UUID) -> TrainingPlan:
+        plan = await self.repo.get_by_id(plan_id)
+        if not plan:
+            raise NotFoundException("培训计划", str(plan_id))
+        return plan
+
+    async def list_plans(
+        self,
+        *,
+        training_type: str | None = None,
+        status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingPlan], int]:
+        return await self.repo.list_plans(
+            training_type=training_type,
+            status=status,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+    async def create_plan(self, data: TrainingPlanCreate) -> TrainingPlan:
+        plan = TrainingPlan(**data.model_dump())
+        return await self.repo.create(plan)
+
+    async def update_plan(self, plan_id: UUID, data: TrainingPlanUpdate) -> TrainingPlan:
+        plan = await self.get_plan(plan_id)
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(plan, field, value)
+        return await self.repo.update(plan)
+
+    async def delete_plan(self, plan_id: UUID) -> None:
+        plan = await self.get_plan(plan_id)
+        await self.repo.soft_delete(plan)
+
+
+class TrainingPlanSopService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = TrainingPlanSopRepository(session)
+
+    async def get_sop(self, sop_id: UUID) -> TrainingPlanSop:
+        sop = await self.repo.get_by_id(sop_id)
+        if not sop:
+            raise NotFoundException("培训计划SOP", str(sop_id))
+        return sop
+
+    async def list_sops(
+        self,
+        *,
+        plan_id: UUID | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingPlanSop], int]:
+        return await self.repo.list_sops(
+            plan_id=plan_id,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+    async def create_sop(self, data: TrainingPlanSopCreate) -> TrainingPlanSop:
+        sop = TrainingPlanSop(**data.model_dump())
+        return await self.repo.create(sop)
+
+    async def update_sop(self, sop_id: UUID, data: TrainingPlanSopUpdate) -> TrainingPlanSop:
+        sop = await self.get_sop(sop_id)
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(sop, field, value)
+        return await self.repo.update(sop)
+
+    async def delete_sop(self, sop_id: UUID) -> None:
+        sop = await self.get_sop(sop_id)
+        await self.repo.soft_delete(sop)
+
+
+class TrainingRecordService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = TrainingRecordRepository(session)
+
+    async def get_record(self, record_id: UUID) -> TrainingRecord:
+        record = await self.repo.get_by_id(record_id)
+        if not record:
+            raise NotFoundException("培训记录", str(record_id))
+        return record
+
+    async def list_records(
+        self,
+        *,
+        plan_id: UUID | None = None,
+        employee_id: UUID | None = None,
+        completion_status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingRecord], int]:
+        return await self.repo.list_records(
+            plan_id=plan_id,
+            employee_id=employee_id,
+            completion_status=completion_status,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+    async def create_record(self, data: TrainingRecordCreate) -> TrainingRecord:
+        record = TrainingRecord(**data.model_dump())
+        return await self.repo.create(record)
+
+    async def update_record(self, record_id: UUID, data: TrainingRecordUpdate) -> TrainingRecord:
+        record = await self.get_record(record_id)
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(record, field, value)
+        return await self.repo.update(record)
+
+    async def delete_record(self, record_id: UUID) -> None:
+        record = await self.get_record(record_id)
+        await self.repo.soft_delete(record)
+
+
+class TrainingAssessmentService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = TrainingAssessmentRepository(session)
+
+    async def get_assessment(self, assessment_id: UUID) -> TrainingAssessment:
+        assessment = await self.repo.get_by_id(assessment_id)
+        if not assessment:
+            raise NotFoundException("培训考核", str(assessment_id))
+        return assessment
+
+    async def list_assessments(
+        self,
+        *,
+        plan_id: UUID | None = None,
+        employee_id: UUID | None = None,
+        result: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingAssessment], int]:
+        return await self.repo.list_assessments(
+            plan_id=plan_id,
+            employee_id=employee_id,
+            result=result,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+    async def create_assessment(self, data: TrainingAssessmentCreate) -> TrainingAssessment:
+        assessment = TrainingAssessment(**data.model_dump())
+        return await self.repo.create(assessment)
+
+    async def update_assessment(self, assessment_id: UUID, data: TrainingAssessmentUpdate) -> TrainingAssessment:
+        assessment = await self.get_assessment(assessment_id)
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(assessment, field, value)
+        return await self.repo.update(assessment)
+
+    async def delete_assessment(self, assessment_id: UUID) -> None:
+        assessment = await self.get_assessment(assessment_id)
+        await self.repo.soft_delete(assessment)
+
+
+class TrainingApprovalService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = TrainingApprovalRepository(session)
+
+    async def get_approval(self, approval_id: UUID) -> TrainingApproval:
+        approval = await self.repo.get_by_id(approval_id)
+        if not approval:
+            raise NotFoundException("培训审批", str(approval_id))
+        return approval
+
+    async def list_approvals(
+        self,
+        *,
+        plan_id: UUID | None = None,
+        employee_id: UUID | None = None,
+        approval_status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingApproval], int]:
+        return await self.repo.list_approvals(
+            plan_id=plan_id,
+            employee_id=employee_id,
+            approval_status=approval_status,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+    async def create_approval(self, data: TrainingApprovalCreate) -> TrainingApproval:
+        approval = TrainingApproval(**data.model_dump())
+        return await self.repo.create(approval)
+
+    async def update_approval(self, approval_id: UUID, data: TrainingApprovalUpdate) -> TrainingApproval:
+        approval = await self.get_approval(approval_id)
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(approval, field, value)
+        return await self.repo.update(approval)
+
+    async def delete_approval(self, approval_id: UUID) -> None:
+        approval = await self.get_approval(approval_id)
+        await self.repo.soft_delete(approval)
