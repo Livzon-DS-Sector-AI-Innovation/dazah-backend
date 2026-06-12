@@ -1,6 +1,16 @@
 from functools import lru_cache
+from typing import Annotated, Any
 
+from pydantic import BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _coerce_bool(value: Any) -> Any:
+    if isinstance(value, str):
+        if value.lower() in ("true", "1", "yes", "on"):
+            return True
+        return False
+    return value
 
 
 class Settings(BaseSettings):
@@ -13,7 +23,7 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "dazah-backend"
     APP_ENV: str = "development"
-    DEBUG: bool = False
+    DEBUG: Annotated[bool, BeforeValidator(_coerce_bool)] = False
     SECRET_KEY: str = "change-me-in-production"
 
     # Database
