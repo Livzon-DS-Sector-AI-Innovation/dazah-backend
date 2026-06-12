@@ -1,0 +1,1 @@
+我有一个文件在C:\Users\chenlinxin\Desktop\codex资料\注册管理\发补回复，帮我把发补回复转移到wsl2里，注册管理模块下

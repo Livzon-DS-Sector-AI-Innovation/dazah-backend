@@ -57,3 +57,45 @@ class AuthorizationLetterListItem(BaseModel):
     administration_route: str
     output_file_name: str
     created_at: datetime | None = None
+
+
+# ── 发补回复生成 ──────────────────────────────────────────
+
+class SupplementaryReplyCreate(BaseModel):
+    """生成发补回复请求"""
+    drug_name: str = Field(..., max_length=128, description="药品名称")
+    registration_number: str | None = Field(None, max_length=32, description="登记号")
+    acceptance_number: str | None = Field(None, max_length=64, description="受理号")
+    company_name: str | None = Field(None, max_length=256, description="申请人/公司名称")
+    remarks: str | None = Field(None, description="备注")
+
+
+class SupplementaryReplyResponse(BaseModel):
+    """发补回复记录响应"""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    drug_name: str
+    registration_number: str | None = None
+    acceptance_number: str | None = None
+    company_name: str | None = None
+    notice_file_name: str | None = None
+    template_file_name: str | None = None
+    output_file_name: str
+    question_count: int
+    remarks: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class SupplementaryReplyListItem(BaseModel):
+    """发补回复列表项"""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    drug_name: str
+    registration_number: str | None = None
+    acceptance_number: str | None = None
+    output_file_name: str
+    question_count: int
+    created_at: datetime | None = None

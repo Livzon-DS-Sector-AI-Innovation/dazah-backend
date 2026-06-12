@@ -62,3 +62,58 @@ class AuthorizationLetter(BaseModel):
     remarks: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="备注"
     )
+
+
+class SupplementaryReply(BaseModel):
+    """发补回复生成记录表"""
+
+    __tablename__ = "supplementary_replies"
+    __table_args__ = (
+        Index("ix_supplementary_replies_drug_name", "drug_name"),
+        Index("ix_supplementary_replies_registration_number", "registration_number"),
+        {"schema": "registration"},
+    )
+
+    # 药品信息
+    drug_name: Mapped[str] = mapped_column(
+        String(128), nullable=False, comment="药品名称"
+    )
+    registration_number: Mapped[str] = mapped_column(
+        String(32), nullable=True, comment="登记号"
+    )
+    acceptance_number: Mapped[str] = mapped_column(
+        String(64), nullable=True, comment="受理号"
+    )
+    company_name: Mapped[str] = mapped_column(
+        String(256), nullable=True, comment="申请人/公司名称"
+    )
+
+    # 文件信息
+    notice_file_key: Mapped[str] = mapped_column(
+        String(256), nullable=False, comment="CDE通知函文件 key"
+    )
+    notice_file_name: Mapped[str] = mapped_column(
+        String(256), nullable=True, comment="CDE通知函文件名"
+    )
+    template_file_key: Mapped[str | None] = mapped_column(
+        String(256), nullable=True, comment="公司模板文件 key"
+    )
+    template_file_name: Mapped[str | None] = mapped_column(
+        String(256), nullable=True, comment="公司模板文件名"
+    )
+    output_file_key: Mapped[str] = mapped_column(
+        String(256), nullable=False, comment="生成文件 key"
+    )
+    output_file_name: Mapped[str] = mapped_column(
+        String(256), nullable=False, comment="生成文件名"
+    )
+
+    # 提取的问题数量
+    question_count: Mapped[int] = mapped_column(
+        nullable=False, server_default="0", comment="提取的问题数量"
+    )
+
+    # 备注
+    remarks: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="备注"
+    )
