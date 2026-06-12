@@ -71,6 +71,15 @@ class BitableClient:
             self._path(table_id, f"/records/{record_id}"),
         )
 
+    async def upload_file(
+        self,
+        file_bytes: bytes,
+        filename: str,
+        **kwargs: dict,
+    ) -> dict:
+        """Upload a file to Feishu Drive via the underlying client."""
+        return await self.client.upload_file(file_bytes, filename, **kwargs)
+
     async def search_records(
         self,
         table_id: str,

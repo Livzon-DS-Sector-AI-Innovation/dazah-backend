@@ -555,3 +555,56 @@ class OnboardingRecord(BaseModel):
     feishu_synced_at: Mapped[date | None] = mapped_column(
         Date, nullable=True, comment="上次飞书同步时间"
     )
+
+
+class Candidate(BaseModel):
+    __tablename__ = "candidates"
+    __table_args__ = (
+        Index("ix_candidates_name", "name"),
+        Index("ix_candidates_position", "position"),
+        Index("ix_candidates_recommendation_level", "recommendation_level"),
+        Index("ix_candidates_feishu_record_id", "feishu_record_id"),
+        {"schema": "hr"},
+    )
+
+    # ─── Basic info ───
+    name: Mapped[str] = mapped_column(String(64), nullable=False, comment="候选人姓名")
+    position: Mapped[str] = mapped_column(String(64), nullable=False, comment="应聘职位名称")
+    gender: Mapped[str | None] = mapped_column(String(8), nullable=True, comment="性别")
+
+    # ─── Education ───
+    school: Mapped[str | None] = mapped_column(String(128), nullable=True, comment="学校名称")
+    education: Mapped[str | None] = mapped_column(String(16), nullable=True, comment="学历")
+    major: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="专业")
+
+    # ─── AI report ───
+    match_report: Mapped[str | None] = mapped_column(Text, nullable=True, comment="候选人匹配度报告")
+
+    # ─── Recommendation level ───
+    recommendation_level: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="推荐等级"
+    )
+
+    # ─── Resume attachments (JSON metadata from Feishu) ───
+    resume_attachments: Mapped[list[dict] | None] = mapped_column(
+        JSON, nullable=True, comment="简历附件元数据"
+    )
+
+    # ─── Local resume file path (downloaded from Feishu during sync) ───
+    resume_storage_path: Mapped[str | None] = mapped_column(
+        String(256), nullable=True, comment="本地简历存储路径"
+    )
+
+    # ─── Feishu sync metadata ───
+    feishu_record_id: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="飞书多维表格 record_id"
+    )
+    feishu_synced_at: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="上次飞书同步时间"
+    )
+    feishu_sync_status: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="飞书同步状态: synced/failed"
+    )
+    feishu_sync_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="飞书同步失败原因"
+    )

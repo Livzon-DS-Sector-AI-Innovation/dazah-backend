@@ -19,18 +19,34 @@ from app.platform.ai.service import AiChatService
 _TURNOVER_SYSTEM_PROMPT = """你是一位人力资源数据分析顾问，擅长从人员流动数据中发现管理问题并提供针对性建议。
 
 【任务要求】
-请用1段话总结人员流动现状，然后给出2条管理建议。
+用户消息中提供了统计周期的真实数据，请基于这些数据，严格按照以下四部分结构输出分析报告，不要添加其他内容。
 
-【输出格式】
-现状分析：[一段概括性描述，包含统计周期、净增减人数、主要离职原因]
+## 一、核心问题诊断
+本周期人员净减少X人，流失率达XX%，一线劳动强度[显著/中度/轻微]上升，人员进一步流失风险[高/中/低]。[自行对比行业平均水平总结]
 
-建议1：[一句话行动建议，30字以内]
-依据1：[一句话数据支撑，引用具体数字]
+## 二、精益生产方案
+- 优先级：【紧急/重要/常规】
+- 核心措施：[1条具体可当日执行的动作]
+- 理论支撑：[基于大野耐一精益生产理论给出理论依据]
+- 1周预期：[量化效果，如"减少无效劳动15%"]
 
-建议2：[一句话行动建议，30字以内]
-依据2：[一句话数据支撑，引用具体数字]
+## 三、阿米巴经营方案
+- 优先级：【紧急/重要/常规】
+- 核心措施：[1条具体可当日执行的动作]
+- 理论支撑：[基于稻盛和夫阿米巴经营理论给出依据]
+- 1周预期：[量化效果，如"提升班组凝聚力30%"]
 
-请严格按上述格式输出，不要添加其他内容。"""
+## 四、质量管理方案
+- 优先级：【紧急/重要/常规】
+- 核心措施：[1条具体可当日执行的动作]
+- 理论支撑：[基于戴明质量管理理论给出依据]
+- 1周预期：[量化效果，如"降低非必要加班20%"]
+
+注意：
+- 请将X和XX替换为实际数字
+- [显著/中度/轻微]、[高/中/低]、[紧急/重要/常规]根据数据合理选择并去掉方括号
+- 量化效果要基于数据合理给出
+- 行业平均对比请基于制造业/原料药行业常识进行"""
 
 
 class TurnoverAnalysisService:
@@ -291,62 +307,7 @@ class TurnoverAnalysisService:
     @staticmethod
     def _parse_ai_response(text: str) -> dict:
         """Parse AI text response into structured data."""
-        text = text.strip()
-        summary = ""
-        suggestions: list[AiSuggestion] = []
-
-        if "现状分析：" in text:
-            summary_start = text.find("现状分析：") + len("现状分析：")
-            summary_end = text.find("建议1：")
-            if summary_end == -1:
-                summary_end = len(text)
-            summary = text[summary_start:summary_end].strip()
-
-        sug1 = TurnoverAnalysisService._extract_suggestion(text, "建议1：", "依据1：")
-        if sug1:
-            suggestions.append(sug1)
-
-        if "建议2：" in text:
-            sug2_start = text.find("建议2：")
-            sug2_text = text[sug2_start:]
-            sug2 = TurnoverAnalysisService._extract_suggestion(
-                sug2_text, "建议2：", "依据2："
-            )
-            if sug2:
-                suggestions.append(sug2)
-
-        if not summary:
-            summary = text
-
         return {
-            "summary": summary,
-            "suggestions": suggestions,
+            "summary": text.strip(),
+            "suggestions": [],
         }
-
-    @staticmethod
-    def _extract_suggestion(
-        text: str, sug_label: str, evi_label: str
-    ) -> AiSuggestion | None:
-        """Extract a single suggestion and its evidence from text."""
-        sug_start = text.find(sug_label)
-        if sug_start == -1:
-            return None
-
-        sug_start += len(sug_label)
-        evi_start = text.find(evi_label, sug_start)
-        if evi_start == -1:
-            return None
-
-        suggestion = text[sug_start:evi_start].strip()
-        evi_start += len(evi_label)
-
-        next_sug = text.find("建议", evi_start)
-        if next_sug == -1:
-            evidence = text[evi_start:].strip()
-        else:
-            evidence = text[evi_start:next_sug].strip()
-
-        if not suggestion:
-            return None
-
-        return AiSuggestion(suggestion=suggestion, evidence=evidence)

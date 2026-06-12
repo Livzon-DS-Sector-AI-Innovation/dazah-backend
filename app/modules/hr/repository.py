@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.hr.models import (
+    Candidate,
     Department,
     DepartureRecord,
     Employee,
@@ -697,4 +698,147 @@ class DepartureRecordRepository:
 
     async def soft_delete(self, record: DepartureRecord) -> None:
         record.is_deleted = True
+        await self.session.flush()
+
+
+class CandidateRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, candidate_id: UUID) -> Candidate | None:
+        result = await self.session.execute(
+            select(Candidate).where(Candidate.id == candidate_id, Candidate.is_deleted.is_(False))
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_feishu_record_id(self, feishu_record_id: str) -> Candidate | None:
+        result = await self.session.execute(
+            select(Candidate).where(
+                Candidate.feishu_record_id == feishu_record_id,
+                Candidate.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_candidates(
+        self,
+        *,
+        position: str | None = None,
+        education: str | None = None,
+        keyword: str | None = None,
+        recommendation_level: str | None = None,
+        sync_status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[Candidate], int]:
+        stmt = select(Candidate).where(Candidate.is_deleted.is_(False))
+
+        if position:
+            stmt = stmt.where(Candidate.position == position)
+        if education:
+            stmt = stmt.where(Candidate.education == education)
+        if keyword:
+            stmt = stmt.where(
+                Candidate.name.ilike(f"%{keyword}%")
+                | Candidate.position.ilike(f"%{keyword}%")
+            )
+        if recommendation_level:
+            levels = [level.strip() for level in recommendation_level.split(",") if level.strip()]
+            print(f"DEBUG REPO: levels={levels}", flush=True)
+            if levels:
+                stmt = stmt.where(Candidate.recommendation_level.in_(levels))
+        if sync_status:
+            if sync_status == "unsynced":
+                stmt = stmt.where(
+                    Candidate.feishu_record_id.is_(None),
+                    Candidate.feishu_sync_status.is_(None),
+                )
+            else:
+                stmt = stmt.where(Candidate.feishu_sync_status == sync_status)
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        sort_column = getattr(Candidate, sort_by, Candidate.created_at)
+        order_func = desc if sort_order == "desc" else asc
+        data_stmt = (
+            stmt.order_by(order_func(sort_column))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        data_result = await self.session.execute(data_stmt)
+        return list(data_result.scalars().all()), total
+
+    async def create(self, candidate: Candidate) -> Candidate:
+        self.session.add(candidate)
+        await self.session.flush()
+        await self.session.refresh(candidate)
+        return candidate
+
+    async def update(self, candidate: Candidate) -> Candidate:
+        await self.session.flush()
+        await self.session.refresh(candidate)
+        return candidate
+
+    async def upsert_by_feishu_record_id(self, data: dict) -> Candidate:
+        """Create or update candidate by feishu_record_id (used for Feishu sync)."""
+        rid = data.get("feishu_record_id")
+        if not rid:
+            raise ValueError("feishu_record_id is required for upsert")
+
+        candidate = await self.get_by_feishu_record_id(rid)
+        if candidate:
+            for key, value in data.items():
+                if key != "id" and value is not None:
+                    setattr(candidate, key, value)
+            await self.session.flush()
+            await self.session.refresh(candidate)
+            return candidate
+        else:
+            new_candidate = Candidate(**{k: v for k, v in data.items() if v is not None})
+            self.session.add(new_candidate)
+            await self.session.flush()
+            await self.session.refresh(new_candidate)
+            return new_candidate
+
+    async def count_total(self) -> int:
+        result = await self.session.execute(
+            select(func.count()).where(Candidate.is_deleted.is_(False))
+        )
+        return result.scalar() or 0
+
+    async def count_synced(self) -> int:
+        result = await self.session.execute(
+            select(func.count()).where(
+                Candidate.is_deleted.is_(False),
+                Candidate.feishu_record_id.isnot(None),
+            )
+        )
+        return result.scalar() or 0
+
+    async def count_failed_sync(self) -> int:
+        result = await self.session.execute(
+            select(func.count()).where(
+                Candidate.is_deleted.is_(False),
+                Candidate.feishu_sync_status == "failed",
+            )
+        )
+        return result.scalar() or 0
+
+    async def count_pending_sync(self) -> int:
+        result = await self.session.execute(
+            select(func.count()).where(
+                Candidate.is_deleted.is_(False),
+                Candidate.feishu_record_id.is_(None),
+                Candidate.feishu_sync_status.is_(None),
+            )
+        )
+        return result.scalar() or 0
+
+    async def soft_delete(self, candidate: Candidate) -> None:
+        candidate.is_deleted = True
         await self.session.flush()
