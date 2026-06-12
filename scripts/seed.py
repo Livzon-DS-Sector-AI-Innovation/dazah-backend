@@ -1,98 +1,133 @@
-"""Seed script: import departments and teams from JSON files."""
+"""Seed initial data into PostgreSQL database.
+
+Usage:
+    uv run python scripts/seed.py
+
+Requires DATABASE_URL environment variable or .env file.
+"""
 
 import asyncio
 import json
-import sys
+import os
+import uuid
 from pathlib import Path
-from uuid import UUID
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+import asyncpg
+from dotenv import load_dotenv
 
-# Allow running from project root or scripts/ dir
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+load_dotenv()
 
-from app.core.config import get_settings
-from app.modules.hr.models import Department, Team
+_raw_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/dazah")
+DATABASE_URL = _raw_url.replace("postgresql+asyncpg://", "postgresql://")
 
-# Import identity models so BaseModel FK references resolve
-from app.platform.identity import models as _identity_models  # noqa: F401
+SCRIPTS_DIR = Path(__file__).parent
+PROJECT_ROOT = SCRIPTS_DIR.parent
 
-settings = get_settings()
-engine = create_async_engine(settings.DATABASE_URL)
-async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-DATA_DIR = PROJECT_ROOT
+DEPARTMENTS_JSON = PROJECT_ROOT / "departments.json"
+TEAMS_JSON = PROJECT_ROOT / "teams.json"
 
 
-async def seed_departments(session: AsyncSession) -> dict[str, UUID]:
-    """Import departments.json and return name->id mapping."""
-    with open(DATA_DIR / "departments.json", encoding="utf-8") as f:
-        data = json.load(f)
+async def seed_departments(conn: asyncpg.Connection) -> dict[str, uuid.UUID]:
+    """Insert departments and return name -> id mapping."""
+    if not DEPARTMENTS_JSON.exists():
+        print(f"[SKIP] {DEPARTMENTS_JSON} not found")
+        return {}
 
-    # Check existing departments to avoid duplicates
-    result = await session.execute(select(Department.name, Department.id))
-    existing = {name: id_ for name, id_ in result.all()}
-    dept_map = dict(existing)
+    with open(DEPARTMENTS_JSON, "r", encoding="utf-8") as f:
+        departments = json.load(f)
 
-    inserted = 0
-    for item in data:
-        name = item["name"]
-        if name in dept_map:
-            continue
-        dept = Department(
-            id=UUID(item["id"]),
-            name=name,
-            code=item["code"],
+    name_to_id: dict[str, uuid.UUID] = {}
+
+    for dept in departments:
+        dept_id = uuid.UUID(dept["id"])
+        name_to_id[dept["name"]] = dept_id
+
+        # Upsert: insert or do nothing on conflict
+        await conn.execute(
+            """
+            INSERT INTO hr.departments (id, name, code, description, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, NOW(), NOW())
+            ON CONFLICT (code) DO NOTHING
+            """,
+            dept_id,
+            dept["name"],
+            dept["code"],
+            dept.get("description"),
         )
-        session.add(dept)
-        dept_map[name] = UUID(item["id"])
-        inserted += 1
 
-    await session.commit()
-    print(f"  Departments: {inserted} inserted, {len(existing)} already exist.")
-    return dept_map
+    print(f"[OK] Seeded {len(departments)} departments")
+    return name_to_id
 
 
-async def seed_teams(session: AsyncSession, dept_map: dict[str, UUID]) -> None:
-    """Import teams.json linked to departments."""
-    with open(DATA_DIR / "teams.json", encoding="utf-8") as f:
-        data = json.load(f)
+async def seed_teams(conn: asyncpg.Connection, name_to_id: dict[str, uuid.UUID]) -> None:
+    """Insert teams linked to departments."""
+    if not TEAMS_JSON.exists():
+        print(f"[SKIP] {TEAMS_JSON} not found")
+        return
 
-    # Check existing teams
-    result = await session.execute(select(Team.name, Team.department_id))
-    existing = {(name, dept_id) for name, dept_id in result.all()}
+    with open(TEAMS_JSON, "r", encoding="utf-8") as f:
+        teams = json.load(f)
 
     inserted = 0
-    for item in data:
-        dept_name = item["department"]
-        team_name = item["team"]
-        dept_id = dept_map.get(dept_name)
+    skipped = 0
+
+    for team in teams:
+        dept_name = team["department"]
+        dept_id = name_to_id.get(dept_name)
+
         if dept_id is None:
-            print(f"  Warning: department '{dept_name}' not found, skipping team '{team_name}'.")
-            continue
-        if (team_name, dept_id) in existing:
-            continue
-        team = Team(
-            name=team_name,
-            department_id=dept_id,
+            # Try to query DB in case departments were already inserted
+            row = await conn.fetchrow(
+                "SELECT id FROM hr.departments WHERE name = $1", dept_name
+            )
+            if row is None:
+                print(f"[WARN] Department '{dept_name}' not found, skipping team '{team['team']}'")
+                skipped += 1
+                continue
+            dept_id = row["id"]
+
+        # Generate a deterministic code from team name
+        team_code = team["team"].strip().replace(" ", "_").lower()[:32] or str(uuid.uuid4())[:8]
+
+        # Check if team already exists for this department
+        existing = await conn.fetchrow(
+            "SELECT id FROM hr.teams WHERE name = $1 AND department_id = $2",
+            team["team"],
+            dept_id,
         )
-        session.add(team)
+        if existing:
+            skipped += 1
+            continue
+
+        await conn.execute(
+            """
+            INSERT INTO hr.teams (id, name, code, description, department_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+            """,
+            uuid.uuid4(),
+            team["team"],
+            team_code,
+            None,
+            dept_id,
+        )
         inserted += 1
 
-    await session.commit()
-    print(f"  Teams: {inserted} inserted, {len(existing)} already exist.")
+    print(f"[OK] Seeded {inserted} teams ({skipped} skipped)")
 
 
 async def main() -> None:
-    print("Seeding database...")
-    async with async_session() as session:
-        dept_map = await seed_departments(session)
-        await seed_teams(session, dept_map)
-    print("Done.")
-    await engine.dispose()
+    print(f"Connecting to database...")
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        print("Seeding departments...")
+        name_to_id = await seed_departments(conn)
+
+        print("Seeding teams...")
+        await seed_teams(conn, name_to_id)
+
+        print("\n[OK] Seed completed!")
+    finally:
+        await conn.close()
 
 
 if __name__ == "__main__":

@@ -41,8 +41,7 @@ class Settings(BaseSettings):
     FEISHU_BITABLE_ONBOARDING_TABLE_ID: str = ""
     FEISHU_BITABLE_DEPARTURE_TABLE_ID: str = ""
     FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
-    FEISHU_BITABLE_CANDIDATE_TABLE_ID: str = ""
-    FEISHU_BITABLE_CANDIDATE_APP_TOKEN: str = ""
+    FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID: str = ""
 
     # Feishu AI Query
     FEISHU_AI_QUERY_TABLES: str = ""  # JSON: {"别名": {"app_token": "...", "table_id": "...", "filterable_fields": [...]}}

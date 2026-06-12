@@ -1,232 +1,123 @@
 """AI platform API routes."""
 
 import json
-import logging
-import uuid
+import re
 from collections.abc import AsyncGenerator
+from typing import Any
 
-import openai
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.modules.administration.models import VehicleRequest
+from app.modules.administration.public_api import (
+    count_vehicle_requests,
+    search_vehicle_requests,
+    search_vehicles,
+)
 from app.modules.hr.public_api import (
     count_employees,
-    query_employees,
+    list_employees_by_department,
     search_employees_by_name,
     search_employees_fuzzy,
 )
 from app.platform.ai.deps import get_ai_chat_service
-from app.platform.ai.executor import execute_plan, format_step_results
-from app.platform.ai.feishu_context import build_feishu_context
-from app.platform.ai.planner import generate_plan
-from app.platform.ai.query_parser import describe_filters, parse_employee_query
-from app.platform.ai.query_parser_llm import parse_with_llm
 from app.platform.ai.schemas import ChatRequest
 from app.platform.ai.service import AiChatService
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 
 def _extract_names(text: str) -> list[str]:
     """Extract possible Chinese person names from text (2-4 chars)."""
-    import re
+    return re.findall(r"[一-龥]{2,4}", text)
 
-    matches = re.findall(r"[一-龥]{2,4}", text)
-    exclude = {
-        "员工",
-        "人员",
-        "人事",
-        "工厂",
-        "公司",
-        "部门",
-        "车间",
-        "科室",
-        "班组",
-        "团队",
-        "职位",
-        "岗位",
-        "状态",
-        "性别",
-        "学历",
-        "年龄",
-        "工龄",
-        "司龄",
-        "厂龄",
-        "入职",
-        "离职",
-        "试用",
-        "合同",
-        "统计",
-        "查询",
-        "查找",
-        "搜索",
-        "有多少",
-        "共多少",
-        "多少个",
-        "工程师",
-        "经理",
-        "主管",
-        "专员",
-        "操作员",
-        "操作工",
-        "文员",
-        "会计",
-        "出纳",
-        "司机",
-        "保安",
-        "厨师",
-        "保洁",
-        "电工",
-        "焊工",
-        "钳工",
-        "车工",
-        "铣工",
-        "磨工",
-        "叉车工",
-        "搬运工",
-        "包装工",
-        "技术员",
-        "质检员",
-        "安全员",
-        "消防员",
-        "仓管员",
-        "物料员",
-        "统计员",
-        "计划员",
-        "调度员",
-        "采购员",
-        "销售员",
-        "业务员",
-        "客服",
-        "前台",
-        "班长",
-        "组长",
-        "厂长",
-        "总监",
-        "助理",
-        "秘书",
-        "顾问",
-        "研究员",
-    }
-    return [m for m in matches if m not in exclude]
+
+def _detect_query_intent(text: str) -> tuple[str, dict] | None:
+    """Detect user intent for HR database queries."""
+    # 1. 某部门有哪些人 / 某部门的人 / 某部门名单
+    m = re.search(
+        r"([一-龥\w\-]{2,20}(?:部门|车间|科室|组|部|中心))"
+        r".*?(?:有哪些人|的人|名单|员工|成员)",
+        text,
+    )
+    if m:
+        return ("list_department", {"department": m.group(1)})
+
+    # 2. 某人（是/在）哪个部门
+    m = re.search(
+        r"([一-龥]{2,4})(?:是|在).*?(?:哪个部门|什么部门|所属部门)",
+        text,
+    )
+    if m:
+        return ("employee_department", {"name": m.group(1)})
+
+    # 3. 某部门有多少（人/员工）
+    m = re.search(
+        r"([一-龥\w\-]{2,20}(?:部门|车间|科室|组|部|中心))"
+        r".*?(?:有多少|共多少|人数|几人)",
+        text,
+    )
+    if m:
+        return ("count_department", {"department": m.group(1)})
+
+    # 4. 总共有多少（人/员工）
+    if re.search(
+        r"(?:总共|一共|全厂|公司|整体).*?(?:有多少|共多少|人数|几人)",
+        text,
+    ):
+        return ("count_total", {})
+
+    return None
 
 
 async def _build_db_context(
-    session: AsyncSession,
-    client: openai.AsyncOpenAI | None,
-    text: str,
+    session: AsyncSession, text: str
 ) -> str:
-    """Query HR database based on natural language and return formatted context.
-
-    Three-layer architecture:
-        1. Planner: generate execution plan from user intent
-        2. Executor: execute plan step by step (parallel within each step)
-        3. Context Builder: format results into natural-language context
-
-    Falls back to legacy parsing if the planner fails.
-    """
+    """Query HR database based on user intent and return formatted context."""
     parts: list[str] = []
 
-    # Layer 1 + 2: Try the new planner/executor architecture first
-    plan_executed = False
-    if client is not None:
-        try:
-            plan = await generate_plan(client, text)
-            if plan and plan.needs_data and plan.steps:
-                logger.info(
-                    "Planner generated %d-step plan for: %s",
-                    len(plan.steps),
-                    text,
-                )
-                step_results = await execute_plan(
-                    session, plan, text, client
-                )
-                formatted = format_step_results(step_results)
-                if formatted:
-                    parts.append("【数据库查询结果】")
-                    parts.append(formatted)
-                    plan_executed = True
-            elif plan and not plan.needs_data:
-                logger.info("Planner decided no data needed for: %s", text)
-        except Exception as exc:
-            logger.warning("Three-layer plan execution failed: %s", exc)
-
-    # Fallback: legacy parsing if planner did not produce results
-    if not plan_executed:
-        logger.info("Falling back to legacy parsing for: %s", text)
-
-        # 1. Try LLM-based parsing first
-        criteria = None
-        if client is not None:
-            try:
-                criteria = await parse_with_llm(client, text)
-                logger.info(
-                    "LLM intent parsed: filters=%s type=%s",
-                    criteria.filters if criteria else None,
-                    criteria.query_type if criteria else None,
-                )
-            except Exception as exc:
-                logger.warning("LLM intent parsing failed: %s", exc)
-                criteria = None
-
-        # 2. Fallback to hardcoded regex parser
-        if criteria is None:
-            criteria = parse_employee_query(text)
-            logger.info(
-                "Fallback regex parsed: filters=%s",
-                criteria.filters if criteria else None,
-            )
-
-        # 3. Execute query if we have criteria
-        if criteria and criteria.filters:
-            desc = describe_filters(criteria.filters)
-            if criteria.query_type == "count":
-                total = await count_employees(session, filters=criteria.filters)
-                parts.append(f"【数据库查询结果】{desc}共有{total}名员工。")
-            else:
-                employees, total = await query_employees(
-                    session, filters=criteria.filters, page=1, page_size=200
-                )
-                if employees:
+    # Intent-based queries
+    intent = _detect_query_intent(text)
+    if intent:
+        action, params = intent
+        if action == "list_department":
+            dept = params["department"]
+            employees, total = await list_employees_by_department(session, dept)
+            if employees:
+                parts.append(f"【数据库查询结果】{dept}共有{total}名员工：")
+                for emp in employees:
                     parts.append(
-                        f"【数据库查询结果】{desc}共有{total}名员工，以下是部分信息："
+                        f"- {emp['name']}（工号:{emp['employee_number']}）"
+                        f"，职位:{emp['position']}"
+                        f"，状态:{emp['status']}"
                     )
-                    for emp in employees[:50]:
-                        info_parts = [
-                            f"- {emp['name']}（工号:{emp['employee_number']}）",
-                            f"部门:{emp['department']}",
-                            f"职位:{emp['position']}",
-                            f"状态:{emp['status']}",
-                        ]
-                        if emp.get("team"):
-                            info_parts.append(f"班组:{emp['team']}")
-                        if emp.get("gender"):
-                            info_parts.append(f"性别:{emp['gender']}")
-                        if emp.get("education"):
-                            info_parts.append(f"学历:{emp['education']}")
-                        if emp.get("age"):
-                            info_parts.append(f"年龄:{emp['age']}")
-                        if emp.get("hire_date"):
-                            info_parts.append(f"入职日期:{emp['hire_date']}")
-                        parts.append("，".join(info_parts))
-                else:
-                    parts.append(f"【数据库查询结果】未找到{desc}的员工记录。")
+            else:
+                parts.append(f"【数据库查询结果】未找到{dept}的员工记录。")
 
-        # 4. Fallback: name-based search if no structured criteria matched
-        if not criteria or (not criteria.filters and criteria.name_keyword):
-            names = _extract_names(text)
-            seen: set[str] = set()
-            for name in names[:3]:
-                if name in seen:
-                    continue
-                seen.add(name)
-                employees = await search_employees_by_name(session, name)
-                if employees:
-                    parts.append(f"【数据库查询结果】姓名包含'{name}'的员工：")
-                    for emp in employees:
+        elif action == "employee_department":
+            name = params["name"]
+            employees = await search_employees_by_name(session, name)
+            if employees:
+                parts.append(f"【数据库查询结果】姓名包含'{name}'的员工：")
+                for emp in employees:
+                    parts.append(
+                        f"- {emp['name']}（工号:{emp['employee_number']}）"
+                        f"，部门:{emp['department']}"
+                        f"，职位:{emp['position']}"
+                        f"，状态:{emp['status']}"
+                    )
+            else:
+                # 精确查询不到时，做模糊查询
+                fuzzy = await search_employees_fuzzy(session, name)
+                if fuzzy:
+                    parts.append(
+                        f"【数据库查询结果】未找到姓名包含'{name}'的员工。"
+                        f"以下是名字中包含'{name}'中某个字的员工（可能为相似姓名）："
+                    )
+                    for emp in fuzzy[:10]:
                         parts.append(
                             f"- {emp['name']}（工号:{emp['employee_number']}）"
                             f"，部门:{emp['department']}"
@@ -234,64 +125,286 @@ async def _build_db_context(
                             f"，状态:{emp['status']}"
                         )
                 else:
-                    fuzzy = await search_employees_fuzzy(session, name)
-                    if fuzzy:
-                        parts.append(
-                            f"【数据库查询结果】未找到姓名包含'{name}'的员工。"
-                            f"以下是名字中包含'{name}'中某个字的员工（可能为相似姓名）："
-                        )
-                        for emp in fuzzy[:10]:
-                            parts.append(
-                                f"- {emp['name']}（工号:{emp['employee_number']}）"
-                                f"，部门:{emp['department']}"
-                                f"，职位:{emp['position']}"
-                                f"，状态:{emp['status']}"
-                            )
-                    else:
-                        parts.append(
-                            f"【数据库查询结果】未找到姓名包含'{name}'或相关字的员工。"
-                        )
+                    parts.append(
+                        f"【数据库查询结果】未找到姓名包含'{name}'或相关字的员工。"
+                    )
 
-    # 5. Feishu Bitable query (server-side filtered)
-    feishu_context = await build_feishu_context(text)
-    if feishu_context:
-        parts.append(feishu_context)
+        elif action == "count_department":
+            dept = params["department"]
+            total = await count_employees(session, department=dept)
+            parts.append(f"【数据库查询结果】{dept}共有{total}名员工。")
+
+        elif action == "count_total":
+            total = await count_employees(session)
+            parts.append(f"【数据库查询结果】全厂共有{total}名员工。")
+
+    # Fallback: keyword-based name search if no intent matched
+    if not intent:
+        names = _extract_names(text)
+        seen: set[str] = set()
+        for name in names[:3]:
+            if name in seen:
+                continue
+            seen.add(name)
+            employees = await search_employees_by_name(session, name)
+            if employees:
+                parts.append(
+                    f"【数据库查询结果】姓名包含'{name}'的员工："
+                )
+                for emp in employees:
+                    parts.append(
+                        f"- {emp['name']}（工号:{emp['employee_number']}）"
+                        f"，部门:{emp['department']}"
+                        f"，职位:{emp['position']}"
+                        f"，状态:{emp['status']}"
+                    )
+            else:
+                fuzzy = await search_employees_fuzzy(session, name)
+                if fuzzy:
+                    parts.append(
+                        f"【数据库查询结果】未找到姓名包含'{name}'的员工。"
+                        f"以下是名字中包含'{name}'中某个字的员工（可能为相似姓名）："
+                    )
+                    for emp in fuzzy[:10]:
+                        parts.append(
+                            f"- {emp['name']}（工号:{emp['employee_number']}）"
+                            f"，部门:{emp['department']}"
+                            f"，职位:{emp['position']}"
+                            f"，状态:{emp['status']}"
+                        )
+                else:
+                    parts.append(
+                        f"【数据库查询结果】未找到姓名包含'{name}'或相关字的员工。"
+                    )
 
     return "\n".join(parts)
+
+
+def _extract_months(text: str) -> list[int] | None:
+    """Extract month numbers from text for vehicle request queries.
+
+    Supports patterns like:
+    - 5月, 6月 (single)
+    - 5-6月, 5~6月 (range)
+    - 5月和6月, 5月、6月, 5月，6月 (multiple)
+    - 5-6月份 (with 份 suffix)
+    """
+    # 1. Range pattern: 5-6月, 5~6月, 5到6月
+    range_match = re.search(r"(\d{1,2})[-~到](\d{1,2})月(?:份)?", text)
+    if range_match:
+        start, end = int(range_match.group(1)), int(range_match.group(2))
+        if 1 <= start <= 12 and 1 <= end <= 12:
+            if start <= end:
+                return list(range(start, end + 1))
+            else:
+                return list(range(end, start + 1))
+
+    # 2. Multiple months pattern: 5月和6月, 5月、6月, 5月，6月
+    # Find all "X月" occurrences and deduplicate
+    month_matches = re.findall(r"(\d{1,2})月(?:份)?", text)
+    if month_matches:
+        months = sorted(set(int(m) for m in month_matches if 1 <= int(m) <= 12))
+        return months
+
+    return None
+
+
+async def _build_vehicle_db_context(
+    session: AsyncSession, text: str
+) -> str:
+    """Query vehicle/administration database based on user intent."""
+    parts: list[str] = []
+
+    # 1. 按月份统计（支持单个月、多个月、范围）
+    months = _extract_months(text)
+    if months and re.search(r"(?:用车申请|申请).*?(?:多少|数量|总数|几个)", text):
+        total_count = 0
+        month_counts: list[tuple[int, int]] = []
+        for month in months:
+            count_stmt = (
+                select(func.count())
+                .select_from(VehicleRequest)
+                .where(
+                    extract("month", VehicleRequest.start_time) == month,
+                    VehicleRequest.is_deleted.is_(False),
+                )
+            )
+            count = await session.scalar(count_stmt) or 0
+            month_counts.append((month, count))
+            total_count += count
+
+        if len(months) == 1:
+            parts.append(f"【数据库查询结果】{months[0]}月用车申请总数：{total_count}条。")
+        else:
+            month_details = "，".join(f"{m}月{c}条" for m, c in month_counts)
+            parts.append(
+                f"【数据库查询结果】{month_details}，合计：{total_count}条。"
+            )
+    else:
+        # 2. 统计用车申请数量（按状态）
+        status_count_keywords = [
+            ("待审批", r"待审批.*?(?:多少|数量|几个)"),
+            ("已通过", r"已通过.*?(?:多少|数量|几个)"),
+            ("已拒绝", r"已拒绝.*?(?:多少|数量|几个)"),
+            ("已完成", r"已完成.*?(?:多少|数量|几个)"),
+        ]
+        for status, pattern in status_count_keywords:
+            if re.search(pattern, text):
+                total = await count_vehicle_requests(session, status=status)
+                parts.append(f"【数据库查询结果】状态为'{status}'的用车申请共有{total}条。")
+                break
+        else:
+            # 总数量
+            if re.search(r"(?:总共|一共|全部).*?(?:用车申请|申请).*?(?:多少|数量|几个)", text):
+                total = await count_vehicle_requests(session)
+                parts.append(f"【数据库查询结果】用车申请总数量：{total}条。")
+
+    # 2. 按申请人查询（只匹配纯中文人名，避免误匹配月份数字）
+    applicant_match = re.search(r"([一-龥]{2,10})(?:的用车申请|申请了车|申请用车)", text)
+    if applicant_match:
+        name = applicant_match.group(1)
+        requests, total = await search_vehicle_requests(
+            session, keyword=name, page=1, page_size=20
+        )
+        if requests:
+            parts.append(f"【数据库查询结果】申请人包含'{name}'的用车申请共{total}条：")
+            for r in requests:
+                parts.append(
+                    f"- 申请人:{r['applicant_name']}（{r['applicant_department']}）"
+                    f"，事由:{r['purpose'][:40]}"
+                    f"，目的地:{r['destination'] or '无'}"
+                    f"，时间:{r['start_time']} 至 {r['end_time']}"
+                    f"，状态:{r['status']}"
+                )
+        else:
+            parts.append(f"【数据库查询结果】未找到申请人包含'{name}'的用车申请。")
+
+    # 3. 按状态查询列表
+    status_list_keywords = [
+        ("待审批", r"(?:待审批|未审批|未处理).*?(?:申请|列表|记录)"),
+        ("已通过", r"(?:已通过|已批准).*?(?:申请|列表|记录)"),
+        ("已完成", r"(?:已完成|已结束).*?(?:申请|列表|记录)"),
+    ]
+    for status, pattern in status_list_keywords:
+        if re.search(pattern, text):
+            requests, total = await search_vehicle_requests(
+                session, status=status, page=1, page_size=20
+            )
+            if requests:
+                parts.append(f"【数据库查询结果】状态为'{status}'的用车申请共{total}条：")
+                for r in requests:
+                    parts.append(
+                        f"- 申请人:{r['applicant_name']}（{r['applicant_department']}）"
+                        f"，事由:{r['purpose'][:40]}"
+                        f"，目的地:{r['destination'] or '无'}"
+                        f"，时间:{r['start_time']} 至 {r['end_time']}"
+                    )
+            else:
+                parts.append(f"【数据库查询结果】暂无状态为'{status}'的用车申请。")
+            break
+
+    # 4. 车辆信息查询
+    if re.search(r"(?:车辆|车|车牌).*?(?:信息|列表|多少|状态)", text):
+        vehicles, total = await search_vehicles(session, page=1, page_size=50)
+        if vehicles:
+            parts.append(f"【数据库查询结果】车辆总数：{total}辆")
+            for v in vehicles:
+                parts.append(
+                    f"- 车牌:{v['plate_number']}，品牌:{v['brand'] or '无'}"
+                    f"，状态:{v['status']}，归属:{v['owner_department'] or '无'}"
+                )
+        else:
+            parts.append("【数据库查询结果】暂无车辆信息。")
+
+    return "\n".join(parts)
+
+
+def _convert_message_with_attachments(msg: dict[str, Any]) -> dict[str, Any]:
+    """Convert a message dict with attachments to multimodal format.
+
+    Moonshot / OpenAI compatible format:
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "..."},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+      ]
+    }
+    """
+    role = msg.get("role", "user")
+    content = msg.get("content", "")
+    attachments: list[dict[str, str]] = msg.get("attachments") or []
+
+    if not attachments:
+        return {"role": role, "content": content}
+
+    # Build multimodal content array
+    content_parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
+    for att in attachments:
+        mime = att.get("mime_type", "image/png")
+        data = att.get("data", "")
+        content_parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{data}"},
+            }
+        )
+
+    return {"role": role, "content": content_parts}
 
 
 @router.post("/chat/stream", summary="AI 流式对话")
 async def chat_stream(
     request: ChatRequest,
-    service: AiChatService = Depends(get_ai_chat_service),
+    service: AiChatService | None = Depends(get_ai_chat_service),
     session: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Receive a chat request and stream the AI response via SSE."""
 
+    page = request.page_context.page if request.page_context else None
+    is_vehicle_page = page and "用车" in page
+
     # 1. Build base system prompt
-    system_prompt = AiChatService.build_system_prompt(
-        page=request.page_context.page if request.page_context else None
-    )
+    if is_vehicle_page:
+        system_prompt = AiChatService.build_vehicle_system_prompt(page=page)
+    else:
+        system_prompt = AiChatService.build_system_prompt(page=page)
 
     # 2. Query database based on user intent
     db_context = ""
     if request.messages and request.messages[-1].role == "user":
         user_text = request.messages[-1].content
-        db_context = await _build_db_context(
-            session, service.client, user_text
-        )
+        if is_vehicle_page:
+            db_context = await _build_vehicle_db_context(session, user_text)
+        else:
+            db_context = await _build_db_context(session, user_text)
 
-    # 3. Build messages list
-    messages = [m.model_dump() for m in request.messages]
+    # 3. Build messages list and convert attachments
+    raw_messages = [m.model_dump() for m in request.messages]
+    messages: list[dict[str, Any]] = []
+    for raw in raw_messages:
+        converted = _convert_message_with_attachments(raw)
+        messages.append(converted)
 
     # Inject DB context directly into the last user message
     if db_context and messages and messages[-1]["role"] == "user":
         original = messages[-1]["content"]
-        messages[-1]["content"] = (
-            f"【数据库查询结果，请严格基于以下事实回答，禁止编造】\n"
-            f"{db_context}\n\n"
-            f"【用户原始问题】\n{original}"
-        )
+        # If content is a list (multimodal), inject text into the first text part
+        if isinstance(original, list):
+            for part in original:
+                if part.get("type") == "text":
+                    part["text"] = (
+                        f"【数据库查询结果，请严格基于以下事实回答，禁止编造】\n"
+                        f"{db_context}\n\n"
+                        f"【用户原始问题】\n{part['text']}"
+                    )
+                    break
+        else:
+            messages[-1]["content"] = (
+                f"【数据库查询结果，请严格基于以下事实回答，禁止编造】\n"
+                f"{db_context}\n\n"
+                f"【用户原始问题】\n{original}"
+            )
 
     # 4. Append page context as the last user message hint if provided
     if request.page_context and request.page_context.data_summary:
@@ -300,39 +413,44 @@ async def chat_stream(
         )
         if messages and messages[-1]["role"] == "user":
             original = messages[-1]["content"]
-            messages[-1]["content"] = (
-                f"[当前页面数据概览]\n{summary_text}\n\n"
-                f"[用户问题]\n{original}"
-            )
+            if isinstance(original, list):
+                for part in original:
+                    if part.get("type") == "text":
+                        part["text"] = (
+                            f"[当前页面数据概览]\n{summary_text}\n\n"
+                            f"[用户问题]\n{part['text']}"
+                        )
+                        break
+            else:
+                messages[-1]["content"] = (
+                    f"[当前页面数据概览]\n{summary_text}\n\n"
+                    f"[用户问题]\n{original}"
+                )
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        try:
-            async for chunk in service.stream_chat(messages, system_prompt):
-                if chunk["type"] == "reasoning":
-                    payload = json.dumps(
-                        {"reasoning_content": chunk["text"]}, ensure_ascii=False
-                    )
-                else:
-                    payload = json.dumps({"content": chunk["text"]}, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
-            done_payload = json.dumps({"done": True}, ensure_ascii=False)
-            yield f"data: {done_payload}\n\n"
-        except Exception:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.exception("AI stream chat failed")
-            error_payload = json.dumps(
-                {"error": True, "message": "AI 服务暂时不可用，请稍后重试"},
+        if service is None:
+            payload = json.dumps(
+                {"content": "\n\n[提示] Moonshot API Key 未配置，请在后端 .env 文件中设置 MOONSHOT_API_KEY"},
                 ensure_ascii=False,
             )
-            yield f"data: {error_payload}\n\n"
+            yield f"data: {payload}\n\n"
             done_payload = json.dumps({"done": True}, ensure_ascii=False)
             yield f"data: {done_payload}\n\n"
+            return
+
+        try:
+            async for token in service.stream_chat(messages, system_prompt):
+                payload = json.dumps({"content": token}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+        except Exception as exc:
+            payload = json.dumps(
+                {"content": f"\n\n[错误] 服务异常: {exc}"}, ensure_ascii=False
+            )
+            yield f"data: {payload}\n\n"
+        done_payload = json.dumps({"done": True}, ensure_ascii=False)
+        yield f"data: {done_payload}\n\n"
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
     )
-
-

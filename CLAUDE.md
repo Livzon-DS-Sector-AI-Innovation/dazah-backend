@@ -99,6 +99,53 @@ ORM 和 migration 规则：
 5. 涉及数据库变更时，同步 ORM、migration、模块注册和测试。
 6. 完成后说明修改文件、验证结果、跨模块或架构影响，以及未完成事项。
 
+## 环境搭建与启动
+
+### 1. 安装依赖
+
+```bash
+uv sync
+```
+
+### 2. 配置环境变量
+
+复制 `.env.example` 为 `.env` 并根据需要修改：
+
+```bash
+cp .env.example .env
+```
+
+### 3. 数据库迁移
+
+确保 PostgreSQL 已启动，然后执行 Alembic 迁移：
+
+```bash
+uv run alembic upgrade head
+```
+
+### 4. 导入种子数据
+
+项目提供了 `departments.json` 和 `teams.json` 种子数据文件。运行以下脚本将初始数据导入数据库：
+
+```bash
+uv run python scripts/seed.py
+```
+
+该脚本会：
+- 读取 `departments.json` 导入 15 个部门
+- 读取 `teams.json` 导入 26 个班组（自动关联到对应部门）
+- 支持重复执行（已存在的数据会自动跳过）
+
+### 5. 启动服务
+
+```bash
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+服务启动后访问：
+- API 文档：`http://localhost:8000/docs`
+- 健康检查：`http://localhost:8000/health`
+
 ## 验证
 
 完成代码修改后至少运行：
