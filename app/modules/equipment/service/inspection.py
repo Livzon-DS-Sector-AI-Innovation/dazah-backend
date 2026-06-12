@@ -165,6 +165,7 @@ async def create_task(
 async def get_tasks(
     db: AsyncSession,
     status: str | None = None,
+    exclude_status: str | None = None,
     route_id: uuid.UUID | None = None,
     assigned_to: uuid.UUID | None = None,
     equipment_id: uuid.UUID | None = None,
@@ -176,6 +177,7 @@ async def get_tasks(
     return await repo.get_tasks(
         db,
         status=status,
+        exclude_status=exclude_status,
         route_id=route_id,
         assigned_to=assigned_to,
         equipment_id=equipment_id,

@@ -122,6 +122,10 @@ async def start_equipment_ws() -> None:
     global _stop
     _stop = asyncio.Event()
 
+    if not settings.EQUIPMENT_FEISHU_WS_ENABLED:
+        logger.info("设备机器人 WS 已禁用 (EQUIPMENT_FEISHU_WS_ENABLED=false)，跳过")
+        return
+
     app_id = settings.EQUIPMENT_FEISHU_APP_ID
     app_secret = settings.EQUIPMENT_FEISHU_APP_SECRET
 
