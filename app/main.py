@@ -74,6 +74,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     safety_ws_task = asyncio.create_task(start_ws())
 
+    # ── 安全模块定时任务调度引擎 ──
+    from app.modules.safety.scheduler import (
+        scheduled_task_loop,
+        stop_scheduled_task_flag,
+    )
+
+    scheduler_task = asyncio.create_task(scheduled_task_loop())
+
     logger.info("Background tasks started")
 
     yield
@@ -85,6 +93,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 停止安全模块 WebSocket
     await stop_ws()
     safety_ws_task.cancel()
+
+    # 停止定时任务调度引擎
+    stop_scheduled_task_flag.set()
+    scheduler_task.cancel()
 
     # 停止设备模块 WebSocket
     if equipment_ws_task:

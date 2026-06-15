@@ -24,6 +24,8 @@ from app.modules.safety.models import (
     SafetyCheck,
     SafetyKnowledgeArticle,
     SafetyTraining,
+    ScheduledTask,
+    ScheduledTaskLog,
     SpecialOperationPermit,
     SpecialOperationPersonnel,
     SpecialOperationReport,
@@ -562,6 +564,102 @@ class SafetyRepository:
         result = await self.session.execute(query)
         items = list(result.scalars().all())
         return items, total or 0
+
+    async def get_hazard_identification_stats(self) -> dict[str, int]:
+        """获取危险源辨识工作流统计（按 overall_status 分组）"""
+        from app.modules.safety.models import HazardIdentification
+
+        base = select(HazardIdentification).where(HazardIdentification.is_deleted == False)
+        results = {"total_draft": 0, "total_in_progress": 0, "total_pending_review": 0, "total_completed": 0}
+
+        # 按状态统计
+        for status, key in [("draft", "total_draft"), ("in_progress", "total_in_progress"), ("completed", "total_completed")]:
+            q = base.where(HazardIdentification.overall_status == status)
+            results[key] = await self.session.scalar(select(func.count()).select_from(q.subquery())) or 0
+
+        # 待审核：in_progress 且有未审批的脚本
+        from sqlalchemy import or_
+        pending_q = (
+            select(func.count(HazardIdentification.id))
+            .where(
+                HazardIdentification.is_deleted == False,
+                HazardIdentification.overall_status == "in_progress",
+                or_(
+                    HazardIdentification.script1_review_status == "pending",
+                    HazardIdentification.script2_review_status == "pending",
+                    HazardIdentification.script3_review_status == "pending",
+                    HazardIdentification.script4_review_status == "pending",
+                    HazardIdentification.script5_review_status == "pending",
+                    HazardIdentification.script6_review_status == "pending",
+                    HazardIdentification.script7_review_status == "pending",
+                ),
+            )
+        )
+        results["total_pending_review"] = await self.session.scalar(pending_q) or 0
+        return results
+
+    async def get_hazard_identification_ledger_stats(
+        self,
+        department: str | None = None,
+        position: str | None = None,
+        risk_level: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, int]:
+        """获取危险源辨识台账统计（按风险等级分组）"""
+        from datetime import datetime as dt_module
+        from app.modules.safety.models import HazardIdentification
+
+        base = select(func.count(HazardIdentification.id)).where(
+            HazardIdentification.is_deleted == False,
+            HazardIdentification.overall_status == "completed",
+        )
+        if department:
+            base = base.where(HazardIdentification.department == department)
+        if position:
+            base = base.where(HazardIdentification.position == position)
+        if risk_level:
+            base = base.where(HazardIdentification.inherent_risk_level == risk_level)
+        if date_from:
+            try:
+                base = base.where(HazardIdentification.created_at >= dt_module.strptime(date_from, "%Y-%m-%d"))
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                base = base.where(HazardIdentification.created_at <= dt_module.strptime(date_to + " 23:59:59", "%Y-%m-%d %H:%M:%S"))
+            except ValueError:
+                pass
+
+        total = await self.session.scalar(base) or 0
+
+        risk_base = select(func.count(HazardIdentification.id)).where(
+            HazardIdentification.is_deleted == False,
+            HazardIdentification.overall_status == "completed",
+        )
+        if department:
+            risk_base = risk_base.where(HazardIdentification.department == department)
+        if position:
+            risk_base = risk_base.where(HazardIdentification.position == position)
+        if risk_level:
+            risk_base = risk_base.where(HazardIdentification.inherent_risk_level == risk_level)
+        if date_from:
+            try:
+                risk_base = risk_base.where(HazardIdentification.created_at >= dt_module.strptime(date_from, "%Y-%m-%d"))
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                risk_base = risk_base.where(HazardIdentification.created_at <= dt_module.strptime(date_to + " 23:59:59", "%Y-%m-%d %H:%M:%S"))
+            except ValueError:
+                pass
+
+        levels = {"level_1": 0, "level_2": 0, "level_3": 0, "level_4": 0}
+        for level_key in levels:
+            q = risk_base.where(HazardIdentification.inherent_risk_level == level_key)
+            levels[level_key] = await self.session.scalar(q) or 0
+
+        return {"total": total, **levels}
 
     async def get_hazard_identification_by_id(
         self, hid: uuid.UUID
@@ -1301,42 +1399,48 @@ class SafetyRepository:
         limit: int = 20,
         status: str | None = None,
         operation_type: str | None = None,
+        operation_level: str | None = None,
+        risk_level: str | None = None,
         department: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         keyword: str | None = None,
+        is_critical: bool | None = None,
     ) -> tuple[list[SpecialOperationReport], int]:
         """获取特殊作业报备列表"""
         query = select(SpecialOperationReport).where(SpecialOperationReport.is_deleted == False)
-
-        if status:
-            query = query.where(SpecialOperationReport.status == status)
-        if operation_type:
-            query = query.where(SpecialOperationReport.operation_type == operation_type)
-        if department:
-            query = query.where(SpecialOperationReport.department == department)
-        if keyword:
-            like = f"%{keyword}%"
-            query = query.where(
-                SpecialOperationReport.report_no.ilike(like)
-                | SpecialOperationReport.work_description.ilike(like)
-                | SpecialOperationReport.location.ilike(like)
-            )
-
         count_query = select(func.count(SpecialOperationReport.id)).where(
             SpecialOperationReport.is_deleted == False
         )
-        if status:
-            count_query = count_query.where(SpecialOperationReport.status == status)
-        if operation_type:
-            count_query = count_query.where(SpecialOperationReport.operation_type == operation_type)
-        if department:
-            count_query = count_query.where(SpecialOperationReport.department == department)
-        if keyword:
-            like = f"%{keyword}%"
-            count_query = count_query.where(
-                SpecialOperationReport.report_no.ilike(like)
-                | SpecialOperationReport.work_description.ilike(like)
-                | SpecialOperationReport.location.ilike(like)
-            )
+
+        def _apply_filters(q):
+            if status:
+                q = q.where(SpecialOperationReport.status == status)
+            if operation_type:
+                q = q.where(SpecialOperationReport.operation_type == operation_type)
+            if operation_level:
+                q = q.where(SpecialOperationReport.operation_level == operation_level)
+            if risk_level:
+                q = q.where(SpecialOperationReport.risk_level == risk_level)
+            if department:
+                q = q.where(SpecialOperationReport.department == department)
+            if date_from:
+                q = q.where(SpecialOperationReport.planned_start_time >= date_from)
+            if date_to:
+                q = q.where(SpecialOperationReport.planned_end_time <= date_to)
+            if is_critical is not None:
+                q = q.where(SpecialOperationReport.is_critical == is_critical)
+            if keyword:
+                like = f"%{keyword}%"
+                q = q.where(
+                    SpecialOperationReport.report_no.ilike(like)
+                    | SpecialOperationReport.work_description.ilike(like)
+                    | SpecialOperationReport.location.ilike(like)
+                )
+            return q
+
+        query = _apply_filters(query)
+        count_query = _apply_filters(count_query)
 
         total = await self.session.scalar(count_query)
         query = query.offset(skip).limit(limit).order_by(
@@ -2028,3 +2132,117 @@ class SafetyRepository:
         )
         result = await self.session.execute(query)
         return result.rowcount > 0
+
+    # ==================== Scheduled Task Operations ====================
+
+    async def get_scheduled_tasks(
+        self,
+        skip: int = 0,
+        limit: int = 20,
+        is_enabled: bool | None = None,
+        search: str | None = None,
+    ) -> tuple[list[ScheduledTask], int]:
+        """获取定时任务列表"""
+        conditions = [ScheduledTask.is_deleted == False]
+        if is_enabled is not None:
+            conditions.append(ScheduledTask.is_enabled == is_enabled)
+        if search:
+            conditions.append(ScheduledTask.name.ilike(f"%{search}%"))
+
+        query = select(ScheduledTask).where(*conditions)
+        count_query = select(func.count()).select_from(ScheduledTask).where(*conditions)
+        total = await self.session.scalar(count_query)
+        query = query.offset(skip).limit(limit).order_by(ScheduledTask.created_at.desc())
+        result = await self.session.execute(query)
+        items = list(result.scalars().all())
+        return items, total or 0
+
+    async def get_scheduled_task_by_id(self, task_id: uuid.UUID) -> ScheduledTask | None:
+        """获取单个定时任务"""
+        query = select(ScheduledTask).where(
+            ScheduledTask.id == task_id, ScheduledTask.is_deleted == False
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_due_scheduled_tasks(self) -> list[ScheduledTask]:
+        """获取到期需要执行的定时任务"""
+        from datetime import datetime as dt
+        now = dt.now()
+        query = select(ScheduledTask).where(
+            ScheduledTask.is_deleted == False,
+            ScheduledTask.is_enabled == True,
+            ScheduledTask.next_run_at <= now,
+        )
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def create_scheduled_task(self, data: dict[str, Any]) -> ScheduledTask:
+        """创建定时任务"""
+        item = ScheduledTask(**data)
+        self.session.add(item)
+        await self.session.flush()
+        # eager re-fetch
+        query = select(ScheduledTask).where(ScheduledTask.id == item.id)
+        result = await self.session.execute(query)
+        return result.scalar_one()
+
+    async def update_scheduled_task(
+        self, task_id: uuid.UUID, data: dict[str, Any]
+    ) -> ScheduledTask | None:
+        """更新定时任务"""
+        query = (
+            update(ScheduledTask)
+            .where(ScheduledTask.id == task_id, ScheduledTask.is_deleted == False)
+            .values(**data)
+            .returning(ScheduledTask)
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def delete_scheduled_task(self, task_id: uuid.UUID) -> bool:
+        """删除定时任务（软删除）"""
+        query = (
+            update(ScheduledTask)
+            .where(ScheduledTask.id == task_id, ScheduledTask.is_deleted == False)
+            .values(is_deleted=True)
+        )
+        result = await self.session.execute(query)
+        return result.rowcount > 0
+
+    # ── Execution Logs ──
+
+    async def create_task_log(self, data: dict[str, Any]) -> ScheduledTaskLog:
+        """创建执行日志"""
+        item = ScheduledTaskLog(**data)
+        self.session.add(item)
+        await self.session.flush()
+        query = select(ScheduledTaskLog).where(ScheduledTaskLog.id == item.id)
+        result = await self.session.execute(query)
+        return result.scalar_one()
+
+    async def update_task_log(
+        self, log_id: uuid.UUID, data: dict[str, Any]
+    ) -> ScheduledTaskLog | None:
+        """更新执行日志"""
+        query = (
+            update(ScheduledTaskLog)
+            .where(ScheduledTaskLog.id == log_id)
+            .values(**data)
+            .returning(ScheduledTaskLog)
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_task_logs(
+        self, task_id: uuid.UUID, skip: int = 0, limit: int = 20
+    ) -> tuple[list[ScheduledTaskLog], int]:
+        """获取任务执行日志"""
+        conditions = [ScheduledTaskLog.task_id == task_id, ScheduledTaskLog.is_deleted == False]
+        query = select(ScheduledTaskLog).where(*conditions)
+        count_query = select(func.count()).select_from(ScheduledTaskLog).where(*conditions)
+        total = await self.session.scalar(count_query)
+        query = query.offset(skip).limit(limit).order_by(ScheduledTaskLog.started_at.desc())
+        result = await self.session.execute(query)
+        items = list(result.scalars().all())
+        return items, total or 0

@@ -98,7 +98,9 @@ async def start_ws() -> None:
             # 1. 获取 WebSocket URL
             ws_url = await _get_ws_url()
             if not ws_url:
-                logger.error("安全飞书无法获取 WebSocket URL，10 秒后重试")
+                attempt += 1
+                logger.error("安全飞书无法获取 WebSocket URL，%d/%d 次重试",
+                           attempt, _MAX_RECONNECT_ATTEMPTS)
                 await asyncio.sleep(10)
                 continue
 
