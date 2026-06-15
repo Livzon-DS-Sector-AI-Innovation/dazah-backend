@@ -1,6 +1,7 @@
 """Safety business workflows."""
 
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -9,6 +10,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.modules.safety.feishu.notification import send_user_card
 from app.modules.safety.models import (
     Accident,
     AIWorkflowConfig,
@@ -23,6 +26,8 @@ from app.modules.safety.models import (
     SafetyCheck,
     SafetyKnowledgeArticle,
     SafetyTraining,
+    ScheduledTask,
+    ScheduledTaskLog,
     SpecialOperationPermit,
     SpecialOperationPersonnel,
     SpecialOperationReport,
@@ -36,6 +41,7 @@ from app.modules.safety.schemas import (
     AIWorkflowConfigUpdate,
     APICallConfigCreate,
     APICallConfigUpdate,
+    CardPreviewRequest,
     ContractorCreate,
     ContractorUpdate,
     ContractorWorkRecordCreate,
@@ -52,6 +58,8 @@ from app.modules.safety.schemas import (
     SafetyKnowledgeArticleUpdate,
     SafetyTrainingCreate,
     SafetyTrainingUpdate,
+    ScheduledTaskCreate,
+    ScheduledTaskUpdate,
     SpecialOperationPermitCreate,
     SpecialOperationPermitUpdate,
     SpecialOperationPersonnelCreate,
@@ -69,8 +77,6 @@ from app.platform.integrations.ai.prompts import (
     STANDALONE_WORKFLOW_CONFIG,
     build_prompt,
 )
-from app.modules.safety.feishu.notification import send_user_card
-from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -807,8 +813,8 @@ class SafetyService:
     async def _send_hazard_notification(self, hazard: HazardReport) -> None:
         """异步发送隐患整改通知到飞书（测试阶段：固定发送给许康福）。"""
         try:
-            # 测试阶段：固定通知人 open_id（许康福）
-            target_open_id = "ou_5773c42e1fc7ce3e554b83242c87aa0b"
+            # 测试阶段：固定通知人 union_id（许康福）— 安全管理系统应用
+            target_user_id = "on_7686557a838993d36b115a47a1323b50"
 
             settings = get_settings()
             detail_url = f"{settings.FRONTEND_URL}/safety/hazard/{hazard.id}"
@@ -844,59 +850,116 @@ class SafetyService:
             ]
 
             success = await send_user_card(
-                open_id=target_open_id,
+                open_id=target_user_id,
                 title="🔔 隐患整改通知",
                 content=content,
                 elements=elements,
+                id_type="union_id",
             )
             if success:
-                logger.info("隐患整改通知已发送: hazard_no=%s, open_id=%s", hazard.hazard_no, target_open_id)
+                logger.info("隐患整改通知已发送: hazard_no=%s, union_id=%s", hazard.hazard_no, target_user_id)
             else:
                 logger.warning("隐患整改通知发送失败: hazard_no=%s", hazard.hazard_no)
         except Exception as e:
             logger.warning("隐患整改通知异常: %s", e)
 
     async def _send_verify_notification(self, hazard: HazardReport, level: int) -> None:
-        """异步发送复核通知到飞书（测试阶段：固定发送给许康福）。"""
+        """异步发送复核通知到飞书（测试阶段：固定发送给许康福）。
+
+        卡片包含审核通过/驳回/查看详情按钮 + 整改照片，点击后直接更新卡片状态。
+        """
         try:
-            target_open_id = "ou_5773c42e1fc7ce3e554b83242c87aa0b"
+            # 测试阶段：固定通知人 union_id（许康福）— 安全管理系统应用
+            target_user_id = "on_7686557a838993d36b115a47a1323b50"
 
             settings = get_settings()
             detail_url = f"{settings.FRONTEND_URL}/safety/hazard/{hazard.id}"
 
-            level_labels = {1: "一级", 2: "二级", 3: "三级"}
+            level_labels = {1: "（部门负责人）", 2: "（分管领导）", 3: "（隐患发现人）"}
             level_text = level_labels.get(level, f"{level}级")
 
             content = (
                 f"**隐患编号：** {hazard.hazard_no or '-'}\n"
                 f"**隐患描述：** {hazard.description or '-'}\n"
-                f"**地点/部位：** {hazard.location or '-'}\n"
+                f"**地点部位：** {hazard.location or '-'}\n"
                 f"**责任部门：** {hazard.department or '-'}\n"
                 f"**整改回复：** {hazard.rectification_reply or '-'}\n"
+                f"\n👆 请在下方操作按钮中选择「审核通过」或「驳回整改」"
             )
 
-            elements = [
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": f"📋 前往{level_text}复核"},
-                            "type": "primary",
-                            "url": detail_url,
-                        }
-                    ],
-                }
-            ]
+            elements: list[dict] = []
+
+            # ── 整改照片展示 ──
+            if hazard.rectification_photos:
+                try:
+                    photos = json.loads(hazard.rectification_photos)
+                    if photos and isinstance(photos, list):
+                        from app.modules.safety.feishu.notification import (
+                            upload_images_batch,
+                        )
+                        image_keys = await upload_images_batch(photos)
+                        if image_keys:
+                            elements.append({"tag": "hr"})
+                            elements.append({"tag": "markdown", "content": "📷 **整改后照片：**"})
+                            for key in image_keys:
+                                elements.append({
+                                    "tag": "img",
+                                    "img_key": key,
+                                    "alt": {"tag": "plain_text", "content": "整改照片"},
+                                })
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # ── 操作按钮（审核通过 / 驳回整改 / 查看详情 并列）──
+            elements.append({
+                "tag": "action",
+                "actions": [
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "✅ 审核通过"},
+                        "type": "primary",
+                        "value": {
+                            "action": "verify_hazard",
+                            "hazard_id": str(hazard.id),
+                            "level": level,
+                        },
+                        "confirm": {
+                            "title": {"tag": "plain_text", "content": f"确认{level_text}审核通过"},
+                            "text": {"tag": "plain_text", "content": f"确认审核通过？隐患将{'关闭' if level == 3 else '进入下一级复核'}。"},
+                        },
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "❌ 驳回整改"},
+                        "type": "danger",
+                        "value": {
+                            "action": "reject_hazard",
+                            "hazard_id": str(hazard.id),
+                            "level": level,
+                        },
+                        "confirm": {
+                            "title": {"tag": "plain_text", "content": "确认驳回整改"},
+                            "text": {"tag": "plain_text", "content": "驳回后隐患将退回整改阶段，需要责任人重新整改回复。"},
+                        },
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "📋 查看详情"},
+                        "type": "default",
+                        "url": detail_url,
+                    },
+                ],
+            })
 
             success = await send_user_card(
-                open_id=target_open_id,
+                open_id=target_user_id,
                 title=f"🔔 隐患{level_text}复核通知",
                 content=content,
                 elements=elements,
+                id_type="union_id",
             )
             if success:
-                logger.info("复核通知已发送: hazard_no=%s, level=%s", hazard.hazard_no, level)
+                logger.info("复核通知已发送（含审核按钮+照片）: hazard_no=%s, level=%s", hazard.hazard_no, level)
             else:
                 logger.warning("复核通知发送失败: hazard_no=%s, level=%s", hazard.hazard_no, level)
         except Exception as e:
@@ -1314,10 +1377,32 @@ class SafetyService:
         overall_status: str | None = None,
         ai_node_progress: str | None = None,
         keyword: str | None = None,
+        position: str | None = None,
+        risk_level: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> tuple[list, int]:
         """获取危险源辨识列表"""
         return await self.repo.get_hazard_identifications(
-            skip, limit, department, overall_status, ai_node_progress, keyword
+            skip, limit, department, overall_status, ai_node_progress, keyword,
+            position, risk_level, date_from, date_to,
+        )
+
+    async def get_hazard_identification_stats(self) -> dict[str, int]:
+        """获取危险源辨识工作流统计"""
+        return await self.repo.get_hazard_identification_stats()
+
+    async def get_hazard_identification_ledger_stats(
+        self,
+        department: str | None = None,
+        position: str | None = None,
+        risk_level: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, int]:
+        """获取危险源辨识台账统计"""
+        return await self.repo.get_hazard_identification_ledger_stats(
+            department, position, risk_level, date_from, date_to,
         )
 
     async def get_hazard_identification(self, hid: uuid.UUID):
@@ -1871,7 +1956,7 @@ class SafetyService:
         )
 
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from reportlab.lib.enums import TA_CENTER
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
@@ -2120,6 +2205,85 @@ class SafetyService:
             canvas.restoreState()
 
         doc.build(elements, onFirstPage=add_page_number, onLaterPages=add_page_number)
+        buf.seek(0)
+        return buf.getvalue()
+
+    async def export_hazard_ledger_excel(
+        self,
+        department: str | None = None,
+        position: str | None = None,
+        risk_level: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        keyword: str | None = None,
+    ) -> bytes:
+        """导出危险源辨识台账为 Excel 文件"""
+        import io
+
+        import openpyxl
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+        items, _ = await self.repo.get_hazard_identifications(
+            skip=0, limit=5000, department=department, position=position,
+            overall_status="completed", risk_level=risk_level,
+            date_from=date_from, date_to=date_to, keyword=keyword,
+        )
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "危险源辨识台账"
+
+        # 表头
+        headers = [
+            "编号", "部门", "岗位", "生产步骤", "作业活动", "事故类型",
+            "固有风险(L)", "固有风险(E)", "固有风险(C)", "固有风险(D)", "固有风险等级",
+            "残余风险(L)", "残余风险(E)", "残余风险(C)", "残余风险(D)", "残余风险等级",
+            "措施后风险(L)", "措施后风险(E)", "措施后风险(C)", "措施后风险(D)", "措施后风险等级",
+            "管控层级", "责任人", "创建时间",
+        ]
+        header_font = Font(bold=True, size=11)
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        header_font_white = Font(bold=True, size=11, color="FFFFFF")
+        thin_border = Border(
+            left=Side(style="thin"), right=Side(style="thin"),
+            top=Side(style="thin"), bottom=Side(style="thin"),
+        )
+
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.font = header_font_white
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # 数据行
+        for row_idx, item in enumerate(items, 2):
+            values = [
+                item.hazard_id_no, item.department, item.position,
+                item.production_step, item.specific_activity, item.possible_accident,
+                item.l_inherent, item.e_inherent, item.c_inherent, item.d_inherent,
+                item.inherent_risk_label or item.inherent_risk_level,
+                item.l_residual, item.e_residual, item.c_residual, item.d_residual,
+                item.residual_risk_label or item.residual_risk_level,
+                item.l_post, item.e_post, item.c_post, item.d_post,
+                item.post_risk_label or item.post_risk_level,
+                item.control_level, item.responsible_person,
+                item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else "",
+            ]
+            for col_idx, val in enumerate(values, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=val if val is not None else "")
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="center")
+
+        # 调整列宽
+        for col_idx in range(1, len(headers) + 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = 14
+
+        # 冻结首行
+        ws.freeze_panes = "A2"
+
+        buf = io.BytesIO()
+        wb.save(buf)
         buf.seek(0)
         return buf.getvalue()
 
@@ -2662,6 +2826,179 @@ class ConfigService:
         return await self.repo.delete_api_call_config(config_id)
 
 
+# ==================== AI 工作流附件 Service ====================
+
+
+class AttachmentService:
+    """AI 工作流调用文档附件管理服务
+
+    职责：
+    - 上传附件并转换为 Markdown 供 AI 读取
+    - 从知识库文章创建附件引用
+    - 删除附件及其关联的 Markdown 文件
+    - 提供附件预览文件路径
+    """
+
+    UPLOAD_DIR = os.path.join("uploads", "safety", "ai-workflow")
+    MD_SUBDIR = "md"
+
+    def __init__(self):
+        os.makedirs(self.UPLOAD_DIR, exist_ok=True)
+        os.makedirs(os.path.join(self.UPLOAD_DIR, self.MD_SUBDIR), exist_ok=True)
+
+    async def upload_attachment(self, file) -> dict:
+        """上传附件并转换为 Markdown。
+
+        流程：
+        1. 保存原始文件到 uploads/safety/ai-workflow/{uuid}.{ext}
+        2. 调用 DocumentParser 提取文本并转为 Markdown
+        3. 保存 MD 文件到 uploads/safety/ai-workflow/md/{uuid}.md
+        4. 返回附件元数据
+
+        支持格式：PDF, DOCX, XLSX, TXT, MD
+        """
+        from app.platform.integrations.ai.document_parser import DocumentParser
+
+        content = await file.read()
+        original_name = file.filename or "unknown"
+        ext = os.path.splitext(original_name)[1].lower()
+
+        if ext not in DocumentParser.SUPPORTED_EXTENSIONS:
+            raise ValueError(
+                f"不支持的文件格式: {ext}，支持的格式: {', '.join(sorted(DocumentParser.SUPPORTED_EXTENSIONS))}"
+            )
+
+        attachment_id = str(uuid.uuid4())
+        file_size = len(content)
+
+        # 1. 保存原始文件
+        original_path = os.path.join(self.UPLOAD_DIR, f"{attachment_id}{ext}")
+        with open(original_path, "wb") as f:
+            f.write(content)
+
+        # 2. 提取文本并转为 Markdown
+        try:
+            md_content = DocumentParser.extract_to_markdown(original_path)
+        except Exception:
+            md_content = f"# 📎 {original_name}\n\n> 未能解析文档内容，请查看原始文件。"
+
+        # 3. 保存 MD 文件
+        md_path = os.path.join(self.UPLOAD_DIR, self.MD_SUBDIR, f"{attachment_id}.md")
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(md_content)
+
+        # 4. 构建预览 URL
+        preview_url = f"/api/v1/safety/ai-workflow-configs/attachments/{attachment_id}/preview"
+
+        return {
+            "id": attachment_id,
+            "type": "file",
+            "name": original_name,
+            "url": preview_url,
+            "original_name": original_name,
+            "file_type": ext.lstrip("."),
+            "file_size": file_size,
+            "markdown_path": md_path,
+            "knowledge_id": None,
+            "created_at": datetime.now().isoformat(),
+        }
+
+    async def delete_attachment(self, attachment_id: str) -> bool:
+        """删除附件及其关联文件。
+
+        清理：
+        - uploads/safety/ai-workflow/{attachment_id}.* （原始文件）
+        - uploads/safety/ai-workflow/md/{attachment_id}.md （MD 文件）
+        """
+        import glob as glob_m
+
+        deleted = False
+
+        # 删除原始文件（任意扩展名）
+        for f in glob_m.iglob(os.path.join(self.UPLOAD_DIR, f"{attachment_id}.*")):
+            os.remove(f)
+            deleted = True
+
+        # 删除 MD 文件
+        md_file = os.path.join(self.UPLOAD_DIR, self.MD_SUBDIR, f"{attachment_id}.md")
+        if os.path.exists(md_file):
+            os.remove(md_file)
+            deleted = True
+
+        return deleted
+
+    def get_preview_path(self, attachment_id: str) -> str | None:
+        """获取附件原始文件的路径，供预览使用。"""
+        import glob as glob_m
+
+        matches = list(glob_m.iglob(os.path.join(self.UPLOAD_DIR, f"{attachment_id}.*")))
+        if matches:
+            return matches[0]
+        return None
+
+    async def create_knowledge_attachments(
+        self, knowledge_ids: list[str], db: AsyncSession
+    ) -> list[dict]:
+        """从知识库文章创建附件引用。
+
+        流程：
+        1. 查询 knowledge_articles 表获取文章内容
+        2. 将文章内容转为 Markdown 文件供 AI 读取
+        3. 返回附件元数据列表
+        """
+        from app.modules.safety.repository import SafetyRepository
+
+        repo = SafetyRepository(db)
+        results: list[dict] = []
+
+        for kid in knowledge_ids:
+            try:
+                article_id = uuid.UUID(kid)
+                article = await repo.get_knowledge_article_by_id(article_id)
+            except (ValueError, TypeError):
+                continue
+
+            if not article:
+                continue
+
+            attachment_id = str(uuid.uuid4())
+
+            # 构建 Markdown 内容
+            md_lines = [f"# 📚 {article.title}"]
+            if article.summary:
+                md_lines.append(f"\n> {article.summary}")
+            if article.content:
+                md_lines.append(f"\n{article.content}")
+            if article.tags:
+                md_lines.append(f"\n\n**标签**: {article.tags}")
+            if article.category:
+                md_lines.append(f"**分类**: {article.category}")
+
+            md_content = "\n".join(md_lines)
+
+            # 保存 MD 文件
+            md_path = os.path.join(self.UPLOAD_DIR, self.MD_SUBDIR, f"{attachment_id}.md")
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(md_content)
+
+            preview_url = f"/api/v1/safety/ai-workflow-configs/attachments/{attachment_id}/preview"
+
+            results.append({
+                "id": attachment_id,
+                "type": "knowledge",
+                "name": article.title,
+                "url": preview_url,
+                "original_name": None,
+                "file_type": "md",
+                "file_size": len(md_content.encode("utf-8")),
+                "markdown_path": md_path,
+                "knowledge_id": kid,
+                "created_at": datetime.now().isoformat(),
+            })
+
+        return results
+
+
 # ==================== 特殊作业管理 Service ====================
 
 
@@ -2919,12 +3256,18 @@ class SpecialOperationReportService:
         limit: int = 20,
         status: str | None = None,
         operation_type: str | None = None,
+        operation_level: str | None = None,
+        risk_level: str | None = None,
         department: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         keyword: str | None = None,
+        is_critical: bool | None = None,
     ) -> tuple[list[SpecialOperationReport], int]:
         """获取特殊作业报备列表"""
         return await self.repo.get_special_operation_reports(
-            skip, limit, status, operation_type, department, keyword
+            skip, limit, status, operation_type, operation_level,
+            risk_level, department, date_from, date_to, keyword, is_critical,
         )
 
     async def get_report(self, report_id: uuid.UUID) -> SpecialOperationReport | None:
@@ -4017,3 +4360,126 @@ class OhHealthExamService:
         return await self.repo.update_health_exam(
             exam_id, {"abnormality_records": records}
         )
+
+
+# ==================== 定时任务 Service ====================
+
+
+class ScheduledTaskService:
+    """Scheduled task business logic — CRUD, preview, manual trigger."""
+
+    def __init__(self, session: AsyncSession):
+        self.repo = SafetyRepository(session)
+        self.session = session
+
+    async def get_tasks(
+        self,
+        skip: int = 0,
+        limit: int = 20,
+        is_enabled: bool | None = None,
+        search: str | None = None,
+    ) -> tuple[list[ScheduledTask], int]:
+        return await self.repo.get_scheduled_tasks(skip, limit, is_enabled, search)
+
+    async def get_task(self, task_id: uuid.UUID) -> ScheduledTask | None:
+        return await self.repo.get_scheduled_task_by_id(task_id)
+
+    async def create_task(self, data: ScheduledTaskCreate) -> ScheduledTask:
+        from app.modules.safety.card_builder import build_default_template
+        from app.modules.safety.scheduler import compute_next_run
+
+        task_data = data.model_dump()
+        # Auto-generate default template if not provided
+        if not task_data.get("card_template") and task_data.get("data_sources"):
+            task_data["card_template"] = build_default_template(task_data["data_sources"])
+        # Compute initial next_run_at
+        if task_data.get("is_enabled", True):
+            task_data["next_run_at"] = compute_next_run(task_data["cron_expression"])
+        return await self.repo.create_scheduled_task(task_data)
+
+    async def update_task(self, task_id: uuid.UUID, data: ScheduledTaskUpdate) -> ScheduledTask | None:
+        from app.modules.safety.scheduler import compute_next_run
+
+        update_data = data.model_dump(exclude_unset=True)
+        # Recompute next_run_at if cron or enabled changed
+        if "cron_expression" in update_data or "is_enabled" in update_data:
+            task = await self.repo.get_scheduled_task_by_id(task_id)
+            if task and task.is_enabled:
+                cron = update_data.get("cron_expression", task.cron_expression)
+                update_data["next_run_at"] = compute_next_run(cron)
+        return await self.repo.update_scheduled_task(task_id, update_data)
+
+    async def delete_task(self, task_id: uuid.UUID) -> bool:
+        return await self.repo.delete_scheduled_task(task_id)
+
+    async def toggle_task(self, task_id: uuid.UUID, enabled: bool) -> ScheduledTask | None:
+        from app.modules.safety.scheduler import compute_next_run
+
+        task = await self.repo.get_scheduled_task_by_id(task_id)
+        if not task:
+            return None
+        update_data = {"is_enabled": enabled}
+        if enabled:
+            update_data["next_run_at"] = compute_next_run(task.cron_expression)
+        else:
+            update_data["next_run_at"] = None
+        return await self.repo.update_scheduled_task(task_id, update_data)
+
+    async def run_task_now(self, task_id: uuid.UUID) -> ScheduledTaskLog | None:
+        """Manually trigger a task execution."""
+        from app.modules.safety.scheduler import execute_single_task
+
+        task = await self.repo.get_scheduled_task_by_id(task_id)
+        if not task:
+            return None
+        await execute_single_task(task, self.repo)
+        await self.session.flush()
+        # Return the most recent log
+        logs, _ = await self.repo.get_task_logs(task_id, skip=0, limit=1)
+        return logs[0] if logs else None
+
+    async def get_logs(
+        self, task_id: uuid.UUID, skip: int = 0, limit: int = 20
+    ) -> tuple[list[ScheduledTaskLog], int]:
+        return await self.repo.get_task_logs(task_id, skip, limit)
+
+    @staticmethod
+    def get_data_source_options() -> list[dict]:
+        from app.modules.safety.card_builder import DATA_SOURCE_DEFINITIONS
+        return DATA_SOURCE_DEFINITIONS
+
+    @staticmethod
+    def preview_card(data: CardPreviewRequest) -> dict:
+        from datetime import datetime as dt
+
+        from app.modules.safety.card_builder import (
+            build_card_json,
+            build_default_template,
+            render_template,
+        )
+
+        enabled_keys = [ds.key for ds in data.data_sources if ds.enabled]
+        # Build mock variables
+        variables: dict[str, str] = {}
+        for ds in data.data_sources:
+            variables[ds.key] = f"<{ds.label}>"
+        variables["runtime.timestamp"] = dt.now().strftime("%Y-%m-%d %H:%M")
+
+        template = data.card_template
+        if not template:
+            template = build_default_template(
+                [ds.model_dump() for ds in data.data_sources]
+            )
+
+        rendered = render_template(template, variables)
+        card_json = build_card_json(
+            title="预览",
+            rendered_markdown=rendered,
+            header_color=data.header_color.value if hasattr(data.header_color, 'value') else data.header_color,
+        )
+
+        return {
+            "card_json": card_json,
+            "markdown_preview": rendered,
+            "variables": variables,
+        }

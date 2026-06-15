@@ -237,6 +237,7 @@ async def get_task_by_id(
 async def get_tasks(
     db: AsyncSession,
     status: str | None = None,
+    exclude_status: str | None = None,
     route_id: uuid.UUID | None = None,
     assigned_to: uuid.UUID | None = None,
     equipment_id: uuid.UUID | None = None,
@@ -248,6 +249,8 @@ async def get_tasks(
     conditions = [InspectionTask.is_deleted == False]  # noqa: E712
     if status:
         conditions.append(InspectionTask.status == status)
+    if exclude_status:
+        conditions.append(InspectionTask.status != exclude_status)
     if route_id:
         conditions.append(InspectionTask.route_id == route_id)
     if assigned_to:

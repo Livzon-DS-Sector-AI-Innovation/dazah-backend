@@ -1581,6 +1581,30 @@ class APICallConfigResponse(APICallConfigBase):
         from_attributes = True
 
 
+# ==================== AI 工作流附件 Schemas ====================
+
+
+class ReferenceAttachmentResponse(BaseModel):
+    """调用文档附件响应"""
+
+    id: str = Field(..., description="附件唯一标识 (UUID)")
+    type: str = Field(..., description="附件类型: file / knowledge")
+    name: str = Field(..., description="显示名称")
+    url: str = Field(..., description="预览 URL")
+    original_name: str | None = Field(None, description="原始文件名")
+    file_type: str | None = Field(None, description="文件类型: pdf / docx / xlsx / txt / md")
+    file_size: int | None = Field(None, description="文件大小（字节）")
+    markdown_path: str | None = Field(None, description="Markdown 转换文件路径（AI 读取用）")
+    knowledge_id: str | None = Field(None, description="知识库文章 ID（type=knowledge 时）")
+    created_at: str = Field(..., description="创建时间 ISO 字符串")
+
+
+class KnowledgeAttachmentRequest(BaseModel):
+    """从知识库创建附件请求"""
+
+    knowledge_ids: list[str] = Field(..., description="知识库文章 ID 列表")
+
+
 # ==================== 特殊作业人员资质 Schemas ====================
 
 
@@ -2625,3 +2649,140 @@ class EvaluateWorkRecordRequest(BaseModel):
     score: int = Field(..., ge=0, le=100, description="评分")
     comments: str | None = Field(None, description="评价意见")
     evaluator: str | None = Field(None, max_length=100, description="评价人")
+
+
+# ==================== 定时任务（Scheduled Task）Schemas ====================
+
+
+class TaskStatusEnum(str, Enum):
+    """任务执行状态枚举"""
+
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILURE = "failure"
+
+
+class HeaderColorEnum(str, Enum):
+    """卡片头部颜色枚举"""
+
+    BLUE = "blue"
+    ORANGE = "orange"
+    GREEN = "green"
+    RED = "red"
+    PURPLE = "purple"
+
+
+HEADER_COLOR_OPTIONS = [
+    {"value": HeaderColorEnum.BLUE, "label": "蓝色"},
+    {"value": HeaderColorEnum.ORANGE, "label": "橙色"},
+    {"value": HeaderColorEnum.GREEN, "label": "绿色"},
+    {"value": HeaderColorEnum.RED, "label": "红色"},
+    {"value": HeaderColorEnum.PURPLE, "label": "紫色"},
+]
+
+
+class DataSourceItem(BaseModel):
+    """数据来源配置项"""
+
+    key: str = Field(..., description="数据源标识，如 hazard_open_count")
+    label: str = Field(..., description="数据源显示名，如「待整改隐患数」")
+    enabled: bool = Field(True, description="是否启用")
+
+
+class ScheduledTaskCreate(BaseModel):
+    """创建定时任务请求"""
+
+    name: str = Field(..., min_length=1, max_length=200, description="任务名称")
+    description: str | None = Field(None, description="任务描述")
+    cron_expression: str = Field(..., min_length=1, max_length=100, description="Cron 表达式")
+    cron_desc: str | None = Field(None, max_length=200, description="Cron 可读描述")
+    feishu_chat_id: str = Field(..., min_length=1, max_length=100, description="目标飞书群聊 chat_id")
+    feishu_chat_name: str | None = Field(None, max_length=200, description="飞书群聊名称")
+    header_color: HeaderColorEnum = Field(HeaderColorEnum.BLUE, description="卡片头部颜色")
+    data_sources: list[DataSourceItem] = Field(default_factory=list, description="数据来源配置")
+    card_template: str | None = Field(None, description="消息卡片模板")
+    is_enabled: bool = Field(True, description="是否启用")
+
+
+class ScheduledTaskUpdate(BaseModel):
+    """更新定时任务请求"""
+
+    name: str | None = Field(None, min_length=1, max_length=200, description="任务名称")
+    description: str | None = Field(None, description="任务描述")
+    cron_expression: str | None = Field(None, min_length=1, max_length=100, description="Cron 表达式")
+    cron_desc: str | None = Field(None, max_length=200, description="Cron 可读描述")
+    feishu_chat_id: str | None = Field(None, min_length=1, max_length=100, description="目标飞书群聊 chat_id")
+    feishu_chat_name: str | None = Field(None, max_length=200, description="飞书群聊名称")
+    header_color: HeaderColorEnum | None = Field(None, description="卡片头部颜色")
+    data_sources: list[DataSourceItem] | None = Field(None, description="数据来源配置")
+    card_template: str | None = Field(None, description="消息卡片模板")
+    is_enabled: bool | None = Field(None, description="是否启用")
+
+
+class ScheduledTaskResponse(BaseModel):
+    """定时任务响应"""
+
+    id: uuid.UUID
+    name: str
+    description: str | None
+    cron_expression: str
+    cron_desc: str | None
+    feishu_chat_id: str
+    feishu_chat_name: str | None
+    header_color: str
+    data_sources: list | None
+    card_template: str | None
+    is_enabled: bool
+    last_run_at: datetime | None
+    last_run_status: str | None
+    last_error: str | None
+    next_run_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ScheduledTaskLogResponse(BaseModel):
+    """任务执行日志响应"""
+
+    id: uuid.UUID
+    task_id: uuid.UUID
+    started_at: datetime
+    completed_at: datetime | None
+    status: str
+    data_snapshot: dict | None
+    card_content: str | None
+    feishu_msg_id: str | None
+    error_message: str | None
+    duration_ms: int | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CardPreviewRequest(BaseModel):
+    """卡片预览请求"""
+
+    data_sources: list[DataSourceItem] = Field(..., description="数据来源配置")
+    card_template: str = Field(..., description="消息卡片模板")
+    header_color: HeaderColorEnum = Field(HeaderColorEnum.BLUE, description="卡片头部颜色")
+
+
+class CardPreviewResponse(BaseModel):
+    """卡片预览响应"""
+
+    card_json: str = Field(..., description="飞书卡片 JSON")
+    markdown_preview: str = Field(..., description="渲染后的 Markdown 预览")
+    variables: dict[str, str] = Field(default_factory=dict, description="解析后的变量值")
+
+
+class DataSourceOption(BaseModel):
+    """可用数据来源选项"""
+
+    key: str = Field(..., description="数据源标识")
+    label: str = Field(..., description="数据源显示名")
+    description: str | None = Field(None, description="数据源说明")
+    default_enabled: bool = Field(False, description="新建任务时默认是否勾选")

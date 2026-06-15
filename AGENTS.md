@@ -71,6 +71,37 @@ ORM 和 migration 规则：
 
 常用命令见 [examples/commands.md](examples/commands.md)。
 
+多人协作迁移规范：
+
+Alembic 的 revision ID 是随机哈希，多人同时创建 migration 会产生多个 head（分支），导致 `alembic upgrade head` 失败或生产环境 ORM 与数据库不一致。必须遵守以下流程：
+
+**创建 migration 前的固定步骤（每次都要做）：**
+
+```bash
+git pull                                    # 1. 拉取最新代码
+uv run alembic heads                        # 2. 检查 head 数量
+uv run alembic merge heads -m "merge heads" # 3. 多个 head 时先合并
+uv run alembic upgrade head                 # 4. 升级本地数据库
+uv run alembic revision --autogenerate -m "xxx"  # 5. 再创建自己的 migration
+```
+
+**禁止事项：**
+
+- 禁止提交包含 git 冲突标记（`<<<<<<<`）的 migration 文件，这会让整个 alembic 崩溃。
+- 禁止手动写 revision ID（如 `20260615_0001`），使用 alembic 自动生成的随机哈希，避免 ID 重复。
+- 禁止在生产环境出现多个 head。合并代码后、部署前，必须确认 `alembic heads` 只有一个。
+- 禁止跳过 `alembic upgrade head` 直接创建 migration，否则 `down_revision` 会指向过时的节点。
+
+**部署前检查清单：**
+
+```bash
+uv run alembic heads     # 必须只有一个 head
+uv run alembic current   # 确认数据库版本
+uv run alembic upgrade head  # 确保能顺利升级
+```
+
+如果 `autogenerate` 混入了其他模块的无关变更，手动清理 migration 文件，只保留自己模块的 DDL。
+
 ## 审计、身份与外部集成
 
 - 新增、修改、删除、审批、导入、同步等关键业务操作，应考虑通过 `app/platform/audit/service.py` 记录审计信息。
@@ -91,6 +122,7 @@ ORM 和 migration 规则：
 - 中文业务名可以写在 API `summary`、`description` 和文档中；代码标识符使用英文。
 - **SQLAlchemy async 铁律：禁止 `db.refresh()`、禁止直接赋值未加载的 relationship。写操作后统一用 `select+selectinload` eager re-fetch 返回对象。**（不遵守会出 MissingGreenlet）
 - 设计数据库表时，不要用外键约束。
+- 如果新增/修改了本地env文件，需要同步修改到env example中。
 
 ## AI 工作流程
 

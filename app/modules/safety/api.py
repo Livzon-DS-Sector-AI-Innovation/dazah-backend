@@ -1,9 +1,11 @@
 """Safety API routes — AI vision model support."""
 
+import os
 import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, UploadFile
+from fastapi.responses import FileResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -20,6 +22,7 @@ from app.modules.safety.schemas import (
     APICallConfigResponse,
     APICallConfigUpdate,
     ApproveEhsChangeRequest,
+    CardPreviewRequest,
     CloseEhsChangeRequest,
     CompleteRectificationRequest,
     ConfirmCheckRequest,
@@ -48,6 +51,7 @@ from app.modules.safety.schemas import (
     HazardReportRunAIRequest,
     HazardReportUpdate,
     HazardRiskOption,
+    KnowledgeAttachmentRequest,
     LedgerExportRequest,
     OhHazardMonitorCreate,
     OhHazardMonitorResponse,
@@ -71,6 +75,8 @@ from app.modules.safety.schemas import (
     SafetyTrainingCreate,
     SafetyTrainingResponse,
     SafetyTrainingUpdate,
+    ScheduledTaskCreate,
+    ScheduledTaskUpdate,
     SetCriticalRequest,
     SetExamConclusionRequest,
     SpecialOperationLedgerStats,
@@ -90,6 +96,7 @@ from app.modules.safety.schemas import (
     VerifyMonitorRequest,
 )
 from app.modules.safety.service import (
+    AttachmentService,
     ConfigService,
     DailyRiskReportService,
     EhsChangeService,
@@ -98,6 +105,7 @@ from app.modules.safety.service import (
     OhHealthExamService,
     RegulationService,
     SafetyService,
+    ScheduledTaskService,
     SpecialOperationReportService,
     SpecialOperationService,
 )
@@ -1354,6 +1362,10 @@ async def get_hazard_identifications(
     overall_status: str | None = None,
     ai_node_progress: str | None = None,
     keyword: str | None = None,
+    position: str | None = None,
+    risk_level: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser | None = Depends(get_current_user),
 ):
@@ -1361,12 +1373,50 @@ async def get_hazard_identifications(
     service = SafetyService(db)
     skip = (page - 1) * page_size
     items, total = await service.get_hazard_identifications(
-        skip, page_size, department, overall_status, ai_node_progress, keyword
+        skip, page_size, department, overall_status, ai_node_progress, keyword,
+        position, risk_level, date_from, date_to,
     )
     return ApiResponse(
         data=[HazardIdentificationResponse.model_validate(i) for i in items],
         meta={"page": page, "page_size": page_size, "total": total},
     )
+
+
+@router.get(
+    "/hazard-identifications/stats",
+    response_model=ApiResponse,
+    summary="获取危险源辨识工作流统计",
+)
+async def get_hazard_identification_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """获取危险源辨识工作流统计（草案/进行中/待审核/已完成）"""
+    service = SafetyService(db)
+    stats = await service.get_hazard_identification_stats()
+    return ApiResponse(data=stats)
+
+
+@router.get(
+    "/hazard-identifications/ledger-stats",
+    response_model=ApiResponse,
+    summary="获取危险源辨识台账统计",
+)
+async def get_hazard_identification_ledger_stats(
+    department: str | None = Query(None),
+    position: str | None = Query(None),
+    risk_level: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """获取危险源辨识台账统计（总记录/按风险等级分组）"""
+    service = SafetyService(db)
+    stats = await service.get_hazard_identification_ledger_stats(
+        department, position, risk_level, date_from, date_to,
+    )
+    return ApiResponse(data=stats)
 
 
 @router.get(
@@ -1624,6 +1674,41 @@ async def export_hazard_ledger_pdf(
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
             "Content-Length": str(len(pdf_bytes)),
+        },
+    )
+
+
+@router.post(
+    "/hazard-identifications/export-excel",
+    summary="导出危险源辨识台账 Excel",
+)
+async def export_hazard_ledger_excel(
+    data: HazardLedgerExportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """导出危险源辨识台账为 Excel 文件"""
+    from datetime import datetime as dt_module
+
+    from fastapi.responses import Response
+
+    service = SafetyService(db)
+    excel_bytes = await service.export_hazard_ledger_excel(
+        department=data.department,
+        position=data.position,
+        risk_level=data.risk_level,
+        date_from=data.date_from,
+        date_to=data.date_to,
+        keyword=data.keyword,
+    )
+
+    filename = f"危险源辨识台账_{dt_module.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+            "Content-Length": str(len(excel_bytes)),
         },
     )
 
@@ -2185,6 +2270,112 @@ async def delete_api_call_config(
     return ApiResponse(message="删除成功")
 
 
+# ==================== AI 工作流附件 Routes ====================
+
+
+@router.post(
+    "/ai-workflow-configs/attachments/upload",
+    response_model=ApiResponse,
+    summary="上传 AI 工作流调用文档附件",
+)
+async def upload_workflow_attachment(
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """上传调用文档附件（PDF/Word/Excel/TXT/MD），自动转换为 Markdown 供 AI 读取。
+
+    返回附件元数据，前端将其存入 reference_docs.attachments 列表。
+    """
+    from app.modules.safety.schemas import ReferenceAttachmentResponse
+    service = AttachmentService()
+    try:
+        metadata = await service.upload_attachment(file)
+        return ApiResponse(data=ReferenceAttachmentResponse(**metadata).model_dump())
+    except ValueError as e:
+        return ApiResponse(code=400, message=str(e))
+
+
+@router.get(
+    "/ai-workflow-configs/attachments/{attachment_id}/preview",
+    summary="预览 AI 工作流调用文档附件",
+)
+async def preview_workflow_attachment(
+    attachment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """预览上传的附件原始文件（浏览器内嵌预览或触发下载）。"""
+    service = AttachmentService()
+    file_path = service.get_preview_path(attachment_id)
+
+    # 知识库附件（无原始文件）— 返回 MD 预览
+    if not file_path:
+        md_path = os.path.join(service.UPLOAD_DIR, service.MD_SUBDIR, f"{attachment_id}.md")
+        if os.path.exists(md_path):
+            with open(md_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return PlainTextResponse(content, media_type="text/plain; charset=utf-8")
+        return ApiResponse(code=404, message="附件不存在或已被删除")
+
+    # 根据文件类型设置 media_type
+    ext = os.path.splitext(file_path)[1].lower()
+    media_types = {
+        ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".txt": "text/plain; charset=utf-8",
+        ".md": "text/plain; charset=utf-8",
+    }
+    media_type = media_types.get(ext, "application/octet-stream")
+
+    return FileResponse(file_path, media_type=media_type, filename=os.path.basename(file_path))
+
+
+@router.delete(
+    "/ai-workflow-configs/attachments/{attachment_id}",
+    response_model=ApiResponse,
+    summary="删除 AI 工作流调用文档附件",
+)
+async def delete_workflow_attachment(
+    attachment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """删除附件及其关联的原始文件和 Markdown 文件。"""
+    service = AttachmentService()
+    deleted = await service.delete_attachment(attachment_id)
+    if not deleted:
+        return ApiResponse(code=404, message="附件不存在或已被删除")
+    return ApiResponse(message="附件已删除")
+
+
+@router.post(
+    "/ai-workflow-configs/attachments/from-knowledge",
+    response_model=ApiResponse,
+    summary="从知识库创建 AI 工作流调用文档附件",
+)
+async def create_workflow_attachments_from_knowledge(
+    body: KnowledgeAttachmentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """选择知识库文章作为调用文档附件，自动转为 Markdown 供 AI 读取。
+
+    返回附件元数据列表，前端将其追加到 reference_docs.attachments。
+    """
+    from app.modules.safety.schemas import ReferenceAttachmentResponse
+    service = AttachmentService()
+    results = await service.create_knowledge_attachments(body.knowledge_ids, db)
+    return ApiResponse(
+        data=[ReferenceAttachmentResponse(**r).model_dump() for r in results],
+        meta={"total": len(results)},
+    )
+
+
 # ==================== 特殊作业人员资质 Routes ====================
 
 
@@ -2669,15 +2860,23 @@ async def get_special_operation_reports(
     page_size: int = Query(20, ge=1, le=200),
     status: str | None = None,
     operation_type: str | None = None,
+    operation_level: str | None = None,
+    risk_level: str | None = None,
     department: str | None = None,
+    date_from: str | None = Query(None, description="计划开始日期起 (YYYY-MM-DD)"),
+    date_to: str | None = Query(None, description="计划结束日期止 (YYYY-MM-DD)"),
     keyword: str | None = None,
+    is_critical: bool | None = Query(None, description="是否关键作业"),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser | None = Depends(get_current_user),
 ):
     """获取特殊作业报备列表"""
     service = SpecialOperationReportService(db)
     skip = (page - 1) * page_size
-    items, total = await service.get_reports(skip, page_size, status, operation_type, department, keyword)
+    items, total = await service.get_reports(
+        skip, page_size, status, operation_type, operation_level,
+        risk_level, department, date_from, date_to, keyword, is_critical,
+    )
     return ApiResponse(
         data=[SpecialOperationReportResponse.model_validate(i) for i in items],
         meta={"page": page, "page_size": page_size, "total": total},
@@ -3781,3 +3980,178 @@ async def update_exam_abnormality_status(
         return ApiResponse(code=400, message="无法更新，体检记录不存在或索引无效")
     await db.commit()
     return ApiResponse(data=OhHealthExamResponse.model_validate(item))
+
+
+# ==================== 定时任务 Routes ====================
+
+
+@router.get("/scheduled-tasks/data-source-options", response_model=ApiResponse, summary="获取可用数据来源选项")
+async def get_data_source_options():
+    """获取可用的数据来源列表（供前端下拉选择）"""
+    options = ScheduledTaskService.get_data_source_options()
+    return ApiResponse(data=options)
+
+
+@router.post("/scheduled-tasks/preview-card", response_model=ApiResponse, summary="预览消息卡片")
+async def preview_card(
+    data: CardPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """预览消息卡片渲染效果"""
+    service = ScheduledTaskService(db)
+    result = service.preview_card(data)
+    return ApiResponse(data=result)
+
+
+@router.get("/scheduled-tasks/feishu-chats", response_model=ApiResponse, summary="获取飞书群聊列表")
+async def get_feishu_chats(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """获取可选的飞书群聊列表（从缓存或配置中读取）"""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    chats: list[dict] = []
+    # Include configured chats
+    if settings.FEISHU_EQUIPMENT_CHAT_ID:
+        chats.append({
+            "chat_id": settings.FEISHU_EQUIPMENT_CHAT_ID,
+            "name": "设备管理群",
+        })
+    # TODO: extend with more chats from config or Feishu API
+    return ApiResponse(data=chats)
+
+
+@router.get("/scheduled-tasks", response_model=ApiResponse, summary="获取定时任务列表")
+async def get_scheduled_tasks(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    is_enabled: bool | None = None,
+    search: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """获取定时任务列表（分页）"""
+    service = ScheduledTaskService(db)
+    skip = (page - 1) * page_size
+    items, total = await service.get_tasks(skip, page_size, is_enabled, search)
+    from app.modules.safety.schemas import ScheduledTaskResponse
+    return ApiResponse(
+        data=[ScheduledTaskResponse.model_validate(t) for t in items],
+        meta={"page": page, "page_size": page_size, "total": total},
+    )
+
+
+@router.post("/scheduled-tasks", response_model=ApiResponse, summary="创建定时任务")
+async def create_scheduled_task(
+    data: ScheduledTaskCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """创建新的定时任务"""
+    service = ScheduledTaskService(db)
+    task = await service.create_task(data)
+    await db.commit()
+    from app.modules.safety.schemas import ScheduledTaskResponse
+    return ApiResponse(data=ScheduledTaskResponse.model_validate(task))
+
+
+@router.get("/scheduled-tasks/{task_id}", response_model=ApiResponse, summary="获取定时任务详情")
+async def get_scheduled_task(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """获取单个定时任务详情"""
+    service = ScheduledTaskService(db)
+    task = await service.get_task(task_id)
+    if not task:
+        return ApiResponse(code=404, message="定时任务不存在")
+    from app.modules.safety.schemas import ScheduledTaskResponse
+    return ApiResponse(data=ScheduledTaskResponse.model_validate(task))
+
+
+@router.put("/scheduled-tasks/{task_id}", response_model=ApiResponse, summary="更新定时任务")
+async def update_scheduled_task(
+    task_id: uuid.UUID,
+    data: ScheduledTaskUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """更新定时任务配置"""
+    service = ScheduledTaskService(db)
+    task = await service.update_task(task_id, data)
+    if not task:
+        return ApiResponse(code=404, message="定时任务不存在")
+    await db.commit()
+    from app.modules.safety.schemas import ScheduledTaskResponse
+    return ApiResponse(data=ScheduledTaskResponse.model_validate(task))
+
+
+@router.delete("/scheduled-tasks/{task_id}", response_model=ApiResponse, summary="删除定时任务")
+async def delete_scheduled_task(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """删除定时任务（软删除）"""
+    service = ScheduledTaskService(db)
+    ok = await service.delete_task(task_id)
+    if not ok:
+        return ApiResponse(code=404, message="定时任务不存在")
+    await db.commit()
+    return ApiResponse(data=None)
+
+
+@router.post("/scheduled-tasks/{task_id}/toggle", response_model=ApiResponse, summary="启用/禁用定时任务")
+async def toggle_scheduled_task(
+    task_id: uuid.UUID,
+    enabled: bool = Query(..., description="是否启用"),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """切换定时任务的启用/禁用状态"""
+    service = ScheduledTaskService(db)
+    task = await service.toggle_task(task_id, enabled)
+    if not task:
+        return ApiResponse(code=404, message="定时任务不存在")
+    await db.commit()
+    from app.modules.safety.schemas import ScheduledTaskResponse
+    return ApiResponse(data=ScheduledTaskResponse.model_validate(task))
+
+
+@router.post("/scheduled-tasks/{task_id}/run", response_model=ApiResponse, summary="手动执行定时任务")
+async def run_scheduled_task_now(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """立即手动执行一次定时任务"""
+    service = ScheduledTaskService(db)
+    log = await service.run_task_now(task_id)
+    if not log:
+        return ApiResponse(code=404, message="定时任务不存在")
+    await db.commit()
+    from app.modules.safety.schemas import ScheduledTaskLogResponse
+    return ApiResponse(data=ScheduledTaskLogResponse.model_validate(log))
+
+
+@router.get("/scheduled-tasks/{task_id}/logs", response_model=ApiResponse, summary="获取定时任务执行日志")
+async def get_scheduled_task_logs(
+    task_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """获取定时任务的执行日志列表"""
+    service = ScheduledTaskService(db)
+    skip = (page - 1) * page_size
+    logs, total = await service.get_logs(task_id, skip, page_size)
+    from app.modules.safety.schemas import ScheduledTaskLogResponse
+    return ApiResponse(
+        data=[ScheduledTaskLogResponse.model_validate(log) for log in logs],
+        meta={"page": page, "page_size": page_size, "total": total},
+    )

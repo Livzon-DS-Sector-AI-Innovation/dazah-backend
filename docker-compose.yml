@@ -52,8 +52,6 @@ services:
         uv run python -X utf8 scripts/tmp/sync_lizhu_departments.py &&
         echo '=== 同步人员 ===' &&
         uv run python -X utf8 scripts/tmp/sync_lizhu_members.py &&
-        echo '=== 导入设备 ===' &&
-        uv run python -X utf8 scripts/tmp/import_equipment.py &&
         echo '=== 初始化完成 ==='
       "
 

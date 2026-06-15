@@ -215,6 +215,7 @@ async def create_task(
 @router.get("/tasks", summary="巡检任务列表")
 async def list_tasks(
     status: str | None = Query(None, description="任务状态"),
+    exclude_status: str | None = Query(None, description="排除的任务状态"),
     route_id: uuid.UUID | None = Query(None, description="路线ID"),
     assigned_to: uuid.UUID | None = Query(None, description="巡检人员ID"),
     equipment_id: uuid.UUID | None = Query(None, description="设备ID"),
@@ -244,6 +245,7 @@ async def list_tasks(
     tasks, total = await inspection_svc.get_tasks(
         db,
         status=status,
+        exclude_status=exclude_status,
         route_id=route_id,
         assigned_to=assigned_to,
         equipment_id=equipment_id,

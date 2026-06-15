@@ -1,19 +1,9 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any
 
-from pydantic import BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # dazah-backend/
-
-
-def _coerce_bool(value: Any) -> Any:
-    if isinstance(value, str):
-        if value.lower() in ("true", "1", "yes", "on"):
-            return True
-        return False
-    return value
 
 
 class Settings(BaseSettings):
@@ -27,7 +17,7 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "dazah-backend"
     APP_ENV: str = "development"
-    DEBUG: Annotated[bool, BeforeValidator(_coerce_bool)] = False
+    DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production"
 
     # Database
@@ -56,6 +46,11 @@ class Settings(BaseSettings):
     # Feishu WebSocket 长连接（接收消息/事件推送）
     FEISHU_WS_ENABLED: bool = True
 
+    # Feishu 设备模块交互机器人（独立应用凭证）
+    EQUIPMENT_FEISHU_APP_ID: str = ""
+    EQUIPMENT_FEISHU_APP_SECRET: str = ""
+    EQUIPMENT_FEISHU_WS_ENABLED: bool = True
+
     # Upload
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
@@ -63,37 +58,38 @@ class Settings(BaseSettings):
     # Energy
     ENERGY_AUTO_COLLECT_ENABLED: bool = False
 
+    # Maintenance Plan — 自动生成工单
+    MAINTENANCE_PLAN_AUTO_ENABLED: bool = True
+
     # JWT
     JWT_EXPIRE_SECONDS: int = 86400  # 24 hours
 
-    # API
-    API_V1_PREFIX: str = "/api/v1"
-
-    # Feishu Bitable
+    # Feishu Bitable — HR 模块多维表格同步
+    FEISHU_BOT_NAME: str = ""
     FEISHU_BITABLE_APP_TOKEN: str = ""
     FEISHU_BITABLE_EMPLOYEE_TABLE_ID: str = ""
     FEISHU_BITABLE_DEPARTMENT_TABLE_ID: str = ""
     FEISHU_BITABLE_OFFBOARDING_TABLE_ID: str = ""
+    FEISHU_BITABLE_ONBOARDING_TABLE_ID: str = ""
+    FEISHU_BITABLE_DEPARTURE_TABLE_ID: str = ""
     FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
 
-    # AI / LLM
-    AI_API_KEY: str = ""
-    AI_BASE_URL: str = "https://api.openai.com/v1"
-    AI_MODEL: str = "gpt-4o"
-    AI_TIMEOUT: int = 120
-    AI_TEMPERATURE: float = 0.1
-    # Crawler (法规追踪爬虫)
-    CRAWLER_HEADLESS: bool = True
-    CRAWLER_BROWSERS_PATH: str = ""  # 空字符串 = Playwright 默认路径
-    CDE_GUIDELINE_URL: str = "https://www.cde.org.cn/zdyz/listpage/9cd8db3b7530c6fa0c86485e563f93c7"
-    DAILY_SYNC_CRON: str = "0 2 * * *"
+    # Training Notification Bitable
+    FEISHU_BITABLE_TRAINING_NOTIFICATION_APP_TOKEN: str = ""
+    FEISHU_BITABLE_TRAINING_NOTIFICATION_TABLE_ID: str = ""
 
-    # Storage
-    STORAGE_ROOT: str = "./storage"
+    # AI — HR 离职分析
+    MOONSHOT_API_KEY: str = ""
+    AI_MODEL: str = "kimi-k2.5"
+    AI_SYSTEM_PROMPT: str = (
+        "你是「小H」，原料药工厂人事管理助手。"
+        "只基于查询结果回答人事问题，禁止编造。"
+        "回答极其简洁，只陈述事实，不分析、不解释、不推理。"
+        "禁止出现'根据规则'、'依据以上信息'等元话语。"
+    )
 
-    # 设备模块交互机器人
-    EQUIPMENT_FEISHU_APP_ID: str = ""
-    EQUIPMENT_FEISHU_APP_SECRET: str = ""
+    # API
+    API_V1_PREFIX: str = "/api/v1"
 
     @property
     def is_production(self) -> bool:

@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 _handlers: dict[str, list] = {}
 _stop: asyncio.Event | None = None
 
+# 长连接重试上限
+_MAX_RECONNECT_ATTEMPTS = 3
+
 # 飞书 endpoint
 FEISHU_DOMAIN = "https://open.feishu.cn"
 WS_ENDPOINT_URL = f"{FEISHU_DOMAIN}/callback/ws/endpoint"
@@ -87,14 +90,17 @@ async def start_ws() -> None:
         logger.warning("安全模块飞书配置缺失（SAFETY_FEISHU_APP_ID / SAFETY_FEISHU_APP_SECRET），跳过事件订阅")
         return
 
-    logger.info("启动安全模块飞书事件订阅 (app_id=%s)", SAFETY_FEISHU_APP_ID)
+    logger.info("启动安全模块飞书事件订阅 (app_id=%s, 最大重试=%d)", SAFETY_FEISHU_APP_ID, _MAX_RECONNECT_ATTEMPTS)
 
-    while not _stop.is_set():
+    attempt = 0
+    while not _stop.is_set() and attempt < _MAX_RECONNECT_ATTEMPTS:
         try:
             # 1. 获取 WebSocket URL
             ws_url = await _get_ws_url()
             if not ws_url:
-                logger.error("安全飞书无法获取 WebSocket URL，10 秒后重试")
+                attempt += 1
+                logger.error("安全飞书无法获取 WebSocket URL，%d/%d 次重试",
+                           attempt, _MAX_RECONNECT_ATTEMPTS)
                 await asyncio.sleep(10)
                 continue
 
@@ -141,7 +147,8 @@ async def start_ws() -> None:
                                 result = await _dispatch_event(event)
 
                                 # 发送 WebSocket 响应帧（否则飞书会超时）
-                                resp = {"code": 200}
+                                # Feishu WebSocket 协议要求 code=0 表示成功
+                                resp = {"code": 0}
                                 if result is not None:
                                     resp["data"] = base64.b64encode(
                                         json.dumps(result, ensure_ascii=False).encode("utf-8")
@@ -167,16 +174,23 @@ async def start_ws() -> None:
         except asyncio.CancelledError:
             break
         except websockets.exceptions.ConnectionClosed as e:
-            logger.warning("安全飞书 WebSocket 连接关闭: %s，5 秒后重连", e)
+            attempt += 1
+            logger.warning("安全飞书 WebSocket 连接关闭: %s，%d/%d 次重试",
+                           e, attempt, _MAX_RECONNECT_ATTEMPTS)
         except Exception:
-            logger.exception("安全飞书 WebSocket 异常，10 秒后重连")
+            attempt += 1
+            logger.exception("安全飞书 WebSocket 异常，%d/%d 次重试",
+                             attempt, _MAX_RECONNECT_ATTEMPTS)
 
         try:
             await asyncio.wait_for(_stop.wait(), timeout=10)
         except asyncio.TimeoutError:
             pass
 
-    logger.info("安全飞书 WebSocket 客户端已停止")
+    if attempt >= _MAX_RECONNECT_ATTEMPTS:
+        logger.error("安全飞书 WebSocket 重试次数已达上限 (%d)，已停止", _MAX_RECONNECT_ATTEMPTS)
+    else:
+        logger.info("安全飞书 WebSocket 客户端已停止")
 
 
 async def _dispatch_event(event: dict[str, Any]) -> Any:
