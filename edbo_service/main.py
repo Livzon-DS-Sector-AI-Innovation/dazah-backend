@@ -58,14 +58,12 @@ async def optimize(
         with open(csv_path, 'wb') as f:
             f.write(content)
         
-        # Read CSV to validate objectives exist
+        # Read CSV to check structure
         df = pd.read_csv(csv_path)
-        for obj in objectives_list:
-            if obj not in df.columns:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Objective column '{obj}' not found in CSV. Available columns: {list(df.columns)}"
-                )
+        # Note: We don't validate that objective columns exist here.
+        # EDBO+ handles two cases:
+        # 1. Initial sampling: objectives don't exist yet → EDBO+ adds them with PENDING
+        # 2. Optimization: some objectives have values, some are PENDING → EDBO+ runs BO
         
         # Run EDBO+ optimization
         edbo = EDBOplus()

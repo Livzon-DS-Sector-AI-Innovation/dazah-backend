@@ -72,7 +72,7 @@ class EDBOOptimizeRequest(BaseModel):
 class EDBOOptimizeResponse(BaseModel):
     """EDBO+ 贝叶斯优化响应"""
 
-    csv_data: str = Field(..., description="Base64 编码的结果 CSV")
+    csv_data: str = Field(..., description="结果 CSV 文本")
     row_count: int = Field(..., description="结果行数")
-    prediction_data: Optional[str] = Field(None, description="Base64 编码的预测文件 CSV（可选）")
+    prediction_data: Optional[str] = Field(None, description="预测文件 CSV 文本（可选）")
     prediction_filename: Optional[str] = Field(None, description="预测文件名（可选）")

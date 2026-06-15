@@ -8,7 +8,7 @@ async def run_edbo_optimization(
     objectives: list,
     objective_modes: list,
     batch_size: int = 5,
-    save_predictions: bool = False,
+    save_prediction: bool = False,
 ) -> dict:
     """
     Run EDBO+ optimization by calling the EDBO+ service.
@@ -24,7 +24,7 @@ async def run_edbo_optimization(
             "objectives": ",".join(objectives),
             "objective_modes": ",".join(objective_modes),
             "batch_size": str(batch_size),
-            "save_predictions": str(save_predictions).lower()
+            "save_prediction": str(save_prediction).lower()
         }
         
         response = await client.post(

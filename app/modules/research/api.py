@@ -218,20 +218,25 @@ async def edbo_optimize(
     csv_content = (await file.read()).decode("utf-8")
 
     # Run EDBO+ optimization
-    result = await run_edbo_optimization(
-        csv_content=csv_content,
-        objectives=obj_list,
-        objective_modes=mode_list,
-        batch_size=batch_size,
-        save_prediction=save_prediction,
-    )
+    try:
+        result = await run_edbo_optimization(
+            csv_content=csv_content,
+            objectives=obj_list,
+            objective_modes=mode_list,
+            batch_size=batch_size,
+            save_prediction=save_prediction,
+        )
+    except RuntimeError as e:
+        from app.core.response import error_response
+        return error_response(message=str(e))
 
     return success_response(data=EDBOOptimizeResponse(**result))
 
 
 @router.post("/edbo/generate-scope", summary="生成反应范围")
 async def edbo_generate_scope(
-    components: dict = Body(..., description="组件定义，支持两种格式：1) 直接值列表 {name: [v1,v2,...]} 2) 范围定义 {name: {type: 'numeric', lower: x, upper: y, data_points: n}} 或 {name: {type: 'categorical', values: [...]}}")
+    components: dict = Body(..., description="组件定义，支持两种格式：1) 直接值列表 {name: [v1,v2,...]} 2) 范围定义 {name: {type: 'numeric', lower: x, upper: y, data_points: n}} 或 {name: {type: 'categorical', values: [...]}}"),
+    objectives: list[str] = Body(default=[], description="优化目标名称列表，会作为新列添加到结果CSV中，初始值为PENDING")
 ):
     """
     生成反应范围 CSV（所有组合的笛卡尔积）
@@ -261,6 +266,10 @@ async def edbo_generate_scope(
     import pandas as pd
     from fastapi.responses import StreamingResponse
     import io
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"generate-scope called with objectives: {objectives}")
     
     def count_significant_digits(num):
         """Count the number of significant digits in a number."""
@@ -404,13 +413,60 @@ async def edbo_generate_scope(
     scope = [dict(zip(keys, combination)) for combination in itertools.product(*values)]
     df_scope = pd.DataFrame(scope)
     
-    # Convert to CSV
+    # Convert to CSV (without objective columns - EDBO+ will add them)
     csv_buffer = io.StringIO()
     df_scope.to_csv(csv_buffer, index=False)
     csv_buffer.seek(0)
+    scope_csv = csv_buffer.getvalue()
+    
+    # If objectives are defined, run EDBO+ to get initial sampling recommendations
+    # IMPORTANT: Do NOT add objective columns with PENDING values before calling EDBO+.
+    # EDBO+ detects missing objective columns and performs initial sampling automatically.
+    # If we add PENDING columns first, EDBO+ thinks the scope already exists and refuses to run.
+    logger.info(f"Checking objectives: {objectives}, length: {len(objectives)}")
+    if objectives:
+        logger.info(f"Objectives found, calling EDBO+ for initial sampling with: {objectives}")
+        try:
+            from app.modules.research.edbo_runner import run_edbo_optimization
+            objective_modes = ['max'] * len(objectives)
+            
+            result = await run_edbo_optimization(
+                csv_content=scope_csv,
+                objectives=objectives,
+                objective_modes=objective_modes,
+                batch_size=5,
+                save_prediction=False,
+            )
+            
+            result_csv = result.get("csv_data", scope_csv)
+            return {
+                "csv_data": result_csv,
+                "row_count": len(scope),
+                "columns": keys + objectives + ["priority"],
+                "recommended_experiments": result_csv,
+                "optimization_completed": True
+            }
+        except Exception as e:
+            logger.error(f"EDBO+ optimization failed: {e}")
+            # Add PENDING objective columns for the fallback response
+            for obj in objectives:
+                df_scope[obj] = "PENDING"
+            csv_buffer = io.StringIO()
+            df_scope.to_csv(csv_buffer, index=False)
+            csv_buffer.seek(0)
+            scope_csv_with_pending = csv_buffer.getvalue()
+            
+            return {
+                "csv_data": scope_csv_with_pending,
+                "row_count": len(scope),
+                "columns": keys + objectives,
+                "optimization_completed": False,
+                "optimization_error": str(e)
+            }
     
     return {
-        "csv_data": csv_buffer.getvalue(),
+        "csv_data": scope_csv,
         "row_count": len(scope),
-        "columns": keys
+        "columns": keys,
+        "optimization_completed": False
     }
