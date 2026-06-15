@@ -11,9 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundException
-from app.modules.registration.models import AuthorizationLetter
-from app.modules.registration.repository import AuthorizationLetterRepository
+from app.modules.registration.models import AuthorizationLetter, SupplementaryReply
+from app.modules.registration.repository import AuthorizationLetterRepository, SupplementaryReplyRepository
 from app.modules.registration.schemas import (
+    SupplementaryReplyCreate,
+    SupplementaryReplyListItem,
+    SupplementaryReplyResponse,
     AuthorizationLetterCreate,
     AuthorizationLetterListItem,
     AuthorizationLetterResponse,
@@ -284,3 +287,145 @@ class AuthorizationLetterService:
     def get_output_file_path(self, letter: AuthorizationLetter) -> Path:
         """获取生成文件路径"""
         return _get_upload_dir() / letter.output_file_key
+
+
+# ─── 发补回复 ────────────────────────────────────────────
+
+
+def _get_reply_upload_dir() -> Path:
+    """获取发补回复文件存储目录"""
+    settings = get_settings()
+    upload_dir_setting = getattr(settings, "UPLOAD_DIR", "uploads")
+    base = Path(upload_dir_setting)
+    upload_dir = base / "supplementary_replies"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    return upload_dir
+
+
+class SupplementaryReplyService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.repo = SupplementaryReplyRepository(session)
+
+    def _to_response(self, obj: SupplementaryReply) -> SupplementaryReplyResponse:
+        return SupplementaryReplyResponse.model_validate(obj)
+
+    def _to_list_item(self, obj: SupplementaryReply) -> SupplementaryReplyListItem:
+        return SupplementaryReplyListItem.model_validate(obj)
+
+    async def generate_reply(
+        self,
+        notice_data: bytes,
+        notice_file_name: str,
+        template_data: bytes | None = None,
+        template_file_name: str | None = None,
+        drug_name_override: str | None = None,
+        registration_number_override: str | None = None,
+        acceptance_number_override: str | None = None,
+        company_name_override: str | None = None,
+        remarks: str | None = None,
+    ) -> SupplementaryReplyResponse:
+        """
+        生成发补回复文档。
+
+        流程：解析 PDF → 提取药品信息和问题 → 生成 Word → 保存记录
+        """
+        from app.modules.registration.reply_generator import (
+            parse_cde_notice,
+            generate_reply_document,
+        )
+
+        # 1. 解析 CDE 通知函 PDF
+        parsed = parse_cde_notice(notice_data)
+        metadata = parsed["metadata"]
+        questions = parsed["questions"]
+
+        # 2. 合并药品信息（用户手动输入优先于 PDF 提取）
+        drug_info = {
+            "drug_name": drug_name_override or metadata.get("drug_name", "未知药品"),
+            "registration_number": registration_number_override or metadata.get("registration_number", ""),
+            "acceptance_number": acceptance_number_override or metadata.get("acceptance_number", ""),
+            "company_name": company_name_override or metadata.get("company_name", API_COMPANY),
+            "doc_type": "补充资料",
+            "application_type": "首次登记",
+            "contact": "魏永红",
+            "phone": "0756-8686208",
+            "address": "中国，广东省，珠海市，珠海保税区联峰路22号",
+            "zipcode": "519030",
+            "related_no": "/",
+            "email": "lzsyntpharmzhucebu@livzon.cn",
+        }
+
+        # 3. 生成 Word 文档
+        output_data = generate_reply_document(drug_info, questions)
+
+        # 4. 保存文件
+        file_id = uuid.uuid4().hex[:12]
+        output_file_name = f"发补回复-{drug_info['drug_name']}.docx"
+        upload_dir = _get_reply_upload_dir()
+
+        # 保存通知函
+        notice_path = upload_dir / f"{file_id}_notice.pdf"
+        notice_path.write_bytes(notice_data)
+
+        # 保存模板（如有）
+        template_key = None
+        if template_data:
+            template_path = upload_dir / f"{file_id}_template.docx"
+            template_path.write_bytes(template_data)
+            template_key = f"{file_id}_template.docx"
+
+        # 保存生成的文档
+        output_path = upload_dir / f"{file_id}.docx"
+        output_path.write_bytes(output_data)
+
+        # 5. 创建数据库记录
+        reply = SupplementaryReply(
+            drug_name=drug_info["drug_name"],
+            registration_number=drug_info["registration_number"],
+            acceptance_number=drug_info["acceptance_number"],
+            company_name=drug_info["company_name"],
+            notice_file_key=f"{file_id}_notice.pdf",
+            notice_file_name=notice_file_name,
+            template_file_key=template_key,
+            template_file_name=template_file_name,
+            output_file_key=f"{file_id}.docx",
+            output_file_name=output_file_name,
+            question_count=len(questions),
+            remarks=remarks,
+        )
+        created = await self.repo.create(reply)
+        return self._to_response(created)
+
+    async def get_reply(self, reply_id: UUID) -> SupplementaryReplyResponse:
+        """获取单条发补回复记录"""
+        reply = await self.repo.get_by_id(reply_id)
+        if not reply:
+            raise NotFoundException("发补回复记录", str(reply_id))
+        return self._to_response(reply)
+
+    async def list_replies(
+        self,
+        *,
+        drug_name: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[SupplementaryReplyListItem], int]:
+        """查询发补回复列表"""
+        replies, total = await self.repo.list_replies(
+            drug_name=drug_name,
+            page=page,
+            page_size=page_size,
+        )
+        return [self._to_list_item(r) for r in replies], total
+
+    async def delete_reply(self, reply_id: UUID) -> None:
+        """删除发补回复记录（软删除）"""
+        reply = await self.repo.get_by_id(reply_id)
+        if not reply:
+            raise NotFoundException("发补回复记录", str(reply_id))
+        await self.repo.soft_delete(reply)
+
+    def get_output_file_path(self, reply: SupplementaryReply) -> Path:
+        """获取生成文件路径"""
+        return _get_reply_upload_dir() / reply.output_file_key
