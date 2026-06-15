@@ -1,11 +1,19 @@
+import logging
 from uuid import UUID
 
-from fastapi import Depends, Query
+from fastapi import Depends, File, Form, Query, UploadFile
+
+logger = logging.getLogger(__name__)
+from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.response import paginated_response, success_response
 from app.modules.hr.schemas import (
+    CandidateListResponse,
+    CandidateResponse,
+    CandidateUpdate,
+    CandidateUpdateRecommendationLevel,
     DepartureRecordCreate,
     DepartureRecordResponse,
     DepartureRecordUpdate,
@@ -40,6 +48,7 @@ from app.modules.hr.schemas import (
 )
 from app.modules.hr.analysis_api import router as analysis_router
 from app.modules.hr.service import (
+    CandidateService,
     DepartureRecordService,
     DepartmentService,
     EmployeeService,
@@ -52,6 +61,7 @@ from app.modules.hr.service import (
     TrainingPlanSopService,
     TrainingRecordService,
 )
+from app.platform.integrations.feishu.candidate_datasource import CandidateBitableDataSource
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
 from app.shared.schemas import PageParams
@@ -93,34 +103,10 @@ def get_departure_service(
     return DepartureRecordService(session)
 
 
-def get_training_plan_service(
+def get_candidate_service(
     session: AsyncSession = Depends(get_db),
-) -> TrainingPlanService:
-    return TrainingPlanService(session)
-
-
-def get_training_plan_sop_service(
-    session: AsyncSession = Depends(get_db),
-) -> TrainingPlanSopService:
-    return TrainingPlanSopService(session)
-
-
-def get_training_record_service(
-    session: AsyncSession = Depends(get_db),
-) -> TrainingRecordService:
-    return TrainingRecordService(session)
-
-
-def get_training_assessment_service(
-    session: AsyncSession = Depends(get_db),
-) -> TrainingAssessmentService:
-    return TrainingAssessmentService(session)
-
-
-def get_training_approval_service(
-    session: AsyncSession = Depends(get_db),
-) -> TrainingApprovalService:
-    return TrainingApprovalService(session)
+) -> CandidateService:
+    return CandidateService(session)
 
 
 # ─── Employee Routes ───
@@ -669,26 +655,31 @@ async def get_departure_sync_status(
     )
 
 
-# ─── TrainingPlan Routes ───
+# ─── Candidate Routes ───
 
-@router.get("/training-plans", summary="培训计划列表")
-async def list_training_plans(
-    training_type: str | None = Query(None, description="培训类型筛选"),
-    status: str | None = Query(None, description="状态筛选"),
-    keyword: str | None = Query(None, description="计划名称关键词"),
+@router.get("/candidates", summary="候选人列表")
+async def list_candidates(
+    position: str | None = Query(None, description="职位筛选"),
+    education: str | None = Query(None, description="学历筛选"),
+    recommendation_level: str | None = Query(None, description="推荐等级筛选（支持逗号分隔多个值）"),
+    sync_status: str | None = Query(None, description="飞书同步状态筛选: synced/failed/unsynced"),
+    keyword: str | None = Query(None, description="姓名/职位关键词"),
     page_params: PageParams = Depends(),
-    service: TrainingPlanService = Depends(get_training_plan_service),
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    plans, total = await service.list_plans(
-        training_type=training_type,
-        status=status,
+    candidates, total = await service.list_candidates(
+        position=position,
+        education=education,
+        recommendation_level=recommendation_level,
+        sync_status=sync_status,
         keyword=keyword,
         page=page_params.page,
         page_size=page_params.page_size,
     )
+    print("DEBUG API: recommendation_level=" + str(recommendation_level) + ", total=" + str(total), flush=True)
     data = [
-        TrainingPlanResponse.model_validate(p).model_dump(mode="json")
-        for p in plans
+        CandidateResponse.model_validate(c).model_dump(mode="json")
+        for c in candidates
     ]
     return paginated_response(
         data=data,
@@ -698,354 +689,191 @@ async def list_training_plans(
     )
 
 
-@router.post("/training-plans", summary="创建培训计划")
-async def create_training_plan(
-    payload: TrainingPlanCreate,
-    service: TrainingPlanService = Depends(get_training_plan_service),
+@router.post("/candidates/parse-preview", summary="预览简历AI解析结果")
+async def preview_resume_parse(
+    resume: UploadFile = File(..., description="简历 PDF 附件"),
+    position: str = Form(..., max_length=64, description="应聘职位名称"),
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    plan = await service.create_plan(payload)
+    """上传简历 PDF，转为图片后由 AI 视觉识别并返回预览字段（不保存）。"""
+    resume_bytes = await resume.read()
+    result = await service.parse_resume_preview(resume_bytes, position)
+    return success_response(data=result)
+
+
+@router.post("/candidates", summary="新建候选人")
+async def create_candidate(
+    name: str = Form(..., max_length=64, description="候选人姓名"),
+    position: str = Form(..., max_length=64, description="应聘职位名称"),
+    resume: UploadFile = File(..., description="简历 PDF 附件"),
+    gender: str | None = Form(None, max_length=8, description="性别"),
+    school: str | None = Form(None, max_length=128, description="学校名称"),
+    education: str | None = Form(None, max_length=16, description="学历"),
+    major: str | None = Form(None, max_length=64, description="专业"),
+    match_report: str | None = Form(None, description="AI 匹配度报告"),
+    recommendation_level: str | None = Form(
+        None, max_length=16, description="推荐等级"
+    ),
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """手动新建候选人：上传简历 PDF，创建本地记录并同步到飞书。"""
+    resume_bytes = await resume.read()
+    candidate = await service.create_candidate_with_resume(
+        name=name,
+        position=position,
+        resume_bytes=resume_bytes,
+        filename=resume.filename or f"{name}.pdf",
+        gender=gender,
+        school=school,
+        education=education,
+        major=major,
+        match_report=match_report,
+        recommendation_level=recommendation_level,
+    )
     return success_response(
-        data=TrainingPlanResponse.model_validate(plan).model_dump(mode="json"),
-        message="培训计划创建成功",
-        status_code=201,
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="候选人创建成功",
     )
 
 
-@router.get("/training-plans/{plan_id}", summary="培训计划详情")
-async def get_training_plan(
-    plan_id: UUID,
-    service: TrainingPlanService = Depends(get_training_plan_service),
+@router.post("/candidates/sync-from-feishu", summary="从飞书同步候选人数据")
+async def sync_candidates_from_feishu(
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    plan = await service.get_plan(plan_id)
+    """手动触发：从飞书多维表格拉取全部候选人数据并 upsert 到本地 PG。"""
+    stats = await service.sync_from_feishu()
+    msg = (
+        f"同步完成：新增 {stats['created']} 条，"
+        f"更新 {stats['updated']} 条，失败 {stats['failed']} 条"
+    )
     return success_response(
-        data=TrainingPlanResponse.model_validate(plan).model_dump(mode="json"),
+        data=stats,
+        message=msg,
     )
 
 
-@router.put("/training-plans/{plan_id}", summary="更新培训计划")
-async def update_training_plan(
-    plan_id: UUID,
-    payload: TrainingPlanUpdate,
-    service: TrainingPlanService = Depends(get_training_plan_service),
+@router.get("/candidates/sync-status", summary="候选人同步状态")
+async def get_candidates_sync_status(
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    plan = await service.update_plan(plan_id, payload)
+    """查看本地与飞书的候选人数据同步统计。"""
+    status = await service.get_sync_status()
     return success_response(
-        data=TrainingPlanResponse.model_validate(plan).model_dump(mode="json"),
-        message="培训计划更新成功",
+        data=status.model_dump(mode="json"),
     )
 
 
-@router.delete("/training-plans/{plan_id}", summary="删除培训计划")
-async def delete_training_plan(
-    plan_id: UUID,
-    service: TrainingPlanService = Depends(get_training_plan_service),
+@router.post("/candidates/{candidate_id}/sync-to-feishu", summary="同步候选人到飞书")
+async def sync_candidate_to_feishu(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    await service.delete_plan(plan_id)
-    return success_response(message="培训计划删除成功")
-
-
-# ─── TrainingPlanSop Routes ───
-
-@router.get("/training-plan-sops", summary="培训计划SOP列表")
-async def list_training_plan_sops(
-    plan_id: UUID | None = Query(None, description="培训计划ID筛选"),
-    keyword: str | None = Query(None, description="SOP名称关键词"),
-    page_params: PageParams = Depends(),
-    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
-):
-    sops, total = await service.list_sops(
-        plan_id=plan_id,
-        keyword=keyword,
-        page=page_params.page,
-        page_size=page_params.page_size,
-    )
-    data = [
-        TrainingPlanSopResponse.model_validate(s).model_dump(mode="json")
-        for s in sops
-    ]
-    return paginated_response(
-        data=data,
-        page=page_params.page,
-        page_size=page_params.page_size,
-        total=total,
-    )
-
-
-@router.post("/training-plan-sops", summary="创建培训计划SOP")
-async def create_training_plan_sop(
-    payload: TrainingPlanSopCreate,
-    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
-):
-    sop = await service.create_sop(payload)
+    """手动触发：将单个候选人（含简历）同步到飞书多维表格。"""
+    candidate = await service.sync_candidate_to_feishu(candidate_id)
     return success_response(
-        data=TrainingPlanSopResponse.model_validate(sop).model_dump(mode="json"),
-        message="培训计划SOP创建成功",
-        status_code=201,
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="候选人与简历已同步到飞书",
     )
 
 
-@router.get("/training-plan-sops/{sop_id}", summary="培训计划SOP详情")
-async def get_training_plan_sop(
-    sop_id: UUID,
-    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
+@router.get("/candidates/{candidate_id}", summary="候选人详情")
+async def get_candidate(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    sop = await service.get_sop(sop_id)
+    candidate = await service.get_candidate(candidate_id)
     return success_response(
-        data=TrainingPlanSopResponse.model_validate(sop).model_dump(mode="json"),
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
     )
 
 
-@router.put("/training-plan-sops/{sop_id}", summary="更新培训计划SOP")
-async def update_training_plan_sop(
-    sop_id: UUID,
-    payload: TrainingPlanSopUpdate,
-    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
+@router.put("/candidates/{candidate_id}", summary="更新候选人信息")
+async def update_candidate(
+    candidate_id: UUID,
+    payload: CandidateUpdate,
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    sop = await service.update_sop(sop_id, payload)
+    candidate = await service.update_candidate(candidate_id, payload)
     return success_response(
-        data=TrainingPlanSopResponse.model_validate(sop).model_dump(mode="json"),
-        message="培训计划SOP更新成功",
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="候选人信息更新成功",
     )
 
 
-@router.delete("/training-plan-sops/{sop_id}", summary="删除培训计划SOP")
-async def delete_training_plan_sop(
-    sop_id: UUID,
-    service: TrainingPlanSopService = Depends(get_training_plan_sop_service),
+@router.delete("/candidates/{candidate_id}", summary="删除候选人")
+async def delete_candidate(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    await service.delete_sop(sop_id)
-    return success_response(message="培训计划SOP删除成功")
+    await service.delete_candidate(candidate_id)
+    return success_response(message="候选人删除成功")
 
 
-# ─── TrainingRecord Routes ───
-
-@router.get("/training-records", summary="培训记录列表")
-async def list_training_records(
-    plan_id: UUID | None = Query(None, description="培训计划ID筛选"),
-    employee_id: UUID | None = Query(None, description="员工ID筛选"),
-    completion_status: str | None = Query(None, description="完成状态筛选"),
-    keyword: str | None = Query(None, description="备注关键词"),
-    page_params: PageParams = Depends(),
-    service: TrainingRecordService = Depends(get_training_record_service),
+@router.put("/candidates/{candidate_id}/recommendation-level", summary="更新候选人推荐等级")
+async def update_candidate_recommendation_level(
+    candidate_id: UUID,
+    payload: CandidateUpdateRecommendationLevel,
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    records, total = await service.list_records(
-        plan_id=plan_id,
-        employee_id=employee_id,
-        completion_status=completion_status,
-        keyword=keyword,
-        page=page_params.page,
-        page_size=page_params.page_size,
+    candidate = await service.update_recommendation_level(
+        candidate_id, payload.recommendation_level
     )
-    data = [
-        TrainingRecordResponse.model_validate(r).model_dump(mode="json")
-        for r in records
-    ]
-    return paginated_response(
-        data=data,
-        page=page_params.page,
-        page_size=page_params.page_size,
-        total=total,
-    )
-
-
-@router.post("/training-records", summary="创建培训记录")
-async def create_training_record(
-    payload: TrainingRecordCreate,
-    service: TrainingRecordService = Depends(get_training_record_service),
-):
-    record = await service.create_record(payload)
     return success_response(
-        data=TrainingRecordResponse.model_validate(record).model_dump(mode="json"),
-        message="培训记录创建成功",
-        status_code=201,
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="推荐等级更新成功",
     )
 
 
-@router.get("/training-records/{record_id}", summary="培训记录详情")
-async def get_training_record(
-    record_id: UUID,
-    service: TrainingRecordService = Depends(get_training_record_service),
+@router.get("/candidates/{candidate_id}/resume-preview", summary="简历预览")
+async def preview_candidate_resume(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
 ):
-    record = await service.get_record(record_id)
-    return success_response(
-        data=TrainingRecordResponse.model_validate(record).model_dump(mode="json"),
+    """获取候选人简历 PDF。优先读取本地存储，若不存在则从飞书下载。"""
+    import os
+
+    from app.core.exceptions import NotFoundException
+
+    candidate = await service.get_candidate(candidate_id)
+
+    # 优先读取本地文件
+    if candidate.resume_storage_path and os.path.exists(candidate.resume_storage_path):
+        def iter_file():
+            with open(candidate.resume_storage_path, "rb") as f:
+                while chunk := f.read(64 * 1024):
+                    yield chunk
+
+        return StreamingResponse(
+            content=iter_file(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="resume.pdf"'},
+        )
+
+    # 回退：从飞书实时下载
+    attachments = candidate.resume_attachments or []
+    if not attachments:
+        raise NotFoundException("简历附件", str(candidate_id))
+
+    file_token = attachments[0].get("file_token")
+    if not file_token:
+        raise NotFoundException("简历附件", str(candidate_id))
+
+    try:
+        tmp_download_url = await service.bitable.get_resume_download_url(file_token)
+    except Exception as exc:
+        logger.warning("Failed to get feishu download url for candidate %s: %s", candidate_id, exc)
+        raise NotFoundException("简历附件", str(candidate_id)) from exc
+
+    import httpx
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        response = await client.get(tmp_download_url)
+        response.raise_for_status()
+
+    return StreamingResponse(
+        content=response.iter_bytes(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="resume.pdf"'},
     )
-
-
-@router.put("/training-records/{record_id}", summary="更新培训记录")
-async def update_training_record(
-    record_id: UUID,
-    payload: TrainingRecordUpdate,
-    service: TrainingRecordService = Depends(get_training_record_service),
-):
-    record = await service.update_record(record_id, payload)
-    return success_response(
-        data=TrainingRecordResponse.model_validate(record).model_dump(mode="json"),
-        message="培训记录更新成功",
-    )
-
-
-@router.delete("/training-records/{record_id}", summary="删除培训记录")
-async def delete_training_record(
-    record_id: UUID,
-    service: TrainingRecordService = Depends(get_training_record_service),
-):
-    await service.delete_record(record_id)
-    return success_response(message="培训记录删除成功")
-
-
-# ─── TrainingAssessment Routes ───
-
-@router.get("/training-assessments", summary="培训考核列表")
-async def list_training_assessments(
-    plan_id: UUID | None = Query(None, description="培训计划ID筛选"),
-    employee_id: UUID | None = Query(None, description="员工ID筛选"),
-    result: str | None = Query(None, description="考核结果筛选"),
-    keyword: str | None = Query(None, description="备注关键词"),
-    page_params: PageParams = Depends(),
-    service: TrainingAssessmentService = Depends(get_training_assessment_service),
-):
-    assessments, total = await service.list_assessments(
-        plan_id=plan_id,
-        employee_id=employee_id,
-        result=result,
-        keyword=keyword,
-        page=page_params.page,
-        page_size=page_params.page_size,
-    )
-    data = [
-        TrainingAssessmentResponse.model_validate(a).model_dump(mode="json")
-        for a in assessments
-    ]
-    return paginated_response(
-        data=data,
-        page=page_params.page,
-        page_size=page_params.page_size,
-        total=total,
-    )
-
-
-@router.post("/training-assessments", summary="创建培训考核")
-async def create_training_assessment(
-    payload: TrainingAssessmentCreate,
-    service: TrainingAssessmentService = Depends(get_training_assessment_service),
-):
-    assessment = await service.create_assessment(payload)
-    return success_response(
-        data=TrainingAssessmentResponse.model_validate(assessment).model_dump(mode="json"),
-        message="培训考核创建成功",
-        status_code=201,
-    )
-
-
-@router.get("/training-assessments/{assessment_id}", summary="培训考核详情")
-async def get_training_assessment(
-    assessment_id: UUID,
-    service: TrainingAssessmentService = Depends(get_training_assessment_service),
-):
-    assessment = await service.get_assessment(assessment_id)
-    return success_response(
-        data=TrainingAssessmentResponse.model_validate(assessment).model_dump(mode="json"),
-    )
-
-
-@router.put("/training-assessments/{assessment_id}", summary="更新培训考核")
-async def update_training_assessment(
-    assessment_id: UUID,
-    payload: TrainingAssessmentUpdate,
-    service: TrainingAssessmentService = Depends(get_training_assessment_service),
-):
-    assessment = await service.update_assessment(assessment_id, payload)
-    return success_response(
-        data=TrainingAssessmentResponse.model_validate(assessment).model_dump(mode="json"),
-        message="培训考核更新成功",
-    )
-
-
-@router.delete("/training-assessments/{assessment_id}", summary="删除培训考核")
-async def delete_training_assessment(
-    assessment_id: UUID,
-    service: TrainingAssessmentService = Depends(get_training_assessment_service),
-):
-    await service.delete_assessment(assessment_id)
-    return success_response(message="培训考核删除成功")
-
-
-# ─── TrainingApproval Routes ───
-
-@router.get("/training-approvals", summary="培训审批列表")
-async def list_training_approvals(
-    plan_id: UUID | None = Query(None, description="培训计划ID筛选"),
-    employee_id: UUID | None = Query(None, description="员工ID筛选"),
-    approval_status: str | None = Query(None, description="审批状态筛选"),
-    keyword: str | None = Query(None, description="审批备注关键词"),
-    page_params: PageParams = Depends(),
-    service: TrainingApprovalService = Depends(get_training_approval_service),
-):
-    approvals, total = await service.list_approvals(
-        plan_id=plan_id,
-        employee_id=employee_id,
-        approval_status=approval_status,
-        keyword=keyword,
-        page=page_params.page,
-        page_size=page_params.page_size,
-    )
-    data = [
-        TrainingApprovalResponse.model_validate(a).model_dump(mode="json")
-        for a in approvals
-    ]
-    return paginated_response(
-        data=data,
-        page=page_params.page,
-        page_size=page_params.page_size,
-        total=total,
-    )
-
-
-@router.post("/training-approvals", summary="创建培训审批")
-async def create_training_approval(
-    payload: TrainingApprovalCreate,
-    service: TrainingApprovalService = Depends(get_training_approval_service),
-):
-    approval = await service.create_approval(payload)
-    return success_response(
-        data=TrainingApprovalResponse.model_validate(approval).model_dump(mode="json"),
-        message="培训审批创建成功",
-        status_code=201,
-    )
-
-
-@router.get("/training-approvals/{approval_id}", summary="培训审批详情")
-async def get_training_approval(
-    approval_id: UUID,
-    service: TrainingApprovalService = Depends(get_training_approval_service),
-):
-    approval = await service.get_approval(approval_id)
-    return success_response(
-        data=TrainingApprovalResponse.model_validate(approval).model_dump(mode="json"),
-    )
-
-
-@router.put("/training-approvals/{approval_id}", summary="更新培训审批")
-async def update_training_approval(
-    approval_id: UUID,
-    payload: TrainingApprovalUpdate,
-    service: TrainingApprovalService = Depends(get_training_approval_service),
-):
-    approval = await service.update_approval(approval_id, payload)
-    return success_response(
-        data=TrainingApprovalResponse.model_validate(approval).model_dump(mode="json"),
-        message="培训审批更新成功",
-    )
-
-
-@router.delete("/training-approvals/{approval_id}", summary="删除培训审批")
-async def delete_training_approval(
-    approval_id: UUID,
-    service: TrainingApprovalService = Depends(get_training_approval_service),
-):
-    await service.delete_approval(approval_id)
-    return success_response(message="培训审批删除成功")
 
 
 router.include_router(analysis_router)

@@ -557,245 +557,54 @@ class OnboardingRecord(BaseModel):
     )
 
 
-class TrainingPlan(BaseModel):
-    __tablename__ = "training_plans"
+class Candidate(BaseModel):
+    __tablename__ = "candidates"
     __table_args__ = (
-        Index("ix_training_plans_status", "status"),
-        Index("ix_training_plans_training_type", "training_type"),
+        Index("ix_candidates_name", "name"),
+        Index("ix_candidates_position", "position"),
+        Index("ix_candidates_recommendation_level", "recommendation_level"),
+        Index("ix_candidates_feishu_record_id", "feishu_record_id"),
         {"schema": "hr"},
     )
 
-    plan_name: Mapped[str] = mapped_column(
-        String(128), nullable=False, comment="培训计划名称"
-    )
-    training_type: Mapped[str] = mapped_column(
-        String(16),
-        nullable=False,
-        default="新入职",
-        server_default="新入职",
-        comment="培训类型: 新入职, 调岗, 复工",
-    )
-    target_departments: Mapped[list[str] | None] = mapped_column(
-        JSON, nullable=True, comment="目标部门列表"
-    )
-    target_positions: Mapped[list[str] | None] = mapped_column(
-        JSON, nullable=True, comment="目标岗位列表"
-    )
-    planned_start_date: Mapped[date | None] = mapped_column(
-        Date, nullable=True, comment="计划开始日期"
-    )
-    planned_end_date: Mapped[date | None] = mapped_column(
-        Date, nullable=True, comment="计划结束日期"
-    )
-    status: Mapped[str] = mapped_column(
-        String(16),
-        nullable=False,
-        default="draft",
-        server_default="draft",
-        comment="状态: draft, approved, rejected, cancelled",
-    )
-    approver_name: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, comment="审批人姓名"
-    )
-    approved_at: Mapped[datetime | None] = mapped_column(
-        nullable=True, comment="审批时间"
-    )
-    approval_remarks: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, comment="审批备注"
+    # ─── Basic info ───
+    name: Mapped[str] = mapped_column(String(64), nullable=False, comment="候选人姓名")
+    position: Mapped[str] = mapped_column(String(64), nullable=False, comment="应聘职位名称")
+    gender: Mapped[str | None] = mapped_column(String(8), nullable=True, comment="性别")
+
+    # ─── Education ───
+    school: Mapped[str | None] = mapped_column(String(128), nullable=True, comment="学校名称")
+    education: Mapped[str | None] = mapped_column(String(16), nullable=True, comment="学历")
+    major: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="专业")
+
+    # ─── AI report ───
+    match_report: Mapped[str | None] = mapped_column(Text, nullable=True, comment="候选人匹配度报告")
+
+    # ─── Recommendation level ───
+    recommendation_level: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="推荐等级"
     )
 
-    sops: Mapped[list["TrainingPlanSop"]] = relationship(
-        "TrainingPlanSop", back_populates="plan", lazy="select"
+    # ─── Resume attachments (JSON metadata from Feishu) ───
+    resume_attachments: Mapped[list[dict] | None] = mapped_column(
+        JSON, nullable=True, comment="简历附件元数据"
     )
 
-
-class TrainingPlanSop(BaseModel):
-    __tablename__ = "training_plan_sops"
-    __table_args__ = (
-        Index("ix_training_plan_sops_plan_id", "plan_id"),
-        {"schema": "hr"},
+    # ─── Local resume file path (downloaded from Feishu during sync) ───
+    resume_storage_path: Mapped[str | None] = mapped_column(
+        String(256), nullable=True, comment="本地简历存储路径"
     )
 
-    plan_id: Mapped[UUID] = mapped_column(
-        ForeignKey("hr.training_plans.id"),
-        nullable=False,
-        comment="所属培训计划ID",
+    # ─── Feishu sync metadata ───
+    feishu_record_id: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="飞书多维表格 record_id"
     )
-    sop_name: Mapped[str] = mapped_column(
-        String(128), nullable=False, comment="SOP名称"
+    feishu_synced_at: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="上次飞书同步时间"
     )
-    sop_code: Mapped[str | None] = mapped_column(
-        String(32), nullable=True, comment="SOP编号"
+    feishu_sync_status: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="飞书同步状态: synced/failed"
     )
-    description: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="SOP描述"
-    )
-    duration_minutes: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="培训时长(分钟)"
-    )
-    version: Mapped[str | None] = mapped_column(
-        String(16), nullable=True, comment="版本号"
-    )
-    file_url: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, comment="文件链接"
-    )
-
-    plan: Mapped["TrainingPlan"] = relationship(
-        "TrainingPlan", back_populates="sops", lazy="select"
-    )
-
-
-class TrainingRecord(BaseModel):
-    __tablename__ = "training_records"
-    __table_args__ = (
-        Index("ix_training_records_plan_id", "plan_id"),
-        Index("ix_training_records_employee_id", "employee_id"),
-        Index("ix_training_records_completion_status", "completion_status"),
-        {"schema": "hr"},
-    )
-
-    plan_id: Mapped[UUID] = mapped_column(
-        ForeignKey("hr.training_plans.id"),
-        nullable=False,
-        comment="培训计划ID",
-    )
-    sop_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("hr.training_plan_sops.id"),
-        nullable=True,
-        comment="SOP ID",
-    )
-    employee_id: Mapped[UUID] = mapped_column(
-        ForeignKey("hr.employees.id"),
-        nullable=False,
-        comment="员工ID",
-    )
-    training_date: Mapped[date | None] = mapped_column(
-        Date, nullable=True, comment="培训日期"
-    )
-    trainer_name: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, comment="培训师姓名"
-    )
-    training_location: Mapped[str | None] = mapped_column(
-        String(128), nullable=True, comment="培训地点"
-    )
-    completion_status: Mapped[str] = mapped_column(
-        String(16),
-        nullable=False,
-        default="未开始",
-        server_default="未开始",
-        comment="完成状态: 未开始, 进行中, 已完成, 缺席",
-    )
-    signature_image_url: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, comment="员工签名图片URL"
-    )
-    remarks: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, comment="备注"
-    )
-
-    plan: Mapped["TrainingPlan"] = relationship("TrainingPlan", lazy="select")
-    sop: Mapped["TrainingPlanSop"] = relationship("TrainingPlanSop", lazy="select")
-    employee: Mapped["Employee"] = relationship("Employee", lazy="select")
-
-
-class TrainingAssessment(BaseModel):
-    __tablename__ = "training_assessments"
-    __table_args__ = (
-        Index("ix_training_assessments_plan_id", "plan_id"),
-        Index("ix_training_assessments_employee_id", "employee_id"),
-        Index("ix_training_assessments_result", "result"),
-        {"schema": "hr"},
-    )
-
-    plan_id: Mapped[UUID] = mapped_column(
-        ForeignKey("hr.training_plans.id"),
-        nullable=False,
-        comment="培训计划ID",
-    )
-    employee_id: Mapped[UUID] = mapped_column(
-        ForeignKey("hr.employees.id"),
-        nullable=False,
-        comment="员工ID",
-    )
-    assessment_date: Mapped[date | None] = mapped_column(
-        Date, nullable=True, comment="考核日期"
-    )
-    assessment_type: Mapped[str] = mapped_column(
-        String(16),
-        nullable=False,
-        default="综合",
-        server_default="综合",
-        comment="考核类型: 理论, 实操, 综合",
-    )
-    score: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="得分"
-    )
-    max_score: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="满分"
-    )
-    result: Mapped[str] = mapped_column(
-        String(8),
-        nullable=False,
-        default="待考核",
-        server_default="待考核",
-        comment="考核结果: 合格, 不合格, 待考核",
-    )
-    assessor_name: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, comment="考核人姓名"
-    )
-    remarks: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, comment="备注"
-    )
-
-    plan: Mapped["TrainingPlan"] = relationship("TrainingPlan", lazy="select")
-    employee: Mapped["Employee"] = relationship("Employee", lazy="select")
-
-
-class TrainingApproval(BaseModel):
-    __tablename__ = "training_approvals"
-    __table_args__ = (
-        Index("ix_training_approvals_plan_id", "plan_id"),
-        Index("ix_training_approvals_employee_id", "employee_id"),
-        Index("ix_training_approvals_approval_status", "approval_status"),
-        {"schema": "hr"},
-    )
-
-    plan_id: Mapped[UUID] = mapped_column(
-        ForeignKey("hr.training_plans.id"),
-        nullable=False,
-        comment="培训计划ID",
-    )
-    employee_id: Mapped[UUID] = mapped_column(
-        ForeignKey("hr.employees.id"),
-        nullable=False,
-        comment="员工ID",
-    )
-    assessment_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("hr.training_assessments.id"),
-        nullable=True,
-        comment="关联考核ID",
-    )
-    approval_status: Mapped[str] = mapped_column(
-        String(16),
-        nullable=False,
-        default="pending",
-        server_default="pending",
-        comment="审批状态: pending, approved, rejected",
-    )
-    approver_name: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, comment="审批人姓名"
-    )
-    approved_at: Mapped[datetime | None] = mapped_column(
-        nullable=True, comment="审批时间"
-    )
-    approval_remarks: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, comment="审批备注"
-    )
-    is_qualified: Mapped[bool | None] = mapped_column(
-        nullable=True, comment="是否合格上岗"
-    )
-
-    plan: Mapped["TrainingPlan"] = relationship("TrainingPlan", lazy="select")
-    employee: Mapped["Employee"] = relationship("Employee", lazy="select")
-    assessment: Mapped["TrainingAssessment"] = relationship(
-        "TrainingAssessment", lazy="select"
+    feishu_sync_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="飞书同步失败原因"
     )

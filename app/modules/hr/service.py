@@ -1,13 +1,16 @@
 """HR business workflows live here."""
 
 import logging
+import os
 from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.exceptions import DuplicateException, NotFoundException
 from app.modules.hr.models import (
+    Candidate,
     Department,
     DepartureRecord,
     Employee,
@@ -21,6 +24,7 @@ from app.modules.hr.models import (
     TrainingRecord,
 )
 from app.modules.hr.repository import (
+    CandidateRepository,
     DepartureRecordRepository,
     DepartmentRepository,
     EmployeeRepository,
@@ -34,6 +38,8 @@ from app.modules.hr.repository import (
     TrainingRecordRepository,
 )
 from app.modules.hr.schemas import (
+    CandidateCreate,
+    CandidateUpdate,
     DepartureRecordCreate,
     DepartureRecordUpdate,
     DepartmentCreate,
@@ -58,7 +64,11 @@ from app.modules.hr.schemas import (
     TrainingRecordCreate,
     TrainingRecordUpdate,
 )
+from app.platform.ai.service import AiChatService
 from app.platform.integrations.feishu import FeishuBitableSync
+from app.platform.integrations.feishu.candidate_datasource import (
+    CandidateBitableDataSource,
+)
 from app.platform.integrations.feishu.employee_datasource import (
     EmployeeBitableDataSource,
 )
@@ -850,240 +860,443 @@ class DepartureRecordService:
         )
 
 
-class TrainingPlanService:
+class CandidateService:
     def __init__(self, session: AsyncSession) -> None:
-        self.repo = TrainingPlanRepository(session)
-
-    async def get_plan(self, plan_id: UUID) -> TrainingPlan:
-        plan = await self.repo.get_by_id(plan_id)
-        if not plan:
-            raise NotFoundException("培训计划", str(plan_id))
-        return plan
-
-    async def list_plans(
-        self,
-        *,
-        training_type: str | None = None,
-        status: str | None = None,
-        keyword: str | None = None,
-        page: int = 1,
-        page_size: int = 20,
-        sort_by: str = "created_at",
-        sort_order: str = "desc",
-    ) -> tuple[list[TrainingPlan], int]:
-        return await self.repo.list_plans(
-            training_type=training_type,
-            status=status,
-            keyword=keyword,
-            page=page,
-            page_size=page_size,
-            sort_by=sort_by,
-            sort_order=sort_order,
+        self.repo = CandidateRepository(session)
+        self.bitable = CandidateBitableDataSource()
+        settings = get_settings()
+        self.ai_chat = AiChatService(
+            api_key=settings.MOONSHOT_API_KEY or "",
+            model=settings.AI_MODEL or "kimi-k2.5",
         )
 
-    async def create_plan(self, data: TrainingPlanCreate) -> TrainingPlan:
-        plan = TrainingPlan(**data.model_dump())
-        return await self.repo.create(plan)
+    async def get_candidate(self, candidate_id: UUID) -> Candidate:
+        candidate = await self.repo.get_by_id(candidate_id)
+        if not candidate:
+            raise NotFoundException("候选人", str(candidate_id))
+        return candidate
 
-    async def update_plan(self, plan_id: UUID, data: TrainingPlanUpdate) -> TrainingPlan:
-        plan = await self.get_plan(plan_id)
-        update_data = data.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(plan, field, value)
-        return await self.repo.update(plan)
-
-    async def delete_plan(self, plan_id: UUID) -> None:
-        plan = await self.get_plan(plan_id)
-        await self.repo.soft_delete(plan)
-
-
-class TrainingPlanSopService:
-    def __init__(self, session: AsyncSession) -> None:
-        self.repo = TrainingPlanSopRepository(session)
-
-    async def get_sop(self, sop_id: UUID) -> TrainingPlanSop:
-        sop = await self.repo.get_by_id(sop_id)
-        if not sop:
-            raise NotFoundException("培训计划SOP", str(sop_id))
-        return sop
-
-    async def list_sops(
+    async def list_candidates(
         self,
         *,
-        plan_id: UUID | None = None,
+        position: str | None = None,
+        education: str | None = None,
         keyword: str | None = None,
+        recommendation_level: str | None = None,
+        sync_status: str | None = None,
         page: int = 1,
         page_size: int = 20,
-        sort_by: str = "created_at",
-        sort_order: str = "desc",
-    ) -> tuple[list[TrainingPlanSop], int]:
-        return await self.repo.list_sops(
-            plan_id=plan_id,
+    ) -> tuple[list[Candidate], int]:
+        return await self.repo.list_candidates(
+            position=position,
+            education=education,
             keyword=keyword,
+            recommendation_level=recommendation_level,
+            sync_status=sync_status,
             page=page,
             page_size=page_size,
-            sort_by=sort_by,
-            sort_order=sort_order,
         )
 
-    async def create_sop(self, data: TrainingPlanSopCreate) -> TrainingPlanSop:
-        sop = TrainingPlanSop(**data.model_dump())
-        return await self.repo.create(sop)
+    async def create_candidate(self, data: CandidateCreate) -> Candidate:
+        candidate = Candidate(**data.model_dump())
+        return await self.repo.create(candidate)
 
-    async def update_sop(self, sop_id: UUID, data: TrainingPlanSopUpdate) -> TrainingPlanSop:
-        sop = await self.get_sop(sop_id)
-        update_data = data.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(sop, field, value)
-        return await self.repo.update(sop)
+    async def parse_resume_preview(
+        self, resume_bytes: bytes, position: str
+    ) -> dict[str, str]:
+        """Convert PDF to images and parse resume via vision-capable AI."""
+        logger.info(
+            "parse_resume_preview called: position=%s, pdf_size=%d bytes",
+            position,
+            len(resume_bytes),
+        )
+        images: list[bytes] = []
+        try:
+            import fitz
 
-    async def delete_sop(self, sop_id: UUID) -> None:
-        sop = await self.get_sop(sop_id)
-        await self.repo.soft_delete(sop)
+            doc = fitz.open(stream=resume_bytes, filetype="pdf")
+            page_count = len(doc)
+            logger.info("PDF opened: %d pages", page_count)
+            # Limit to first 5 pages to control token cost
+            for idx, page in enumerate(doc):
+                if idx >= 5:
+                    logger.warning(
+                        "Resume PDF has more than 5 pages, only first 5 will be parsed"
+                    )
+                    break
+                pix = page.get_pixmap(dpi=150)
+                img_bytes = pix.tobytes("png")
+                logger.info(
+                    "Page %d rendered: %dx%d, %d bytes",
+                    idx + 1,
+                    pix.width,
+                    pix.height,
+                    len(img_bytes),
+                )
+                images.append(img_bytes)
+            doc.close()
+        except Exception:
+            logger.exception("Failed to convert uploaded PDF to images")
+            return {
+                "gender": "",
+                "school": "",
+                "education": "",
+                "major": "",
+                "match_report": "",
+                "recommendation_level": "",
+            }
 
+        if not images:
+            logger.warning("No images extracted from PDF")
+            return {
+                "gender": "",
+                "school": "",
+                "education": "",
+                "major": "",
+                "match_report": "",
+                "recommendation_level": "",
+            }
 
-class TrainingRecordService:
-    def __init__(self, session: AsyncSession) -> None:
-        self.repo = TrainingRecordRepository(session)
+        logger.info(
+            "Calling AI vision parser with %d images for position=%s",
+            len(images),
+            position,
+        )
+        try:
+            result = await self.ai_chat.parse_resume_from_images(images, position)
+            logger.info("AI parser result: %s", result)
+            return result
+        except Exception:
+            logger.exception("Failed to parse resume images via AI")
+            return {
+                "gender": "",
+                "school": "",
+                "education": "",
+                "major": "",
+                "match_report": "",
+                "recommendation_level": "",
+            }
 
-    async def get_record(self, record_id: UUID) -> TrainingRecord:
-        record = await self.repo.get_by_id(record_id)
-        if not record:
-            raise NotFoundException("培训记录", str(record_id))
-        return record
-
-    async def list_records(
+    async def create_candidate_with_resume(
         self,
+        name: str,
+        position: str,
+        resume_bytes: bytes,
+        filename: str,
         *,
-        plan_id: UUID | None = None,
-        employee_id: UUID | None = None,
-        completion_status: str | None = None,
-        keyword: str | None = None,
-        page: int = 1,
-        page_size: int = 20,
-        sort_by: str = "created_at",
-        sort_order: str = "desc",
-    ) -> tuple[list[TrainingRecord], int]:
-        return await self.repo.list_records(
-            plan_id=plan_id,
-            employee_id=employee_id,
-            completion_status=completion_status,
-            keyword=keyword,
-            page=page,
-            page_size=page_size,
-            sort_by=sort_by,
-            sort_order=sort_order,
+        gender: str | None = None,
+        school: str | None = None,
+        education: str | None = None,
+        major: str | None = None,
+        match_report: str | None = None,
+        recommendation_level: str | None = None,
+    ) -> Candidate:
+        """Create a candidate with resume upload and Feishu sync."""
+        # 1. Create local candidate record
+        candidate = Candidate(
+            name=name,
+            position=position,
+            gender=gender or None,
+            school=school or None,
+            education=education or None,
+            major=major or None,
+            match_report=match_report or None,
+            recommendation_level=recommendation_level or None,
         )
+        created = await self.repo.create(candidate)
 
-    async def create_record(self, data: TrainingRecordCreate) -> TrainingRecord:
-        record = TrainingRecord(**data.model_dump())
-        return await self.repo.create(record)
+        # 2. Save PDF locally (always keep local copy as fallback)
+        upload_dir = os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "uploads", "resumes"
+        )
+        upload_dir = os.path.abspath(upload_dir)
+        os.makedirs(upload_dir, exist_ok=True)
+        ext = os.path.splitext(filename)[1] or ".pdf"
+        file_path = os.path.join(upload_dir, f"{created.id}{ext}")
+        with open(file_path, "wb") as f:
+            f.write(resume_bytes)
+        created.resume_storage_path = file_path
+        await self.repo.update(created)
 
-    async def update_record(self, record_id: UUID, data: TrainingRecordUpdate) -> TrainingRecord:
-        record = await self.get_record(record_id)
+        # 3. Upload to Feishu Drive and create Bitable record
+        sync_error_parts: list[str] = []
+        feishu_file: dict[str, Any] = {}
+
+        try:
+            feishu_file = await self.bitable.upload_resume(
+                resume_bytes, filename or f"{name}.pdf"
+            )
+        except Exception as exc:
+            logger.exception("Failed to upload resume to Feishu Drive")
+            sync_error_parts.append(f"Drive upload failed: {exc}")
+
+        try:
+            fields: dict[str, Any] = {
+                "候选人姓名": name,
+                "应聘职位名称": position,
+                "性别": gender or "",
+                "学校名称": school or "",
+                "学历": education or "",
+                "专业": major or "",
+                "候选人匹配度报告-AI.输出结果": match_report or "",
+                "推荐等级": recommendation_level or "",
+            }
+            if feishu_file.get("file_token"):
+                fields["简历 PDF"] = [
+                    {
+                        "file_token": feishu_file["file_token"],
+                        "name": feishu_file.get(
+                            "name", filename or f"{name}.pdf"
+                        ),
+                        "size": feishu_file.get("size", len(resume_bytes)),
+                        "type": "application/pdf",
+                    }
+                ]
+            record_id = await self.bitable.create(fields)
+            created.feishu_record_id = record_id
+            created.feishu_synced_at = date.today()
+            created.feishu_sync_status = "synced"
+            created.feishu_sync_error = None
+            await self.repo.update(created)
+        except Exception as exc:
+            logger.exception("Failed to create candidate record in Feishu")
+            sync_error_parts.append(f"Bitable create failed: {exc}")
+            created.feishu_sync_status = "failed"
+            created.feishu_sync_error = "; ".join(sync_error_parts) if sync_error_parts else str(exc)
+            await self.repo.update(created)
+
+        return created
+
+    async def update_candidate(self, candidate_id: UUID, data: CandidateUpdate) -> Candidate:
+        candidate = await self.get_candidate(candidate_id)
         update_data = data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
-            setattr(record, field, value)
-        return await self.repo.update(record)
+            setattr(candidate, field, value)
+        updated = await self.repo.update(candidate)
 
-    async def delete_record(self, record_id: UUID) -> None:
-        record = await self.get_record(record_id)
-        await self.repo.soft_delete(record)
+        # Sync back to Feishu if we have a record id and relevant fields changed
+        if candidate.feishu_record_id:
+            feishu_field_map = {
+                "position": "应聘职位名称",
+                "gender": "性别",
+                "school": "学校名称",
+                "education": "学历",
+                "major": "专业",
+            }
+            feishu_fields = {
+                feishu_field_map[k]: v
+                for k, v in update_data.items()
+                if k in feishu_field_map and v is not None
+            }
+            if feishu_fields:
+                try:
+                    await self.bitable.update(candidate.feishu_record_id, feishu_fields)
+                except Exception as exc:
+                    logger.exception(
+                        "Failed to sync candidate update to Feishu %s", candidate_id
+                    )
+                    updated.feishu_sync_status = "failed"
+                    updated.feishu_sync_error = f"Update sync failed: {exc}"
+                    await self.repo.update(updated)
 
+        return updated
 
-class TrainingAssessmentService:
-    def __init__(self, session: AsyncSession) -> None:
-        self.repo = TrainingAssessmentRepository(session)
+    async def update_recommendation_level(self, candidate_id: UUID, level: str) -> Candidate:
+        candidate = await self.get_candidate(candidate_id)
+        candidate.recommendation_level = level
+        updated = await self.repo.update(candidate)
 
-    async def get_assessment(self, assessment_id: UUID) -> TrainingAssessment:
-        assessment = await self.repo.get_by_id(assessment_id)
-        if not assessment:
-            raise NotFoundException("培训考核", str(assessment_id))
-        return assessment
+        # Sync back to Feishu if we have a record id
+        if candidate.feishu_record_id:
+            try:
+                await self.bitable.update_recommendation_level(
+                    candidate.feishu_record_id, level
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed to sync recommendation level to Feishu for %s",
+                    candidate_id,
+                )
+                updated.feishu_sync_status = "failed"
+                updated.feishu_sync_error = f"Recommendation level sync failed: {exc}"
+                await self.repo.update(updated)
 
-    async def list_assessments(
-        self,
-        *,
-        plan_id: UUID | None = None,
-        employee_id: UUID | None = None,
-        result: str | None = None,
-        keyword: str | None = None,
-        page: int = 1,
-        page_size: int = 20,
-        sort_by: str = "created_at",
-        sort_order: str = "desc",
-    ) -> tuple[list[TrainingAssessment], int]:
-        return await self.repo.list_assessments(
-            plan_id=plan_id,
-            employee_id=employee_id,
-            result=result,
-            keyword=keyword,
-            page=page,
-            page_size=page_size,
-            sort_by=sort_by,
-            sort_order=sort_order,
+        return updated
+
+    async def sync_candidate_to_feishu(self, candidate_id: UUID) -> Candidate:
+        """Retry syncing a candidate (and resume) to Feishu.
+
+        Uses local resume file if available, otherwise raises an error.
+        """
+        candidate = await self.get_candidate(candidate_id)
+
+        if not candidate.resume_storage_path or not os.path.exists(candidate.resume_storage_path):
+            raise RuntimeError("Local resume file not found, cannot sync to Feishu")
+
+        with open(candidate.resume_storage_path, "rb") as f:
+            resume_bytes = f.read()
+
+        filename = os.path.basename(candidate.resume_storage_path)
+        sync_error_parts: list[str] = []
+        feishu_file: dict[str, Any] = {}
+
+        try:
+            feishu_file = await self.bitable.upload_resume(
+                resume_bytes, filename or f"{candidate.name}.pdf"
+            )
+        except Exception as exc:
+            logger.exception("Failed to upload resume to Feishu Drive during retry")
+            sync_error_parts.append(f"Drive upload failed: {exc}")
+
+        try:
+            fields: dict[str, Any] = {
+                "候选人姓名": candidate.name or "",
+                "应聘职位名称": candidate.position or "",
+                "性别": candidate.gender or "",
+                "学校名称": candidate.school or "",
+                "学历": candidate.education or "",
+                "专业": candidate.major or "",
+                "候选人匹配度报告-AI.输出结果": candidate.match_report or "",
+                "推荐等级": candidate.recommendation_level or "",
+            }
+            if feishu_file.get("file_token"):
+                fields["简历 PDF"] = [
+                    {
+                        "file_token": feishu_file["file_token"],
+                        "name": feishu_file.get("name", filename or f"{candidate.name}.pdf"),
+                        "size": feishu_file.get("size", len(resume_bytes)),
+                        "type": "application/pdf",
+                    }
+                ]
+
+            if candidate.feishu_record_id:
+                await self.bitable.update(candidate.feishu_record_id, fields)
+            else:
+                record_id = await self.bitable.create(fields)
+                candidate.feishu_record_id = record_id
+
+            candidate.feishu_synced_at = date.today()
+            candidate.feishu_sync_status = "synced"
+            candidate.feishu_sync_error = None
+            await self.repo.update(candidate)
+        except Exception as exc:
+            logger.exception("Failed to sync candidate record to Feishu during retry")
+            sync_error_parts.append(f"Bitable write failed: {exc}")
+            candidate.feishu_sync_status = "failed"
+            candidate.feishu_sync_error = "; ".join(sync_error_parts) if sync_error_parts else str(exc)
+            await self.repo.update(candidate)
+            raise RuntimeError(candidate.feishu_sync_error) from exc
+
+        return candidate
+
+    async def delete_candidate(self, candidate_id: UUID) -> None:
+        candidate = await self.get_candidate(candidate_id)
+        await self.repo.soft_delete(candidate)
+
+        # Optionally delete from Feishu if record exists
+        if candidate.feishu_record_id:
+            try:
+                await self.bitable.delete(candidate.feishu_record_id)
+            except Exception:
+                logger.exception("Failed to delete candidate from Feishu %s", candidate_id)
+
+    async def sync_from_feishu(self) -> dict:
+        """Pull all candidate records from Feishu Bitable and upsert into local PG.
+
+        Returns:
+            {"created": N, "updated": N, "failed": N, "total": N}
+        """
+        raw_records = await self.bitable.fetch_all(page_size=500)
+        stats = {"created": 0, "updated": 0, "failed": 0, "total": len(raw_records)}
+
+        for rec in raw_records:
+            try:
+                data = rec.to_dict()
+                data["feishu_synced_at"] = date.today()
+                rid = data.get("feishu_record_id")
+                if not rid:
+                    stats["failed"] += 1
+                    continue
+
+                await self.repo.upsert_by_feishu_record_id(data)
+                existing = await self.repo.get_by_feishu_record_id(rid)
+                if existing and existing.created_at and (
+                    datetime.utcnow() - existing.created_at.replace(tzinfo=None)
+                ).total_seconds() < 60:
+                    stats["created"] += 1
+                else:
+                    stats["updated"] += 1
+
+                # Download resume PDF if attachment exists and not already stored locally
+                if existing and rec.resume_attachments:
+                    has_local = (
+                        existing.resume_storage_path
+                        and os.path.exists(existing.resume_storage_path)
+                    )
+                    if not has_local:
+                        await self._download_resume(existing, rec.resume_attachments[0])
+            except Exception:
+                logger.exception("Failed to sync candidate record %s", rec.record_id)
+                stats["failed"] += 1
+
+        return stats
+
+    async def _download_resume(self, candidate: Candidate, attachment: dict) -> None:
+        """Download resume PDF from Feishu and save to local storage.
+
+        Args:
+            candidate: The candidate record (must have id set).
+            attachment: The first attachment dict from resume_attachments.
+        """
+        import os
+
+        file_token = attachment.get("file_token")
+        if not file_token:
+            logger.warning("No file_token in attachment for candidate %s", candidate.id)
+            return
+
+        try:
+            tmp_download_url = await self.bitable.get_resume_download_url(file_token)
+
+            import httpx
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                response = await client.get(tmp_download_url)
+                response.raise_for_status()
+
+            upload_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "uploads", "resumes")
+            upload_dir = os.path.abspath(upload_dir)
+            os.makedirs(upload_dir, exist_ok=True)
+
+            # Preserve original extension if present, default to .pdf
+            original_name = attachment.get("name", "")
+            ext = os.path.splitext(original_name)[1] if original_name else ".pdf"
+            if not ext:
+                ext = ".pdf"
+            file_path = os.path.join(upload_dir, f"{candidate.id}{ext}")
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+
+            candidate.resume_storage_path = file_path
+            await self.repo.update(candidate)
+            logger.info("Downloaded resume for candidate %s to %s", candidate.id, file_path)
+        except Exception:
+            logger.exception("Failed to download resume for candidate %s", candidate.id)
+
+    async def get_sync_status(self) -> SyncStatusResponse:
+        local_total = await self.repo.count_total()
+        synced_count = await self.repo.count_synced()
+        failed_count = await self.repo.count_failed_sync()
+        pending_count = await self.repo.count_pending_sync()
+        unsynced_count = local_total - synced_count
+        feishu_total = synced_count
+
+        return SyncStatusResponse(
+            local_total=local_total,
+            feishu_total=feishu_total,
+            synced_count=synced_count,
+            unsynced_count=unsynced_count,
+            conflict_count=0,
+            pending_count=pending_count,
+            failed_count=failed_count,
+            last_sync_at=None,
         )
-
-    async def create_assessment(self, data: TrainingAssessmentCreate) -> TrainingAssessment:
-        assessment = TrainingAssessment(**data.model_dump())
-        return await self.repo.create(assessment)
-
-    async def update_assessment(self, assessment_id: UUID, data: TrainingAssessmentUpdate) -> TrainingAssessment:
-        assessment = await self.get_assessment(assessment_id)
-        update_data = data.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(assessment, field, value)
-        return await self.repo.update(assessment)
-
-    async def delete_assessment(self, assessment_id: UUID) -> None:
-        assessment = await self.get_assessment(assessment_id)
-        await self.repo.soft_delete(assessment)
-
-
-class TrainingApprovalService:
-    def __init__(self, session: AsyncSession) -> None:
-        self.repo = TrainingApprovalRepository(session)
-
-    async def get_approval(self, approval_id: UUID) -> TrainingApproval:
-        approval = await self.repo.get_by_id(approval_id)
-        if not approval:
-            raise NotFoundException("培训审批", str(approval_id))
-        return approval
-
-    async def list_approvals(
-        self,
-        *,
-        plan_id: UUID | None = None,
-        employee_id: UUID | None = None,
-        approval_status: str | None = None,
-        keyword: str | None = None,
-        page: int = 1,
-        page_size: int = 20,
-        sort_by: str = "created_at",
-        sort_order: str = "desc",
-    ) -> tuple[list[TrainingApproval], int]:
-        return await self.repo.list_approvals(
-            plan_id=plan_id,
-            employee_id=employee_id,
-            approval_status=approval_status,
-            keyword=keyword,
-            page=page,
-            page_size=page_size,
-            sort_by=sort_by,
-            sort_order=sort_order,
-        )
-
-    async def create_approval(self, data: TrainingApprovalCreate) -> TrainingApproval:
-        approval = TrainingApproval(**data.model_dump())
-        return await self.repo.create(approval)
-
-    async def update_approval(self, approval_id: UUID, data: TrainingApprovalUpdate) -> TrainingApproval:
-        approval = await self.get_approval(approval_id)
-        update_data = data.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(approval, field, value)
-        return await self.repo.update(approval)
-
-    async def delete_approval(self, approval_id: UUID) -> None:
-        approval = await self.get_approval(approval_id)
-        await self.repo.soft_delete(approval)

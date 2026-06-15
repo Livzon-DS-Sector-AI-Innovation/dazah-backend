@@ -1,9 +1,13 @@
 """Feishu HTTP client with auth and retry."""
 
+import logging
+
 import httpx
 
 from app.platform.integrations.base import IntegrationClient
 from app.platform.integrations.feishu.auth import FeishuAuth
+
+logger = logging.getLogger(__name__)
 
 
 class FeishuClient(IntegrationClient):
@@ -21,6 +25,73 @@ class FeishuClient(IntegrationClient):
                 timeout=httpx.Timeout(15.0, connect=5.0),
             )
         return self._client
+
+    async def upload_file(
+        self,
+        file_bytes: bytes,
+        filename: str,
+        *,
+        parent_type: str = "bitable_file",
+        parent_node: str | None = None,
+        timeout: float = 60.0,
+    ) -> dict:
+        """Upload a file to Feishu Drive and return file metadata.
+
+        Args:
+            file_bytes: Raw file bytes.
+            filename: Original file name.
+            parent_type: Feishu parent type, e.g. "bitable_file".
+            parent_node: Parent node ID, e.g. Bitable app_token.
+            timeout: Upload timeout in seconds.
+
+        Returns:
+            Dict with keys like file_token, name, size, type.
+        """
+        import io
+
+        token = await FeishuAuth.get_tenant_access_token()
+        headers = {"Authorization": f"Bearer {token}"}
+
+        files = {"file": (filename, io.BytesIO(file_bytes))}
+        data: dict[str, str] = {
+            "file_name": filename,
+            "size": str(len(file_bytes)),
+        }
+        if parent_type:
+            data["parent_type"] = parent_type
+        if parent_node:
+            data["parent_node"] = parent_node
+
+        client = await self._get_client()
+        resp = await client.post(
+            "/drive/v1/medias/upload_all",
+            headers=headers,
+            files=files,
+            data=data,
+            timeout=timeout,
+        )
+        try:
+            resp.raise_for_status()
+        except Exception as exc:
+            error_body = ""
+            try:
+                error_body = resp.text
+            except Exception:
+                pass
+            logger.error(
+                "Feishu upload_file failed: status=%s, body=%s, parent_type=%s, parent_node=%s",
+                resp.status_code,
+                error_body,
+                parent_type,
+                parent_node,
+            )
+            raise
+        result = resp.json()
+        if result.get("code") != 0:
+            raise RuntimeError(
+                f"Feishu upload error: code={result.get('code')}, msg={result.get('msg')}"
+            )
+        return result.get("data", {})
 
     async def health_check(self) -> dict:
         try:
