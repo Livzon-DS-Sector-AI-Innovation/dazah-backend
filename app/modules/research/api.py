@@ -271,6 +271,8 @@ async def edbo_generate_scope(
     
     logger = logging.getLogger(__name__)
     logger.info(f"generate-scope called with objectives: {objectives}")
+    logger.info(f"generate-scope components: {components}")
+    logger.info(f"generate-scope batch_size: {batch_size}")
     
     def count_significant_digits(num):
         """Count the number of significant digits in a number."""
