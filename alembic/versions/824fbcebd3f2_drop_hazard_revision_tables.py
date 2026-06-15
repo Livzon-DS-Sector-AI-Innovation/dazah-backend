@@ -1,7 +1,7 @@
 """drop_hazard_revision_tables
 
 Revision ID: 824fbcebd3f2
-Revises: 10b95dc75dcd
+Revises: 63e0261d5871
 Create Date: 2026-06-08 14:48:57.137446
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '824fbcebd3f2'
-down_revision: Union[str, None] = '10b95dc75dcd'
+down_revision: Union[str, None] = '63e0261d5871'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

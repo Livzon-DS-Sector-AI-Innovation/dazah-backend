@@ -61,6 +61,30 @@ class Settings(BaseSettings):
     # JWT
     JWT_EXPIRE_SECONDS: int = 86400  # 24 hours
 
+    # Feishu Bitable — HR 模块多维表格同步
+    FEISHU_BOT_NAME: str = ""
+    FEISHU_BITABLE_APP_TOKEN: str = ""
+    FEISHU_BITABLE_EMPLOYEE_TABLE_ID: str = ""
+    FEISHU_BITABLE_DEPARTMENT_TABLE_ID: str = ""
+    FEISHU_BITABLE_OFFBOARDING_TABLE_ID: str = ""
+    FEISHU_BITABLE_ONBOARDING_TABLE_ID: str = ""
+    FEISHU_BITABLE_DEPARTURE_TABLE_ID: str = ""
+    FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
+
+    # Training Notification Bitable
+    FEISHU_BITABLE_TRAINING_NOTIFICATION_APP_TOKEN: str = ""
+    FEISHU_BITABLE_TRAINING_NOTIFICATION_TABLE_ID: str = ""
+
+    # AI — HR 离职分析
+    MOONSHOT_API_KEY: str = ""
+    AI_MODEL: str = "kimi-k2.5"
+    AI_SYSTEM_PROMPT: str = (
+        "你是「小H」，原料药工厂人事管理助手。"
+        "只基于查询结果回答人事问题，禁止编造。"
+        "回答极其简洁，只陈述事实，不分析、不解释、不推理。"
+        "禁止出现'根据规则'、'依据以上信息'等元话语。"
+    )
+
     # API
     API_V1_PREFIX: str = "/api/v1"
 
