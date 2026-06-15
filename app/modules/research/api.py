@@ -236,7 +236,8 @@ async def edbo_optimize(
 @router.post("/edbo/generate-scope", summary="生成反应范围")
 async def edbo_generate_scope(
     components: dict = Body(..., description="组件定义，支持两种格式：1) 直接值列表 {name: [v1,v2,...]} 2) 范围定义 {name: {type: 'numeric', lower: x, upper: y, data_points: n}} 或 {name: {type: 'categorical', values: [...]}}"),
-    objectives: list[str] = Body(default=[], description="优化目标名称列表，会作为新列添加到结果CSV中，初始值为PENDING")
+    objectives: list[str] = Body(default=[], description="优化目标名称列表，会作为新列添加到结果CSV中，初始值为PENDING"),
+    batch_size: int = Body(default=5, ge=1, le=100, description="通量大小，表示同时进行的实验数量")
 ):
     """
     生成反应范围 CSV（所有组合的笛卡尔积）
@@ -434,7 +435,7 @@ async def edbo_generate_scope(
                 csv_content=scope_csv,
                 objectives=objectives,
                 objective_modes=objective_modes,
-                batch_size=5,
+                batch_size=batch_size,
                 save_prediction=False,
             )
             
