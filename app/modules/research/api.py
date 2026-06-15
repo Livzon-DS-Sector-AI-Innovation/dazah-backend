@@ -1,13 +1,13 @@
 """研发项目 API 路由."""
 
 import uuid
-from fastapi import APIRouter, Depends, Query, UploadFile, File, Body
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
-from app.core.response import paginated_response, success_response, error_response
+from app.core.response import paginated_response, success_response
 from app.modules.research import service
 from app.modules.research.schemas import (
     ResearchProjectCreate,
@@ -26,21 +26,6 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
-    # Route to bayesian_projects if project_type=bayesian
-    if data.project_type == "bayesian":
-        project = await service.create_bayesian_project(db, {
-            "name": data.name,
-            "description": data.description,
-            "status": "draft",
-        })
-        return success_response(data={
-            "id": str(project.id),
-            "name": project.name,
-            "description": project.description,
-            "status": project.status,
-            "created_at": project.created_at.isoformat(),
-        })
-    
     project = await service.create_project(db, data)
     return success_response(data=ResearchProjectResponse.model_validate(project))
 
@@ -55,25 +40,6 @@ async def get_projects(
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    # Route to bayesian_projects if project_type=bayesian
-    if project_type == "bayesian":
-        projects, total = await service.get_bayesian_projects(
-            db, keyword=keyword, page=page, page_size=page_size
-        )
-        return paginated_response(
-            data=[{
-                "id": str(p.id),
-                "name": p.name,
-                "description": p.description,
-                "status": p.status,
-                "created_at": p.created_at.isoformat(),
-                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-            } for p in projects],
-            page=page,
-            page_size=page_size,
-            total=total,
-        )
-    
     projects, total = await service.get_projects(
         db, stage=stage, status=status, keyword=keyword, project_type=project_type,
         page=page, page_size=page_size
@@ -89,60 +55,8 @@ async def get_projects(
 @router.get("/projects/{project_id}", summary="获取研发项目详情")
 async def get_project(
     project_id: uuid.UUID,
-    project_type: str | None = Query(None, description="项目类型"),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    # Route to bayesian_projects if project_type=bayesian
-    if project_type == "bayesian":
-        project = await service.get_bayesian_project(db, project_id)
-        components = await service.get_components(db, project_id)
-        objectives = await service.get_objectives(db, project_id)
-        experiments = await service.get_experiments(db, project_id)
-        
-        return success_response(data={
-            "id": str(project.id),
-            "name": project.name,
-            "description": project.description,
-            "status": project.status,
-            "created_at": project.created_at.isoformat(),
-            "updated_at": project.updated_at.isoformat() if project.updated_at else None,
-            "components": [
-                {
-                    "id": str(c.id),
-                    "project_id": str(c.project_id),
-                    "name": c.name,
-                    "component_type": c.component_type,
-                    "lower_bound": c.lower_bound,
-                    "upper_bound": c.upper_bound,
-                    "data_points": c.data_points,
-                    "categorical_values": c.categorical_values,
-                    "created_at": c.created_at.isoformat(),
-                } for c in components
-            ],
-            "objectives": [
-                {
-                    "id": str(o.id),
-                    "project_id": str(o.project_id),
-                    "name": o.name,
-                    "direction": o.direction,
-                    "threshold": o.threshold,
-                    "created_at": o.created_at.isoformat(),
-                } for o in objectives
-            ],
-            "experiments": [
-                {
-                    "id": str(e.id),
-                    "project_id": str(e.project_id),
-                    "batch_number": e.batch_number,
-                    "parameters": e.parameters,
-                    "results": e.results,
-                    "is_suggested": e.is_suggested,
-                    "status": e.status,
-                    "created_at": e.created_at.isoformat(),
-                } for e in experiments
-            ],
-        })
-    
     project = await service.get_project(db, project_id)
     return success_response(data=ResearchProjectResponse.model_validate(project))
 
@@ -161,194 +75,104 @@ async def update_project(
 @router.delete("/projects/{project_id}", summary="删除研发项目")
 async def delete_project(
     project_id: uuid.UUID,
-    project_type: str | None = Query(None, description="项目类型"),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
-    # Route to bayesian_projects if project_type=bayesian
-    if project_type == "bayesian":
-        await service.delete_bayesian_project(db, project_id)
-    else:
-        await service.delete_project(db, project_id)
-    return success_response(message="删除成功")
+    await service.delete_project(db, project_id)
+    return success_response(data={"message": "项目已删除"})
 
-
-# ============ ICH Q3C/Q3D 杂质识别 APIs ============
 
 @router.post("/ich/q3c/analyze", summary="ICH Q3C 溶剂残留分析")
 async def analyze_ich_q3c(
     file: UploadFile = File(...),
+    route: str = Query("oral", description="给药途径"),
+    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
-    """上传 DOCX 文件进行 ICH Q3C 溶剂残留分析"""
-    from app.modules.research import ich_service
-    
-    if not file.filename.endswith('.docx'):
-        return error_response(message="只支持 DOCX 格式文件")
-    
-    content = await file.read()
-    result = await ich_service.analyze_ich_q3c_with_llm(content)
-    
+    result = await service.analyze_ich_q3c(db, file, route)
     return success_response(data=result)
 
 
-# ============ LLM 配置管理 APIs ============
-
 @router.get("/llm/config", summary="获取 LLM 配置")
 async def get_llm_config(current_user: CurrentUser = None) -> JSONResponse:
-    """获取当前 LLM 配置"""
-    from app.modules.research.llm_service import llm_config
-    return success_response(data=llm_config.get_config())
+    config = await service.get_llm_config()
+    return success_response(data=config)
 
 
 @router.put("/llm/config", summary="更新 LLM 配置")
 async def update_llm_config(
-    api_key: str = Body(None, description="API Key"),
-    base_url: str = Body(None, description="API Base URL"),
-    model: str = Body(None, description="模型名称"),
+    data: dict = Body(...),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
-    """更新 LLM 配置"""
-    from app.modules.research.llm_service import llm_config
-    
-    llm_config.update_config(api_key=api_key, base_url=base_url, model=model)
-    
-    return success_response(
-        data=llm_config.get_config(),
-        message="配置已更新"
-    )
+    config = await service.update_llm_config(data)
+    return success_response(data=config)
 
 
 @router.post("/llm/test", summary="测试 LLM 连接")
 async def test_llm_connection(current_user: CurrentUser = None) -> JSONResponse:
-    """测试 LLM 连接"""
-    from app.modules.research.llm_service import llm_config
-    
-    result = await llm_config.test_connection()
-    
-    if result["success"]:
-        return success_response(data=result)
-    else:
-        return error_response(message=result["message"])
+    result = await service.test_llm_connection()
+    return success_response(data=result)
 
 
 @router.post("/ich/analyze", summary="ICH Q3C/Q3D 联合分析")
 async def analyze_ich_combined(
     file: UploadFile = File(...),
-    route: str = Query(default=None, description="deprecated"),
-    use_llm: bool = Query(default=None, description="deprecated"),
+    route: str = Query("oral", description="给药途径"),
+    use_llm: bool = Query(False, description="是否使用 LLM 增强"),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
-    """上传 DOCX 文件，同时进行 ICH Q3C 和 Q3D 分析并持久化"""
-    from app.modules.research import ich_service
-    from app.modules.research.models import ICHAnalysisRecord
-    
-    if not file.filename.endswith('.docx'):
-        return error_response(message="只支持 DOCX 格式文件")
-    
-    file_content = await file.read()
-    
-    try:
-        q3d_result = await ich_service.analyze_ich_q3d_with_llm(file_content)
-        q3c_result = await ich_service.analyze_ich_q3c_with_llm(file_content)
-        
-        # 持久化分析记录
-        record = ICHAnalysisRecord(
-            filename=file.filename,
-            q3c_result=q3c_result,
-            q3d_result=q3d_result,
-            llm_used=True,
-            created_by=current_user.id if current_user else None,
-        )
-        db.add(record)
-        await db.flush()
-        await db.commit()
-        await db.refresh(record)
-        
-        combined_result = {
-            "id": str(record.id),
-            "q3d": q3d_result,
-            "q3c": q3c_result,
-        }
-        
-        return success_response(data=combined_result)
-    except Exception as e:
-        await db.rollback()
-        return error_response(message=f"分析失败: {str(e)}")
+    result = await service.analyze_ich_combined(db, file, route, use_llm)
+    return success_response(data=result)
 
-
-# ============ ICH 分析记录 APIs ============
 
 @router.get("/ich/records", summary="获取 ICH 分析记录列表")
 async def get_ich_records(
-    keyword: str | None = Query(None, description="搜索文件名"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
 ) -> JSONResponse:
-    """获取历史 ICH 分析记录列表"""
-    from app.modules.research.models import ICHAnalysisRecord
-    from sqlalchemy import select, func
-    
-    query = select(ICHAnalysisRecord).where(ICHAnalysisRecord.is_deleted == False)
-    count_query = select(func.count()).select_from(ICHAnalysisRecord).where(ICHAnalysisRecord.is_deleted == False)
-    
-    if keyword:
-        pattern = f"%{keyword}%"
-        query = query.where(ICHAnalysisRecord.filename.ilike(pattern))
-        count_query = count_query.where(ICHAnalysisRecord.filename.ilike(pattern))
-    
-    total = (await db.execute(count_query)).scalar_one()
-    query = query.order_by(ICHAnalysisRecord.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
-    result = await db.execute(query)
-    records = result.scalars().all()
-    
-    items = []
-    for r in records:
-        items.append({
-            "id": str(r.id),
-            "filename": r.filename,
-            "route": r.route,
-            "llm_used": r.llm_used,
-            "q3c_total": r.q3c_result.get("total_solvents", 0) if r.q3c_result else 0,
-            "q3d_total": r.q3d_result.get("total_elements", 0) if r.q3d_result else 0,
-            "q3d_needs_assessment": r.q3d_result.get("needs_assessment", 0) if r.q3d_result else 0,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        })
-    
-    return paginated_response(data=items, page=page, page_size=page_size, total=total)
+    records, total = await service.get_ich_records(db, page=page, page_size=page_size)
+    return paginated_response(
+        data=[
+            {
+                "id": str(r.id),
+                "filename": r.filename,
+                "route": r.route,
+                "q3c_result": r.q3c_result,
+                "q3d_result": r.q3d_result,
+                "llm_used": r.llm_used,
+                "notes": r.notes,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in records
+        ],
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
 
 
 @router.get("/ich/records/{record_id}", summary="获取 ICH 分析记录详情")
 async def get_ich_record(
     record_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
 ) -> JSONResponse:
-    """获取单个 ICH 分析记录的完整结果"""
-    from app.modules.research.models import ICHAnalysisRecord
-    from sqlalchemy import select
-    
-    result = await db.execute(
-        select(ICHAnalysisRecord).where(
-            ICHAnalysisRecord.id == record_id,
-            ICHAnalysisRecord.is_deleted == False,
-        )
+    record = await service.get_ich_record(db, record_id)
+    return success_response(
+        data={
+            "id": str(record.id),
+            "filename": record.filename,
+            "route": record.route,
+            "q3c_result": record.q3c_result,
+            "q3d_result": record.q3d_result,
+            "llm_used": record.llm_used,
+            "notes": record.notes,
+            "created_at": record.created_at.isoformat(),
+        }
     )
-    record = result.scalar_one_or_none()
-    if not record:
-        return error_response(message="记录不存在")
-    
-    return success_response(data={
-        "id": str(record.id),
-        "filename": record.filename,
-        "route": record.route,
-        "llm_used": record.llm_used,
-        "notes": record.notes,
-        "q3c": record.q3c_result,
-        "q3d": record.q3d_result,
-        "created_at": record.created_at.isoformat() if record.created_at else None,
-    })
 
 
 @router.delete("/ich/records/{record_id}", summary="删除 ICH 分析记录")
@@ -357,117 +181,236 @@ async def delete_ich_record(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
-    """软删除 ICH 分析记录"""
-    from app.modules.research.models import ICHAnalysisRecord
-    from sqlalchemy import select
-    
-    result = await db.execute(
-        select(ICHAnalysisRecord).where(
-            ICHAnalysisRecord.id == record_id,
-            ICHAnalysisRecord.is_deleted == False,
+    await service.delete_ich_record(db, record_id)
+    return success_response(data={"message": "记录已删除"})
+
+
+@router.post("/edbo/optimize", summary="EDBO+ 贝叶斯优化")
+async def edbo_optimize(
+    file: UploadFile = File(..., description="反应范围 CSV 文件"),
+    objectives: str = Body(..., description="目标列名，逗号分隔"),
+    objective_modes: str = Body("max", description="目标方向，逗号分隔（max/min）"),
+    batch_size: int = Body(5, ge=1, le=100, description="建议实验数量"),
+    save_prediction: bool = Body(False, description="是否保存预测文件"),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    """
+    使用 EDBO+ 进行贝叶斯反应优化。
+
+    上传 CSV 文件（反应范围），指定目标列和优化方向，返回建议的实验列表。
+    如果 save_prediction=True，还会返回预测文件（包含所有实验的模型预测结果）。
+    """
+    from app.modules.research.edbo_runner import run_edbo_optimization
+    from app.modules.research.schemas import EDBOOptimizeResponse
+
+    # Parse comma-separated strings
+    obj_list = [o.strip() for o in objectives.split(",") if o.strip()]
+    mode_list = [m.strip() for m in objective_modes.split(",") if m.strip()]
+
+    if len(obj_list) != len(mode_list):
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail=f"objectives ({len(obj_list)}) and objective_modes ({len(mode_list)}) must have the same length"
         )
+
+    # Read CSV content
+    csv_content = (await file.read()).decode("utf-8")
+
+    # Run EDBO+ optimization
+    result = await run_edbo_optimization(
+        csv_content=csv_content,
+        objectives=obj_list,
+        objective_modes=mode_list,
+        batch_size=batch_size,
+        save_prediction=save_prediction,
     )
-    record = result.scalar_one_or_none()
-    if not record:
-        return error_response(message="记录不存在")
+
+    return success_response(data=EDBOOptimizeResponse(**result))
+
+
+@router.post("/edbo/generate-scope", summary="生成反应范围")
+async def edbo_generate_scope(
+    components: dict = Body(..., description="组件定义，支持两种格式：1) 直接值列表 {name: [v1,v2,...]} 2) 范围定义 {name: {type: 'numeric', lower: x, upper: y, data_points: n}} 或 {name: {type: 'categorical', values: [...]}}")
+):
+    """
+    生成反应范围 CSV（所有组合的笛卡尔积）
     
-    record.is_deleted = True
-    await db.flush()
-    await db.commit()
+    支持两种组件格式：
     
-    return success_response(message="删除成功")
-
-
-# ============ Bayesian Optimization APIs ============
-
-@router.post("/projects/{project_id}/components", summary="添加贝叶斯优化参数")
-async def add_component(
-    project_id: uuid.UUID,
-    data: dict = Body(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
-) -> JSONResponse:
-    component = await service.create_component(db, project_id, data)
-    return success_response(data={"id": str(component.id), **data})
-
-
-@router.get("/projects/{project_id}/components", summary="获取项目参数列表")
-async def get_components(
-    project_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    components = await service.get_components(db, project_id)
-    return success_response(data=components)
-
-
-@router.delete("/components/{component_id}", summary="删除参数")
-async def delete_component(
-    component_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
-) -> JSONResponse:
-    await service.delete_component(db, component_id)
-    return success_response(message="参数已删除")
-
-
-@router.post("/projects/{project_id}/objectives", summary="添加优化目标")
-async def add_objective(
-    project_id: uuid.UUID,
-    data: dict = Body(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
-) -> JSONResponse:
-    objective = await service.create_objective(db, project_id, data)
-    return success_response(data={"id": str(objective.id), **data})
-
-
-@router.get("/projects/{project_id}/objectives", summary="获取优化目标列表")
-async def get_objectives(
-    project_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    objectives = await service.get_objectives(db, project_id)
-    return success_response(data=objectives)
-
-
-@router.delete("/objectives/{objective_id}", summary="删除优化目标")
-async def delete_objective(
-    objective_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
-) -> JSONResponse:
-    await service.delete_objective(db, objective_id)
-    return success_response(message="目标已删除")
-
-
-@router.get("/projects/{project_id}/experiments", summary="获取实验列表")
-async def get_experiments(
-    project_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    experiments = await service.get_experiments(db, project_id)
-    return success_response(data=experiments)
-
-
-@router.post("/experiments/{experiment_id}/result", summary="记录实验结果")
-async def record_result(
-    experiment_id: uuid.UUID,
-    data: dict = Body(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
-) -> JSONResponse:
-    experiment = await service.record_experiment_result(db, experiment_id, data)
-    return success_response(data=experiment)
-
-
-@router.post("/projects/{project_id}/suggest", summary="推荐实验")
-async def suggest_experiments(
-    project_id: uuid.UUID,
-    data: dict = Body(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
-) -> JSONResponse:
-    from app.modules.research.edbo_service import suggest_experiments as edbo_suggest
-    batch_size = data.get("batch_size", 5)
-    experiments = await edbo_suggest(db, project_id, batch_size)
-    return success_response(data=experiments)
+    1. 简单值列表（直接枚举）:
+    ```json
+    {
+        "solvent": ["THF", "DMSO"],
+        "catalyst": ["Pd", "Ni"]
+    }
+    ```
+    
+    2. 范围定义（数值型自动生成等间隔值）:
+    ```json
+    {
+        "temperature": {"type": "numeric", "lower": 30, "upper": 90, "data_points": 4},
+        "solvent": {"type": "categorical", "values": ["THF", "DMSO", "MeOH"]}
+    }
+    ```
+    
+    数值型组件会自动处理有效数字，避免浮点精度问题。
+    """
+    import itertools
+    import math
+    import pandas as pd
+    from fastapi.responses import StreamingResponse
+    import io
+    
+    def count_significant_digits(num):
+        """Count the number of significant digits in a number."""
+        if num == 0:
+            return 1
+        num_str = str(num).lower()
+        if 'e' in num_str:
+            mantissa = num_str.split('e')[0].replace('.', '').lstrip('0')
+            return len(mantissa)
+        if '.' in num_str:
+            integer_part, decimal_part = num_str.split('.')
+            integer_part = integer_part.lstrip('0')
+            if integer_part:
+                return len(integer_part) + len(decimal_part)
+            else:
+                decimal_part = decimal_part.lstrip('0')
+                return len(decimal_part)
+        else:
+            return len(num_str.lstrip('0'))
+    
+    def round_to_significant_digits(num, sig_digits):
+        """Round a number to the specified number of significant digits."""
+        if num == 0:
+            return 0
+        if abs(num) == float('inf') or math.isnan(num):
+            return num
+        magnitude = 10 ** (sig_digits - 1 - int(math.floor(math.log10(abs(num)))))
+        rounded = round(num * magnitude) / magnitude
+        return rounded
+    
+    def generate_numeric_values(lower, upper, data_points):
+        """Generate numeric values with proper significant digit handling."""
+        if lower > upper:
+            raise ValueError(f"下限 ({lower}) 不能大于上限 ({upper})")
+        if data_points <= 1:
+            raise ValueError(f"数据点数必须大于 1")
+        
+        values = []
+        if data_points == 2:
+            return [lower, upper]
+        
+        interval = (upper - lower) / (data_points - 1)
+        
+        # Check for extreme case: too many data points for small intervals
+        if abs(lower) > 1e-15:
+            relative_interval = interval / abs(lower)
+            if relative_interval < 1e-6:
+                raise ValueError(f"数据点过多，间隔过小")
+        
+        # Determine significant digits
+        lower_sig_digits = count_significant_digits(lower)
+        upper_sig_digits = count_significant_digits(upper)
+        target_sig_digits = min(lower_sig_digits, upper_sig_digits)
+        
+        # Check if first in-between value rounds to lower limit
+        first_in_between = lower + interval
+        rounded_first = round_to_significant_digits(first_in_between, target_sig_digits)
+        if abs(rounded_first - lower) < 1e-10:
+            # Increase significant digits until different
+            current_sig_digits = target_sig_digits + 1
+            while current_sig_digits <= 15:
+                rounded_first = round_to_significant_digits(first_in_between, current_sig_digits)
+                if abs(rounded_first - lower) > 1e-10:
+                    target_sig_digits = current_sig_digits
+                    break
+                current_sig_digits += 1
+        
+        # Generate all values
+        for i in range(data_points):
+            exact_value = lower + i * interval
+            if abs(exact_value) == float('inf') or math.isnan(exact_value):
+                values.append(exact_value)
+            else:
+                rounded_value = round_to_significant_digits(exact_value, target_sig_digits)
+                values.append(rounded_value)
+        
+        return values
+    
+    # Validate input
+    if not components:
+        raise HTTPException(status_code=400, detail="组件定义不能为空")
+    
+    # Process each component
+    processed_components = {}
+    for key, value in components.items():
+        if isinstance(value, list):
+            # Simple list format
+            processed_components[key] = value
+        elif isinstance(value, dict):
+            # Range definition format
+            comp_type = value.get('type', 'categorical')
+            if comp_type == 'numeric':
+                lower = value.get('lower')
+                upper = value.get('upper')
+                data_points = value.get('data_points')
+                if lower is None or upper is None or data_points is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"组件 '{key}' 缺少必要参数 (lower, upper, data_points)"
+                    )
+                try:
+                    processed_components[key] = generate_numeric_values(
+                        float(lower), float(upper), int(data_points)
+                    )
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=f"组件 '{key}': {str(e)}")
+            elif comp_type == 'categorical':
+                cat_values = value.get('values', [])
+                if not cat_values:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"组件 '{key}' 的值列表不能为空"
+                    )
+                processed_components[key] = cat_values
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"组件 '{key}' 的类型无效: {comp_type}"
+                )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"组件 '{key}' 的格式无效"
+            )
+    
+    # Calculate total combinations
+    n_combinations = 1
+    for key, values in processed_components.items():
+        n_combinations *= len(values)
+    
+    if n_combinations > 10000:
+        raise HTTPException(
+            status_code=400,
+            detail=f"组合数量过大 ({n_combinations})，请减少组件选项"
+        )
+    
+    # Generate Cartesian product
+    keys = list(processed_components.keys())
+    values = [processed_components[key] for key in keys]
+    
+    scope = [dict(zip(keys, combination)) for combination in itertools.product(*values)]
+    df_scope = pd.DataFrame(scope)
+    
+    # Convert to CSV
+    csv_buffer = io.StringIO()
+    df_scope.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)
+    
+    return {
+        "csv_data": csv_buffer.getvalue(),
+        "row_count": len(scope),
+        "columns": keys
+    }

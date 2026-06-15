@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -57,3 +57,22 @@ class ResearchProjectResponse(BaseModel):
     updated_by: uuid.UUID | None
 
     model_config = {"from_attributes": True}
+
+
+class EDBOOptimizeRequest(BaseModel):
+    """EDBO+ 贝叶斯优化请求"""
+
+    objectives: list[str] = Field(..., min_length=1, description="目标列名列表")
+    objective_modes: list[Literal["max", "min"]] = Field(
+        ..., min_length=1, description="目标方向（max/min），与 objectives 一一对应"
+    )
+    batch_size: int = Field(default=5, ge=1, le=100, description="建议实验数量")
+
+
+class EDBOOptimizeResponse(BaseModel):
+    """EDBO+ 贝叶斯优化响应"""
+
+    csv_data: str = Field(..., description="Base64 编码的结果 CSV")
+    row_count: int = Field(..., description="结果行数")
+    prediction_data: Optional[str] = Field(None, description="Base64 编码的预测文件 CSV（可选）")
+    prediction_filename: Optional[str] = Field(None, description="预测文件名（可选）")

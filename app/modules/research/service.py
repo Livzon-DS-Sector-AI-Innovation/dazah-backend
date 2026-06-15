@@ -1,7 +1,5 @@
 """Research business workflows."""
 
-from typing import Any
-
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +19,6 @@ async def create_project(
     # Auto-generate project_no if not provided
     project_no = data.project_no
     if not project_no:
-        import uuid
         project_no = f"PRJ-{str(uuid.uuid4())[:8].upper()}"
     
     if await repo.exists_by_project_no(db, project_no):
@@ -72,95 +69,118 @@ async def delete_project(db: AsyncSession, project_id: uuid.UUID) -> None:
     await repo.delete_project(db, project)
 
 
-# ============ Bayesian Component Operations ============
-
-async def create_component(db: AsyncSession, project_id: uuid.UUID, data: dict) -> Any:
-    data["project_id"] = project_id
-    return await repo.create_component(db, data)
+# ICH Analysis functions
+from app.modules.research.models import ICHAnalysisRecord
+from sqlalchemy import select, func
 
 
-async def get_components(db: AsyncSession, project_id: uuid.UUID) -> list[Any]:
-    return await repo.get_components_by_project(db, project_id)
-
-
-async def delete_component(db: AsyncSession, component_id: uuid.UUID) -> None:
-    component = await repo.get_component_by_id(db, component_id)
-    if not component:
-        raise NotFoundException("参数", str(component_id))
-    await repo.delete_component(db, component)
-
-
-# ============ Bayesian Objective Operations ============
-
-async def create_objective(db: AsyncSession, project_id: uuid.UUID, data: dict) -> Any:
-    data["project_id"] = project_id
-    return await repo.create_objective(db, data)
-
-
-async def get_objectives(db: AsyncSession, project_id: uuid.UUID) -> list[Any]:
-    return await repo.get_objectives_by_project(db, project_id)
-
-
-async def delete_objective(db: AsyncSession, objective_id: uuid.UUID) -> None:
-    objective = await repo.get_objective_by_id(db, objective_id)
-    if not objective:
-        raise NotFoundException("目标", str(objective_id))
-    await repo.delete_objective(db, objective)
-
-
-# ============ Bayesian Experiment Operations ============
-
-async def create_experiment(db: AsyncSession, project_id: uuid.UUID, data: dict) -> Any:
-    data["project_id"] = project_id
-    return await repo.create_experiment(db, data)
-
-
-async def get_experiments(db: AsyncSession, project_id: uuid.UUID) -> list[Any]:
-    return await repo.get_experiments_by_project(db, project_id)
-
-
-async def record_experiment_result(
+async def analyze_ich_q3c(
     db: AsyncSession,
-    experiment_id: uuid.UUID,
-    results: dict,
-) -> Any:
-    experiment = await repo.get_experiment_by_id(db, experiment_id)
-    if not experiment:
-        raise NotFoundException("实验", str(experiment_id))
-    return await repo.update_experiment_results(db, experiment, results)
+    file_content: bytes,
+    filename: str,
+    route: str | None = None,
+) -> dict:
+    """Analyze ICH Q3C solvent residuals from uploaded file."""
+    # TODO: Implement actual Q3C analysis logic
+    # For now, create a placeholder record
+    record = ICHAnalysisRecord(
+        filename=filename,
+        route=route,
+        q3c_result={"status": "pending", "message": "Q3C analysis not yet implemented"},
+        q3d_result=None,
+        llm_used=False,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    
+    return {
+        "id": str(record.id),
+        "filename": record.filename,
+        "route": record.route,
+        "q3c_result": record.q3c_result,
+        "q3d_result": record.q3d_result,
+        "llm_used": record.llm_used,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+    }
 
 
-# ============ Bayesian Project Operations ============
-
-async def create_bayesian_project(db: AsyncSession, data: dict) -> Any:
-    return await repo.create_bayesian_project(db, data)
-
-
-async def get_bayesian_projects(
+async def analyze_ich_combined(
     db: AsyncSession,
-    keyword: str | None = None,
+    file_content: bytes,
+    filename: str,
+    route: str | None = None,
+    use_llm: bool = False,
+) -> dict:
+    """Analyze ICH Q3C/Q3D combined analysis from uploaded file."""
+    # TODO: Implement actual combined analysis logic
+    # For now, create a placeholder record
+    record = ICHAnalysisRecord(
+        filename=filename,
+        route=route,
+        q3c_result={"status": "pending", "message": "Q3C analysis not yet implemented"},
+        q3d_result={"status": "pending", "message": "Q3D analysis not yet implemented"},
+        llm_used=use_llm,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    
+    return {
+        "id": str(record.id),
+        "filename": record.filename,
+        "route": record.route,
+        "q3c_result": record.q3c_result,
+        "q3d_result": record.q3d_result,
+        "llm_used": record.llm_used,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+    }
+
+
+async def get_ich_records(
+    db: AsyncSession,
     page: int = 1,
     page_size: int = 20,
-) -> tuple[list[Any], int]:
-    return await repo.get_bayesian_projects(db, keyword=keyword, page=page, page_size=page_size)
+) -> tuple[list[ICHAnalysisRecord], int]:
+    """Get paginated ICH analysis records."""
+    # Get total count
+    count_query = select(func.count()).select_from(ICHAnalysisRecord)
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+    
+    # Get paginated records
+    query = (
+        select(ICHAnalysisRecord)
+        .order_by(ICHAnalysisRecord.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    result = await db.execute(query)
+    records = list(result.scalars().all())
+    
+    return records, total
 
 
-async def get_bayesian_project(db: AsyncSession, project_id: uuid.UUID) -> Any:
-    project = await repo.get_bayesian_project_by_id(db, project_id)
-    if not project:
-        raise NotFoundException("贝叶斯项目", str(project_id))
-    return project
-
-
-async def update_bayesian_project(
+async def get_ich_record(
     db: AsyncSession,
-    project_id: uuid.UUID,
-    data: dict,
-) -> Any:
-    project = await get_bayesian_project(db, project_id)
-    return await repo.update_bayesian_project(db, project, data)
+    record_id: uuid.UUID,
+) -> ICHAnalysisRecord:
+    """Get single ICH analysis record by ID."""
+    query = select(ICHAnalysisRecord).where(ICHAnalysisRecord.id == record_id)
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    
+    if not record:
+        raise NotFoundException("ICH分析记录", str(record_id))
+    
+    return record
 
 
-async def delete_bayesian_project(db: AsyncSession, project_id: uuid.UUID) -> None:
-    project = await get_bayesian_project(db, project_id)
-    await repo.delete_bayesian_project(db, project)
+async def delete_ich_record(
+    db: AsyncSession,
+    record_id: uuid.UUID,
+) -> None:
+    """Delete ICH analysis record by ID."""
+    record = await get_ich_record(db, record_id)
+    await db.delete(record)
+    await db.commit()

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AI analysis service for deviation management."""
 
 import logging
@@ -43,11 +45,11 @@ async def analyze_deviation_async(deviation_id: uuid.UUID, user_id: str):
     This function is called in the background after deviation submission.
     """
     from sqlalchemy.ext.asyncio import AsyncSession
-    from app.core.database import async_session_maker
+    from app.core.database import async_session_factory
     from app.modules.quality.models import Deviation
 
     try:
-        async with async_session_maker() as db:
+        async with async_session_factory() as db:
             # Fetch deviation
             deviation = await db.get(Deviation, deviation_id)
             if not deviation or deviation.is_deleted:
@@ -65,8 +67,8 @@ async def analyze_deviation_async(deviation_id: uuid.UUID, user_id: str):
             )
 
             # Call LLM
-            llm_config = LLMConfig()
-            result = await call_llm(prompt, llm_config)
+            # LLM config is global
+            result = await call_llm(prompt)
 
             # Parse and save result
             if isinstance(result, dict):
@@ -100,8 +102,8 @@ async def analyze_deviation_sync(deviation: Deviation) -> dict | None:
         )
 
         # Call LLM
-        llm_config = LLMConfig()
-        result = await call_llm(prompt, llm_config)
+        # LLM config is global
+        result = await call_llm(prompt)
 
         if isinstance(result, dict):
             return result
