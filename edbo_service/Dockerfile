@@ -6,7 +6,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir patchelf
 
 # Install PyTorch CPU-only FIRST (before requirements.txt pulls in CUDA version)
-RUN pip install --no-cache-dir torch==1.10.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch==1.10.0+cpu --extra-index-url https://mirrors.tuna.tsinghua.edu.cn/pytorch-wheels/cpu
 
 # Install other dependencies (botorch will see torch is already installed)
 COPY edbo_service/requirements.txt .
