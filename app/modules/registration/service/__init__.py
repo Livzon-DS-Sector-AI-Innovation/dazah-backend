@@ -1,5 +1,9 @@
 """Registration service."""
 
+from app.modules.registration.service.authorization import (
+    AuthorizationLetterService,
+    SupplementaryReplyService,
+)
 from app.modules.registration.service.drug import (
     create_drug,
     delete_drug,
@@ -15,6 +19,8 @@ from app.modules.registration.service.holiday import (
 )
 
 __all__ = [
+    "AuthorizationLetterService",
+    "SupplementaryReplyService",
     "create_drug",
     "create_holiday",
     "delete_drug",

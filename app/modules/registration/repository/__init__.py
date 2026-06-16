@@ -1,5 +1,9 @@
 """Registration repository."""
 
+from app.modules.registration.repository.authorization import (
+    AuthorizationLetterRepository,
+    SupplementaryReplyRepository,
+)
 from app.modules.registration.repository.drug import (
     create_drug,
     create_drug_node,
@@ -19,6 +23,8 @@ from app.modules.registration.repository.holiday import (
 )
 
 __all__ = [
+    "AuthorizationLetterRepository",
+    "SupplementaryReplyRepository",
     "create_drug",
     "create_drug_node",
     "create_holiday",

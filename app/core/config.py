@@ -88,6 +88,10 @@ class Settings(BaseSettings):
         "禁止出现'根据规则'、'依据以上信息'等元话语。"
     )
 
+    # Regulatory Tracker — 定时同步
+    DAILY_SYNC_CRON: str = "0 2 * * *"
+    CRAWLER_HEADLESS: bool = True
+
     # API
     API_V1_PREFIX: str = "/api/v1"
 

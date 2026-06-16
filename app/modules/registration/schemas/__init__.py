@@ -1,5 +1,14 @@
 """Registration module schemas."""
 
+from app.modules.registration.schemas.authorization import (
+    AuthorizationLetterCreate,
+    AuthorizationLetterListItem,
+    AuthorizationLetterResponse,
+    ProductInfo,
+    SupplementaryReplyCreate,
+    SupplementaryReplyListItem,
+    SupplementaryReplyResponse,
+)
 from app.modules.registration.schemas.drug import (
     DrugCreate,
     DrugNodeCreate,
@@ -20,6 +29,9 @@ from app.modules.registration.schemas.review import (
 )
 
 __all__ = [
+    "AuthorizationLetterCreate",
+    "AuthorizationLetterListItem",
+    "AuthorizationLetterResponse",
     "DrugCreate",
     "DrugNodeCreate",
     "DrugNodeResponse",
@@ -30,6 +42,10 @@ __all__ = [
     "HolidayCreate",
     "HolidayResponse",
     "NodeCalculation",
+    "ProductInfo",
     "ReviewNodeConfig",
     "StatsResponse",
+    "SupplementaryReplyCreate",
+    "SupplementaryReplyListItem",
+    "SupplementaryReplyResponse",
 ]
