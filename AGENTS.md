@@ -103,6 +103,65 @@ uv run alembic upgrade head  # 确保能顺利升级
 
 如果 `autogenerate` 混入了其他模块的无关变更，手动清理 migration 文件，只保留自己模块的 DDL。
 
+
+### 迁移工作流（重要）
+
+当前状态：数据库已整合到单一 baseline 迁移 (`68024feea3d7`)，所有历史中间迁移已删除。
+
+**创建新迁移的标准流程：**
+
+```bash
+# 1. 确保本地数据库是最新的
+alembic upgrade head
+
+# 2. 修改 SQLAlchemy 模型（在 app/modules/<module>/models.py）
+
+# 3. 生成迁移文件
+alembic revision --autogenerate -m "add_xxx_table"
+
+# 4. 检查生成的迁移文件
+# - 确认 upgrade() 和 downgrade() 都正确
+# - 确认只包含你模块的变更
+# - 如果有新 schema，确保 upgrade() 开头有 CREATE SCHEMA IF NOT EXISTS
+
+# 5. 测试迁移
+alembic upgrade head      # 升级
+alembic downgrade -1      # 降级
+alembic upgrade head      # 再升级
+
+# 6. 提交前检查
+alembic heads             # 必须只有一个 head
+alembic current           # 确认数据库版本
+```
+
+**团队协作规则：**
+
+- 创建迁移前必须 `git pull` 并运行 `alembic upgrade head`
+- 如果有多个 head，先合并：`alembic merge heads -m "merge heads"`
+- 不要修改已推送的迁移文件，如需变更，创建新的迁移
+- 部署前必须确认 `alembic heads` 只有一个
+
+**何时需要整合迁移（consolidate）：**
+
+- 迁移文件过多（>20个）且难以追踪
+- 迁移链出现严重冲突或断裂
+- 重大版本发布后，清理历史
+
+整合步骤：
+```bash
+# 1. 生成完整的 baseline 迁移
+alembic revision -m "baseline"
+# 手动编辑迁移文件，包含完整的 CREATE TABLE 语句
+
+# 2. 删除所有旧的迁移文件（保留新的 baseline）
+
+# 3. 更新数据库版本
+psql -c "UPDATE alembic_version SET version_num = '<new_baseline_id>'"
+
+# 4. 验证
+alembic current
+alembic heads
+```
 ## 审计、身份与外部集成
 
 - 新增、修改、删除、审批、导入、同步等关键业务操作，应考虑通过 `app/platform/audit/service.py` 记录审计信息。
