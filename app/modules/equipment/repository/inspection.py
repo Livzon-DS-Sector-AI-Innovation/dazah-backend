@@ -23,6 +23,18 @@ from app.modules.equipment.models.inspection_template import (
 async def create_route(
     db: AsyncSession, data: dict
 ) -> InspectionRoute:
+    # 清理同 name 的已软删除记录，避免重复添加→删除→添加→删除时违反唯一约束
+    name = data.get("name")
+    if name:
+        deleted_result = await db.execute(
+            select(InspectionRoute).where(
+                InspectionRoute.name == name,
+                InspectionRoute.is_deleted == True,  # noqa: E712
+            )
+        )
+        for old in deleted_result.scalars().all():
+            await db.delete(old)
+
     route = InspectionRoute(**data)
     db.add(route)
     await db.flush()
@@ -122,43 +134,62 @@ async def delete_route(db: AsyncSession, route_id: uuid.UUID) -> bool:
 async def set_route_equipments(
     db: AsyncSession, route_id: uuid.UUID, items: list[dict]
 ) -> list[InspectionRouteEquipment]:
-    # 获取当前活跃记录
-    old_result = await db.execute(
+    # 获取该路线所有记录（含已软删除的），避免重复添加→删除→添加时违反唯一约束
+    all_result = await db.execute(
         select(InspectionRouteEquipment).where(
             InspectionRouteEquipment.route_id == route_id,
-            InspectionRouteEquipment.is_deleted == False,  # noqa: E712
         )
     )
-    old_records = list(old_result.scalars().all())
-    old_ids = {r.equipment_id for r in old_records}
-    old_by_id = {r.equipment_id: r for r in old_records}
+    all_records = list(all_result.scalars().all())
+
+    # 按 equipment_id 分组：活跃记录 和 已删除记录
+    active_by_id: dict[uuid.UUID, InspectionRouteEquipment] = {}
+    deleted_by_id: dict[uuid.UUID, InspectionRouteEquipment] = {}
+    for r in all_records:
+        if r.is_deleted:
+            # 同一 pair 可能有多条已删除记录（历史 bug 残留），只保留一条
+            if r.equipment_id not in deleted_by_id:
+                deleted_by_id[r.equipment_id] = r
+        else:
+            active_by_id[r.equipment_id] = r
 
     new_ids = {item["equipment_id"] for item in items}
+    active_ids = set(active_by_id.keys())
 
-    # 删除：旧有但新 items 中没有的记录
-    to_delete_ids = old_ids - new_ids
-    for r in old_records:
-        if r.equipment_id in to_delete_ids:
-            r.is_deleted = True
+    # 删除：活跃但新 items 中没有的记录 → 软删除
+    to_delete_ids = active_ids - new_ids
+    for eq_id in to_delete_ids:
+        r = active_by_id[eq_id]
+        # 如果已存在同 pair 的软删除记录（历史残留），先物理删除它
+        if eq_id in deleted_by_id:
+            await db.delete(deleted_by_id[eq_id])
+            del deleted_by_id[eq_id]
+        r.is_deleted = True
 
-    # 新增：新 items 中有但旧记录中没有的设备
-    to_add_ids = new_ids - old_ids
+    # 新增/恢复/更新
     result: list[InspectionRouteEquipment] = []
     for item in items:
-        if item["equipment_id"] in to_add_ids:
+        eq_id = item["equipment_id"]
+        if eq_id in active_by_id:
+            # 已存在活跃记录：更新 sort_order
+            existing = active_by_id[eq_id]
+            existing.sort_order = item.get("sort_order", existing.sort_order)
+            result.append(existing)
+        elif eq_id in deleted_by_id:
+            # 存在已软删除的旧记录：恢复它
+            restored = deleted_by_id[eq_id]
+            restored.is_deleted = False
+            restored.sort_order = item.get("sort_order", restored.sort_order)
+            result.append(restored)
+        else:
+            # 全新记录
             re_ = InspectionRouteEquipment(
                 route_id=route_id,
-                equipment_id=item["equipment_id"],
+                equipment_id=eq_id,
                 sort_order=item.get("sort_order", 0),
             )
             db.add(re_)
             result.append(re_)
-        else:
-            # 已存在：更新 sort_order
-            existing = old_by_id.get(item["equipment_id"])
-            if existing:
-                existing.sort_order = item.get("sort_order", existing.sort_order)
-                result.append(existing)
 
     await db.flush()
     return result

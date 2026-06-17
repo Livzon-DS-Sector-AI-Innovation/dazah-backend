@@ -39,11 +39,13 @@ class InspectionTemplate(BaseModel):
         comment="是否启用",
     )
 
-    # 关系
+    # 关系（仅加载未删除的检查项）
     items: Mapped[list[InspectionTemplateItem]] = relationship(
         "InspectionTemplateItem",
         back_populates="template",
         order_by="InspectionTemplateItem.sort_order",
+        primaryjoin="and_(InspectionTemplate.id == foreign(InspectionTemplateItem.template_id), "
+                     "InspectionTemplateItem.is_deleted == False)",
     )
 
 

@@ -8,9 +8,11 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     ForeignKey,
+    Index,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,8 +24,13 @@ class EquipmentCategory(BaseModel):
 
     __tablename__ = "equipment_categories"
     __table_args__ = (
-        UniqueConstraint(
-            "code", "is_deleted", name="uq_equipment_categories_code"
+        # 部分唯一索引：仅对未删除的记录做 code 唯一性检查
+        # 解决软删除后同名 code 无法再次删除的问题
+        Index(
+            "uq_equipment_categories_code",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
         ),
         {"schema": "equipment"},
     )
@@ -60,8 +67,12 @@ class Location(BaseModel):
 
     __tablename__ = "locations"
     __table_args__ = (
-        UniqueConstraint(
-            "code", "is_deleted", name="uq_locations_code"
+        # 部分唯一索引：仅对未删除的记录做 code 唯一性检查
+        Index(
+            "uq_locations_code",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
         ),
         {"schema": "equipment"},
     )
