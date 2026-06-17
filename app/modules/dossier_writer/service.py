@@ -9,6 +9,7 @@ from datetime import datetime
 
 from docx import Document
 # Removed invalid import
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -19,6 +20,23 @@ from .schemas import (
     ProductDossierCreate, ProductDossierUpdate,
     ChapterResponse, ChapterDetailResponse, AssetResponse,
 )
+
+
+
+def _chapter_sort_key(code: str):
+    """将 chapter_code 转为可排序的整数元组, 如 '3.2.S.1.2' -> (3,2,100,1,2)"""
+    if not code:
+        return ()
+    out = []
+    for seg in code.split('.'):
+        if seg.upper() == 'S':
+            out.append(100)  # 字母段排在数字之后(不会与真实段号冲突)
+        else:
+            try:
+                out.append(int(seg))
+            except ValueError:
+                out.append(999)
+    return tuple(out)
 
 
 class DossierService:
@@ -64,6 +82,9 @@ class DossierService:
         
         # 创建 M3 标准目录树
         await self._create_m3_chapters(dossier.id)
+        
+        # 自动初始化 S.6 章节的 AI 配置（字段映射 + 素材分类）
+        await self.init_chapter_ai_config("3.2.S.6")
         
         await self.db.commit()
         await self.db.refresh(dossier)
@@ -113,25 +134,36 @@ class DossierService:
     async def save_template_file(
         self, dossier_id: UUID, filename: str, file_content: bytes
     ) -> DossierTemplate:
-        """保存模板文件"""
+        """保存模板文件（同名文件覆盖更新）"""
         dossier = await self.repo.get_product_dossier(dossier_id)
         if not dossier:
             raise ValueError(f"品种资料不存在: {dossier_id}")
 
-        # 保存文件
+        # 保存文件（覆盖同名文件）
         source_dir = Path(dossier.source_templates_path)
         source_dir.mkdir(parents=True, exist_ok=True)
         file_path = source_dir / filename
         file_path.write_bytes(file_content)
 
-        # 创建记录
-        template = DossierTemplate(
-            product_dossier_id=dossier_id,
-            original_filename=filename,
-            file_path=str(file_path),
-            file_size=len(file_content),
-        )
-        template = await self.repo.create_template(template)
+        # 查找是否已有同名模板
+        existing = await self.repo.get_template_by_filename(dossier_id, filename)
+        
+        if existing:
+            # 更新已有记录
+            existing.file_path = str(file_path)
+            existing.file_size = len(file_content)
+            await self.db.flush()
+            template = existing
+        else:
+            # 创建新记录
+            template = DossierTemplate(
+                product_dossier_id=dossier_id,
+                original_filename=filename,
+                file_path=str(file_path),
+                file_size=len(file_content),
+            )
+            template = await self.repo.create_template(template)
+        
         await self.db.commit()
         return template
 
@@ -325,14 +357,11 @@ class DossierService:
         if dossier.template_original_manufacturer:
             replacements[dossier.template_original_manufacturer] = dossier.manufacturer
 
-        # 无菌类型替换（常见模式）
-        sterile_map = {
-            "无菌": dossier.sterile_type if "无菌" in dossier.sterile_type else "无菌",
-            "非无菌": dossier.sterile_type if "非无菌" in dossier.sterile_type else "非无菌",
-        }
-        for old, new in sterile_map.items():
-            if old != new:
-                replacements[old] = new
+        # 无菌类型替换：根据用户选择的类型，替换模板中相反的值
+        if dossier.sterile_type == "无菌":
+            replacements["非无菌"] = "无菌"
+        elif dossier.sterile_type == "非无菌":
+            replacements["无菌"] = "非无菌"
 
         if not replacements:
             doc.save(str(file_path))
@@ -393,6 +422,8 @@ class DossierService:
 
         def build_node(chapter: DossierChapter) -> ChapterResponse:
             children = chapter_map.get(chapter.id, [])
+            # 确保子节点按 sort_order 排序
+            children = sorted(children, key=lambda c: _chapter_sort_key(c.chapter_code or ''))
             return ChapterResponse(
                 id=chapter.id,
                 parent_id=chapter.parent_id,
@@ -410,6 +441,8 @@ class DossierService:
 
         # 根节点是 parent_id 为 None 的章节
         root_chapters = chapter_map.get(None, [])
+        # 确保根节点也按 sort_order 排序
+        root_chapters = sorted(root_chapters, key=lambda c: _chapter_sort_key(c.chapter_code or ''))
         return [build_node(c) for c in root_chapters]
 
     async def get_chapter_detail(self, chapter_id: UUID) -> Optional[ChapterDetailResponse]:
@@ -431,6 +464,7 @@ class DossierService:
         
         return ChapterDetailResponse(
             id=chapter.id,
+            product_dossier_id=chapter.product_dossier_id,
             chapter_code=chapter.chapter_code,
             chapter_title=chapter.chapter_title,
             level=chapter.level,
@@ -442,6 +476,38 @@ class DossierService:
         )
 
     # ====== Asset Management ======
+
+    async def _suggest_category(self, chapter_code: str, filename: str) -> Optional[UUID]:
+        """根据文件名自动猜测素材分类"""
+        from .field_models import AssetCategory
+        
+        stmt = select(AssetCategory).where(
+            and_(
+                AssetCategory.chapter_code == chapter_code,
+                AssetCategory.is_deleted == False,
+            )
+        )
+        result = await self.db.execute(stmt)
+        categories = list(result.scalars().all())
+        
+        if not categories:
+            return None
+        
+        fname_lower = filename.lower()
+        
+        for cat in categories:
+            name_lower = cat.category_name.lower()
+            # 分类名称出现在文件名中
+            if name_lower in fname_lower:
+                return cat.id
+            # 描述中的关键词（按空格/标点分词）
+            if cat.description:
+                import re
+                desc_words = [w for w in re.split(r'[\s，。、；：""''（）(),;]+', cat.description) if len(w) > 2]
+                if any(w.lower() in fname_lower for w in desc_words):
+                    return cat.id
+        
+        return None
 
     async def upload_chapter_asset(
         self, chapter_id: UUID, filename: str, file_content: bytes
@@ -464,6 +530,9 @@ class DossierService:
         # 获取文件类型
         file_type = Path(filename).suffix.lower().lstrip('.')
 
+        # 自动猜测分类
+        suggested_category_id = await self._suggest_category(chapter.chapter_code, filename)
+        
         # 创建记录
         asset = ChapterAsset(
             chapter_id=chapter_id,
@@ -471,6 +540,7 @@ class DossierService:
             file_path=str(file_path),
             file_type=file_type,
             file_size=len(file_content),
+            category_id=suggested_category_id,
         )
         asset = await self.repo.create_asset(asset)
 
@@ -520,39 +590,53 @@ class DossierService:
         outputs_dir = Path(dossier.outputs_path)
         outputs_dir.mkdir(parents=True, exist_ok=True)
 
-        # 生成导出文件名
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        export_filename = f"{dossier.product_name}_申报资料_{timestamp}.docx"
-        export_path = outputs_dir / export_filename
+        export_path = None
+        export_filename = None
 
-        # 简单实现：复制 working copy 作为导出
-        # TODO: 后续实现合并多个章节、应用素材内容等
-        if chapter_ids:
-            # 导出指定章节（简化处理）
-            chapters = await self.repo.get_chapter_tree(dossier_id)
-            source_files = set()
-            for chapter in chapters:
-                if chapter.id in chapter_ids and chapter.working_file:
-                    source_files.add(chapter.working_file)
-            
-            if len(source_files) == 1:
-                source_file = working_dir / list(source_files)[0]
+        # 获取章节信息用于命名
+        all_chapters = await self.repo.get_chapter_tree(dossier_id)
+        chapter_map = {ch.id: ch for ch in all_chapters}
+
+        if chapter_ids and len(chapter_ids) == 1:
+            # 单章节导出：用 章节编号_章节标题.docx
+            target_chapter = chapter_map.get(chapter_ids[0])
+            if target_chapter and target_chapter.working_file:
+                safe_title = re.sub(r'[\/:*?"<>|]', '_', target_chapter.chapter_title)
+                code_part = target_chapter.chapter_code or "unknown"
+                export_filename = f"{code_part}_{safe_title}.docx"
+                export_path = outputs_dir / export_filename
+                source_file = working_dir / target_chapter.working_file
                 if source_file.exists():
                     shutil.copy2(source_file, export_path)
-            else:
-                # 多文件合并（简化：复制第一个）
-                for sf in source_files:
-                    source_file = working_dir / sf
-                    if source_file.exists():
-                        shutil.copy2(source_file, export_path)
-                        break
-        else:
-            # 导出全部（复制第一个 working 文件）
+                else:
+                    export_path = None
+        elif chapter_ids:
+            # 多章节导出：用 品种名_章节编号范围_申报资料.docx
+            matched_chapters = [
+                chapter_map[cid] for cid in chapter_ids
+                if cid in chapter_map and chapter_map[cid].working_file
+            ]
+            if matched_chapters:
+                codes = sorted(set(ch.chapter_code for ch in matched_chapters if ch.chapter_code))
+                code_range = f"{codes[0]}-{codes[-1]}" if len(codes) > 1 else (codes[0] if codes else "export")
+                export_filename = f"{dossier.product_name}_{code_range}_申报资料.docx"
+                export_path = outputs_dir / export_filename
+                source_file = working_dir / matched_chapters[0].working_file
+                if source_file.exists():
+                    shutil.copy2(source_file, export_path)
+                else:
+                    export_path = None
+
+        # fallback：品种名_申报资料_时间戳
+        if not export_path or not export_path.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            export_filename = f"{dossier.product_name}_申报资料_{timestamp}.docx"
+            export_path = outputs_dir / export_filename
             working_files = list(working_dir.glob("*.docx"))
             if working_files:
                 shutil.copy2(working_files[0], export_path)
 
-        if export_path.exists():
+        if export_path and export_path.exists():
             return {
                 "success": True,
                 "message": "导出成功",
@@ -584,11 +668,12 @@ class DossierService:
             shutil.rmtree(base)
 
     async def _create_m3_chapters(self, dossier_id: UUID) -> None:
-        """创建 M3 标准目录结构"""
+        """创建 M3 标准目录结构，按 M3_CHAPTERS 定义顺序赋值 sort_order"""
         code_to_id: Dict[str, UUID] = {}
         
-        # 按层级顺序创建章节
-        for ch in sorted(M3_CHAPTERS, key=lambda x: x["level"]):
+        # 两遍遍历：先创建所有节点，再按 M3 标准顺序赋值 sort_order
+        # 第一遍：创建所有章节记录（按原始列表顺序，保证父节点先于子节点）
+        for idx, ch in enumerate(M3_CHAPTERS):
             parent_id = code_to_id.get(ch["parent_code"]) if ch["parent_code"] else None
             
             chapter = DossierChapter(
@@ -597,7 +682,7 @@ class DossierService:
                 chapter_code=ch["code"],
                 chapter_title=ch["title"],
                 level=ch["level"],
-                sort_order=0,
+                sort_order=idx,
                 has_content=False,
                 has_assets=False,
             )
@@ -724,4 +809,79 @@ class DossierService:
             "message": f"匹配完成：{matched_count} 个文件已匹配，{len(unmatched_files)} 个未匹配",
             "matched_count": matched_count,
             "unmatched_files": unmatched_files,
+        }
+
+    async def init_chapter_ai_config(self, chapter_code: str) -> Dict[str, Any]:
+        """初始化章节的 AI 配置（FieldMapping + AssetCategory）
+        
+        从 scripts/seed_s6_ai_config.py 中的种子数据初始化，不再使用硬编码配置。
+        如果该章节已有配置，跳过不重复创建。
+        """
+        from .field_models import FieldMapping, AssetCategory
+        
+        # 加载种子数据
+        from scripts.seed_s6_ai_config import S6_FIELD_MAPPINGS, S6_ASSET_CATEGORIES
+        
+        # 只处理指定章节的配置
+        field_configs = [c for c in S6_FIELD_MAPPINGS if c.get("chapter_code") == chapter_code]
+        category_configs = [c for c in S6_ASSET_CATEGORIES if c.get("chapter_code") == chapter_code]
+        
+        if not field_configs and not category_configs:
+            return {
+                "success": False,
+                "message": f"章节 {chapter_code} 没有可用的种子配置"
+            }
+        
+        created_mappings = 0
+        skipped_mappings = 0
+        
+        # 创建 FieldMapping
+        for config in field_configs:
+            stmt = select(FieldMapping).where(
+                FieldMapping.chapter_code == config["chapter_code"],
+                FieldMapping.field_name == config["field_name"],
+                FieldMapping.is_deleted == False
+            )
+            result = await self.db.execute(stmt)
+            existing = result.scalar_one_or_none()
+            
+            if existing:
+                skipped_mappings += 1
+                continue
+            
+            mapping = FieldMapping(**config)
+            self.db.add(mapping)
+            created_mappings += 1
+        
+        created_categories = 0
+        skipped_categories = 0
+        
+        # 创建 AssetCategory
+        for config in category_configs:
+            stmt = select(AssetCategory).where(
+                AssetCategory.chapter_code == config["chapter_code"],
+                AssetCategory.category_name == config["category_name"],
+                AssetCategory.is_deleted == False
+            )
+            result = await self.db.execute(stmt)
+            existing = result.scalar_one_or_none()
+            
+            if existing:
+                skipped_categories += 1
+                continue
+            
+            category = AssetCategory(**config)
+            self.db.add(category)
+            created_categories += 1
+        
+        await self.db.commit()
+        
+        return {
+            "success": True,
+            "message": f"{chapter_code} 配置初始化完成: 字段映射 {created_mappings} 新建/{skipped_mappings} 跳过, 素材分类 {created_categories} 新建/{skipped_categories} 跳过",
+            "chapter_code": chapter_code,
+            "field_mappings_created": created_mappings,
+            "field_mappings_skipped": skipped_mappings,
+            "asset_categories_created": created_categories,
+            "asset_categories_skipped": skipped_categories,
         }

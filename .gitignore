@@ -1,6 +1,6 @@
 __pycache__/
 *.py[cod]
-*$py.class
+*$py/class
 *.so
 .Python
 .venv/
@@ -30,12 +30,19 @@ Thumbs.db
 *.swo
 uploads
 
+# Docs and assets
 docs/superpowersscripts/bitable_inspect_result.json
 docs/superpowers
-assets
 docs/superpowersuploads/
+
+# Local storage data
+storage/
+
+# Wheels
 wheels/
-uploads
+
+# Assets
+assets
 assets/**/*.xlsx
 assets/**/*.docx
 assets/**/*.doc

@@ -104,6 +104,22 @@ class DossierRepository:
         await self.db.flush()
         return template
 
+    async def get_template_by_filename(self, dossier_id: UUID, filename: str) -> Optional[DossierTemplate]:
+        """根据文件名查找模板（用于覆盖更新），返回最新的一条"""
+        stmt = (
+            select(DossierTemplate)
+            .where(
+                and_(
+                    DossierTemplate.product_dossier_id == dossier_id,
+                    DossierTemplate.original_filename == filename,
+                )
+            )
+            .order_by(DossierTemplate.uploaded_at.desc())
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def list_templates(self, dossier_id: UUID) -> List[DossierTemplate]:
         """获取模板列表"""
         stmt = (

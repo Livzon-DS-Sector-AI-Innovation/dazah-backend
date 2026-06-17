@@ -6,6 +6,7 @@ from sqlalchemy import String, Boolean, Integer, Text, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.base_model import BaseModel
+from .field_models import AssetCategory  # noqa: F401
 
 
 class ProductDossier(BaseModel):
@@ -182,5 +183,14 @@ class ChapterAsset(BaseModel):
         UUID(as_uuid=True), nullable=True, comment="上传人"
     )
     
+    # 素材分类
+    category_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("dossier_writer.asset_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="素材分类ID",
+    )
+    
     # 关系
     chapter = relationship("DossierChapter", back_populates="assets")
+    category = relationship("AssetCategory", foreign_keys=[category_id])

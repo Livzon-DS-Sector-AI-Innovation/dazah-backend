@@ -1,6 +1,7 @@
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -104,6 +105,16 @@ class Settings(BaseSettings):
     # Regulatory Tracker — 定时同步
     DAILY_SYNC_CRON: str = "0 2 * * *"
     CRAWLER_HEADLESS: bool = True
+    CRAWLER_BROWSERS_PATH: str = ""  # 空字符串 = Playwright 默认路径
+    CDE_GUIDELINE_URL: str = "https://www.cde.org.cn/zdyz/listpage/9cd8db3b7530c6fa0c86485e563f93c7"
+
+    # Storage
+    STORAGE_ROOT: str = "./storage"
+
+    # LLM (AI 解析配置)
+    LLM_API_KEY: Optional[str] = None
+    LLM_BASE_URL: Optional[str] = "https://api.deepseek.com"
+    LLM_MODEL: Optional[str] = "deepseek-chat"
 
     # MCP — AI Agent 认证
     MCP_AGENT_API_KEYS: str = ""
