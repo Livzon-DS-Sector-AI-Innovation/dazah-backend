@@ -133,36 +133,31 @@ uv run alembic upgrade head  # 确保能顺利升级
 5. 涉及数据库变更时，同步 ORM、migration、模块注册和测试。
 6. 完成后说明修改文件、验证结果、跨模块或架构影响，以及未完成事项。
 
-## 验证
+## API 路由架构
 
-完成代码修改后至少运行：
+前端通过统一的反向代理访问后端 API，开发和生产环境配置完全一致。
 
-```bash
-uv run ruff check .
-uv run mypy app tests
-uv run pytest
-```
+### 路由转发机制
 
-如果修改了 Alembic：
+- **开发环境**：浏览器 → Next.js (3000) → `src/proxy.ts` → 后端 (8000)
+- **生产环境**：浏览器 → nginx → Next.js (3000) 或 后端 (8000)
+- **前端服务器端**：直接通过 `API_BASE_URL` 环境变量访问后端（Docker内部网络）
 
-```bash
-uv run alembic heads
-```
+### API 路径规范
 
-如果修改了应用启动、路由或依赖注入：
+- 所有 API 路径以 `/api/v1/` 开头
+- 按模块组织：`/api/v1/<模块>/<资源>`
+- 示例：`/api/v1/production/batches`、`/api/v1/quality/cpv/products`
 
-```bash
-uv run python -c "from app.main import app; print(app.title)"
-```
+### 环境变量
 
-## 禁止事项
+- `API_BASE_URL`：前端服务器端访问后端的地址（Docker 内部网络）
+- 前端客户端代码使用相对路径 `/api/v1/...`，无需关心后端真实地址
+- 开发环境通过 Next.js proxy 自动转发
+- 生产环境由 nginx 反向代理处理
 
-- 不要把业务表、schema、查询和业务规则集中到全局文件或同一个模块文件里。
-- 不要在 `api.py` 定义 Pydantic schema、ORM model、repository 查询或复杂业务逻辑。
-- 不要让业务模块直接 import 其他模块的内部实现。
-- 不要把内部 service 函数当作跨模块公共接口；跨模块接口必须经过 `public_api.py`。
-- 不要在业务模块中直接写飞书、ERP、LIMS 的 HTTP 调用。
-- 不要绕过 Alembic 要求用户手工改数据库。
-- 不要在没有需求的情况下引入微服务、消息队列、复杂权限系统或前端代码。
-- 不要修改不属于自己负责范围的模块、项目架构或全局公共代码，除非需求明确要求且已说明影响范围。
-- 不要删除或重写用户已有改动，除非用户明确要求。
+### 注意事项
+
+- 后端服务运行在 Docker 网络内部，地址为 `http://dazah-backend-app-1:8000`
+- 前端通过 `API_BASE_URL` 环境变量访问后端（服务器端代码）
+- 前端客户端通过相对路径 `/api/v1/...` 访问（由 proxy/nginx 转发）

@@ -6,7 +6,11 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.research.models import ResearchProject
+from app.modules.research.models import (
+    PilotWorkflow,
+    PilotWorkflowStep,
+    ResearchProject,
+)
 
 
 def _escape_like(value: str) -> str:
@@ -110,3 +114,92 @@ async def delete_project(db: AsyncSession, project: ResearchProject) -> None:
     await db.flush()
 
 
+
+
+# ===== Pilot Workflow Repository =====
+
+
+
+async def create_workflow(
+    db: AsyncSession, data: dict[str, Any]
+) -> PilotWorkflow:
+    workflow = PilotWorkflow(**data)
+    db.add(workflow)
+    await db.flush()
+    return workflow
+
+
+async def get_workflow_by_id(
+    db: AsyncSession, workflow_id: uuid.UUID
+) -> PilotWorkflow | None:
+    result = await db.execute(
+        select(PilotWorkflow).where(
+            PilotWorkflow.id == workflow_id,
+            PilotWorkflow.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_workflows(
+    db: AsyncSession,
+    status: str | None = None,
+    keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[PilotWorkflow], int]:
+    query = select(PilotWorkflow).where(
+        PilotWorkflow.is_deleted == False,  # noqa: E712
+    )
+    count_query = select(func.count()).select_from(PilotWorkflow).where(
+        PilotWorkflow.is_deleted == False,  # noqa: E712
+    )
+
+    if status:
+        query = query.where(PilotWorkflow.status == status)
+        count_query = count_query.where(PilotWorkflow.status == status)
+    if keyword:
+        pattern = f"%{_escape_like(keyword)}%"
+        query = query.where(PilotWorkflow.product_name.ilike(pattern))
+        count_query = count_query.where(PilotWorkflow.product_name.ilike(pattern))
+
+    total = (await db.execute(count_query)).scalar_one()
+
+    query = query.order_by(PilotWorkflow.created_at.desc()).offset(
+        (page - 1) * page_size
+    ).limit(page_size)
+    result = await db.execute(query)
+    return result.scalars().all(), total
+
+
+async def delete_workflow(
+    db: AsyncSession, workflow: PilotWorkflow
+) -> None:
+    workflow.is_deleted = True
+    await db.flush()
+
+
+async def get_workflow_steps(
+    db: AsyncSession, workflow_id: uuid.UUID
+) -> list[PilotWorkflowStep]:
+    result = await db.execute(
+        select(PilotWorkflowStep)
+        .where(
+            PilotWorkflowStep.workflow_id == workflow_id,
+            PilotWorkflowStep.is_deleted == False,  # noqa: E712
+        )
+        .order_by(PilotWorkflowStep.step_order)
+    )
+    return list(result.scalars().all())
+
+
+async def get_workflow_step_by_id(
+    db: AsyncSession, step_id: uuid.UUID
+) -> PilotWorkflowStep | None:
+    result = await db.execute(
+        select(PilotWorkflowStep).where(
+            PilotWorkflowStep.id == step_id,
+            PilotWorkflowStep.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()

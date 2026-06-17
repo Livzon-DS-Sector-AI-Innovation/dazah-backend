@@ -126,7 +126,7 @@ async def analyze_ich_combined(
     return success_response(data=result)
 
 
-@router.get("/ich/records", summary="获取 ICH 分析记录列表")
+@router.get("/ich/records", summary="获取 ICH Q3C/Q3D 杂质识别记录列表")
 async def get_ich_records(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -154,7 +154,7 @@ async def get_ich_records(
     )
 
 
-@router.get("/ich/records/{record_id}", summary="获取 ICH 分析记录详情")
+@router.get("/ich/records/{record_id}", summary="获取 ICH Q3C/Q3D 杂质识别记录详情")
 async def get_ich_record(
     record_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -175,7 +175,7 @@ async def get_ich_record(
     )
 
 
-@router.delete("/ich/records/{record_id}", summary="删除 ICH 分析记录")
+@router.delete("/ich/records/{record_id}", summary="删除 ICH Q3C/Q3D 杂质识别记录")
 async def delete_ich_record(
     record_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -473,3 +473,167 @@ async def edbo_generate_scope(
         "columns": keys,
         "optimization_completed": False
     }
+
+
+# ===== Pilot Workflow API =====
+
+import os
+import uuid as uuid_module
+
+from app.modules.research import repository as pilot_repo
+from app.modules.research.pilot_workflow.engine import (
+    start_workflow as start_workflow_engine,
+    approve_step as approve_step_engine,
+)
+from app.modules.research.schemas import (
+    PilotWorkflowCreate,
+    PilotWorkflowListResponse,
+    PilotWorkflowResponse,
+    PilotWorkflowStepResponse,
+)
+
+
+@router.post("/pilot/workflow", summary="创建中试研究")
+async def create_pilot_workflow(
+    data: PilotWorkflowCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    workflow_data = data.model_dump()
+    workflow = await pilot_repo.create_workflow(db, workflow_data)
+    await db.flush()
+
+    # 构建响应（不含步骤）
+    response_data = PilotWorkflowResponse.model_validate(workflow)
+    response_data.steps = []
+    return success_response(data=response_data)
+
+
+@router.get("/pilot/workflow", summary="获取中试研究列表")
+async def get_pilot_workflows(
+    status: str | None = Query(None, description="状态筛选"),
+    keyword: str | None = Query(None, description="搜索产品名称"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    workflows, total = await pilot_repo.get_workflows(
+        db, status=status, keyword=keyword, page=page, page_size=page_size
+    )
+
+    # 获取每个工作流的步骤数
+    items = []
+    for wf in workflows:
+        steps = await pilot_repo.get_workflow_steps(db, wf.id)
+        completed = sum(1 for s in steps if s.status == "completed")
+        item = PilotWorkflowListResponse.model_validate(wf)
+        item.step_count = len(steps)
+        item.completed_step_count = completed
+        items.append(item)
+
+    return paginated_response(
+        data=items,
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
+
+
+@router.get("/pilot/workflow/{workflow_id}", summary="获取工作流详情")
+async def get_pilot_workflow_detail(
+    workflow_id: uuid_module.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    workflow = await pilot_repo.get_workflow_by_id(db, workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+
+    steps = await pilot_repo.get_workflow_steps(db, workflow_id)
+    response_data = PilotWorkflowResponse.model_validate(workflow)
+    response_data.steps = [
+        PilotWorkflowStepResponse.model_validate(s) for s in steps
+    ]
+    return success_response(data=response_data)
+
+
+@router.post("/pilot/workflow/{workflow_id}/start", summary="启动工作流执行")
+async def start_pilot_workflow(
+    workflow_id: uuid_module.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    workflow = await pilot_repo.get_workflow_by_id(db, workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+
+    if workflow.status != "pending":
+        raise HTTPException(status_code=400, detail=f"工作流状态为 {workflow.status}，无法启动")
+
+    # 异步启动工作流
+    await start_workflow_engine(workflow_id)
+
+    return success_response(data={"message": "工作流已启动", "workflow_id": str(workflow_id)})
+
+
+
+
+@router.post("/pilot/workflow/{workflow_id}/approve", summary="确认当前步骤并执行下一步")
+async def approve_pilot_workflow_step(
+    workflow_id: uuid_module.UUID,
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    result = await approve_step_engine(workflow_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return success_response(data=result)
+
+@router.get("/pilot/workflow/{workflow_id}/steps/{step_id}", summary="获取步骤详情")
+async def get_pilot_workflow_step(
+    workflow_id: uuid_module.UUID,
+    step_id: uuid_module.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    step = await pilot_repo.get_workflow_step_by_id(db, step_id)
+    if not step or step.workflow_id != workflow_id:
+        raise HTTPException(status_code=404, detail="步骤不存在")
+
+    return success_response(
+        data=PilotWorkflowStepResponse.model_validate(step)
+    )
+
+
+@router.post("/pilot/workflow/{workflow_id}/upload", summary="上传工艺文档")
+async def upload_pilot_document(
+    workflow_id: uuid_module.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    workflow = await pilot_repo.get_workflow_by_id(db, workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+
+    if workflow.status != "pending":
+        raise HTTPException(status_code=400, detail="只有 pending 状态的工作流可以上传文档")
+
+    # 保存文件
+    upload_dir = "storage/pilot_workflow"
+    os.makedirs(upload_dir, exist_ok=True)
+    file_path = os.path.join(
+        upload_dir, f"{workflow_id}_{file.filename}"
+    )
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # 更新工作流
+    workflow.input_document_path = file_path
+    await db.flush()
+
+    return success_response(
+        data={
+            "file_path": file_path,
+            "filename": file.filename,
+            "file_size": len(content),
+        }
+    )

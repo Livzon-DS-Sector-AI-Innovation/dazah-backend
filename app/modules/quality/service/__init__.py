@@ -50,6 +50,31 @@ from app.modules.quality.service.quality_management import (
     submit_evaluation,
 )
 
+
+# CPV Products
+from app.modules.quality.service.cpv_product import (
+    create_product,
+    get_product_by_id,
+    get_products,
+    update_product,
+    delete_product,
+)
+from app.modules.quality.service.cpv_parameter import (
+    create_parameter,
+    get_parameter_by_id,
+    get_parameters,
+    update_parameter,
+    delete_parameter,
+)
+from app.modules.quality.service.cpv_batch import (
+    get_batches,
+    get_batches_wide,
+)
+from app.modules.quality.service.cpv_statistics import (
+    get_statistics,
+    get_trend_data,
+)
+
 __all__ = [
     # Deviations
     "get_deviation_list",
@@ -98,4 +123,23 @@ __all__ = [
     "delete_execution_track",
     "confirm_execution",
     "submit_evaluation",
+
+    # CPV Products
+    "create_product",
+    "get_product_by_id",
+    "get_products",
+    "update_product",
+    "delete_product",
+    # CPV Parameters
+    "create_parameter",
+    "get_parameter_by_id",
+    "get_parameters",
+    "update_parameter",
+    "delete_parameter",
+    # CPV Batches
+    "get_batches",
+    "get_batches_wide",
+    # CPV Statistics
+    "get_statistics",
+    "get_trend_data",
 ]

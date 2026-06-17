@@ -171,7 +171,7 @@ async def get_ich_record(
     record = result.scalar_one_or_none()
     
     if not record:
-        raise NotFoundException("ICH分析记录", str(record_id))
+        raise NotFoundException("ICH Q3C/Q3D 杂质识别记录", str(record_id))
     
     return record
 
@@ -184,3 +184,28 @@ async def delete_ich_record(
     record = await get_ich_record(db, record_id)
     await db.delete(record)
     await db.commit()
+
+
+async def get_llm_config() -> dict:
+    """Get LLM configuration."""
+    from app.modules.research.llm_service import llm_config
+    return llm_config.get_config()
+
+
+async def update_llm_config(data: dict) -> dict:
+    """Update LLM configuration."""
+    from app.modules.research.llm_service import llm_config
+    
+    api_key = data.get('api_key')
+    base_url = data.get('base_url')
+    model = data.get('model')
+    
+    llm_config.update_config(api_key=api_key, base_url=base_url, model=model)
+    
+    return llm_config.get_config()
+
+
+async def test_llm_connection() -> dict:
+    """Test LLM connection."""
+    from app.modules.research.llm_service import llm_config
+    return await llm_config.test_connection()

@@ -76,3 +76,82 @@ class EDBOOptimizeResponse(BaseModel):
     row_count: int = Field(..., description="结果行数")
     prediction_data: Optional[str] = Field(None, description="预测文件 CSV 文本（可选）")
     prediction_filename: Optional[str] = Field(None, description="预测文件名（可选）")
+
+
+# ===== Pilot Workflow Schemas =====
+
+PilotWorkflowStatus = Literal["pending", "running", "waiting_approval", "completed", "failed"]
+PilotWorkflowStepStatus = Literal[
+    "pending", "running", "waiting_approval", "completed", "failed", "skipped"
+]
+
+
+class PilotWorkflowCreate(BaseModel):
+    """创建中试研究"""
+
+    project_id: uuid.UUID | None = Field(default=None, description="关联研发项目ID")
+    product_name: str = Field(..., min_length=1, max_length=200, description="产品名称")
+    scale_up_ratio: float = Field(..., gt=0, description="放大倍数")
+    equipment_type: str = Field(
+        ..., min_length=1, max_length=100, description="设备类型"
+    )
+    equipment_volume: float = Field(..., gt=0, description="设备容积(L)")
+    input_context: dict | None = Field(default=None, description="额外上下文信息")
+
+
+class PilotWorkflowStepResponse(BaseModel):
+    """工作流步骤响应"""
+
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    step_order: int
+    step_code: str
+    step_name: str
+    status: str
+    input_data: dict | None
+    output_data: dict | None
+    error_message: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PilotWorkflowResponse(BaseModel):
+    """工作流响应"""
+
+    id: uuid.UUID
+    project_id: uuid.UUID | None
+    product_name: str
+    scale_up_ratio: float
+    equipment_type: str
+    equipment_volume: float
+    input_document_path: str | None
+    input_context: dict | None
+    status: str
+    final_report: dict | None
+    created_at: datetime
+    updated_at: datetime
+    created_by: uuid.UUID | None
+    updated_by: uuid.UUID | None
+    steps: list[PilotWorkflowStepResponse] = []
+
+    model_config = {"from_attributes": True}
+
+
+class PilotWorkflowListResponse(BaseModel):
+    """工作流列表响应"""
+
+    id: uuid.UUID
+    product_name: str
+    scale_up_ratio: float
+    equipment_type: str
+    equipment_volume: float
+    status: str
+    created_at: datetime
+    step_count: int = 0
+    completed_step_count: int = 0
+
+    model_config = {"from_attributes": True}
