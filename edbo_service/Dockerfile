@@ -3,18 +3,18 @@ FROM python:3.9-slim-bookworm
 WORKDIR /app
 
 # Install patchelf for PyTorch fixes
-RUN pip install --no-cache-dir patchelf
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple patchelf
 
 # Install PyTorch CPU-only FIRST (before requirements.txt pulls in CUDA version)
 RUN pip install --no-cache-dir torch==1.10.0 --extra-index-url https://mirrors.tuna.tsinghua.edu.cn/pytorch-wheels/cpu
 
 # Install other dependencies (botorch will see torch is already installed)
 COPY edbo_service/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn -r requirements.txt
 
 # Install EDBO+ package
 COPY edboplus-main /tmp/edboplus-main
-RUN pip install --no-cache-dir /tmp/edboplus-main && \
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn /tmp/edboplus-main && \
     rm -rf /tmp/edboplus-main
 
 # Patch PyTorch .so files for executable stack issues
