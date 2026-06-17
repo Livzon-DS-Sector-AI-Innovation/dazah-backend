@@ -316,7 +316,10 @@ async def _refetch_equipment(
     """eager re-fetch 设备及关联"""
     result = await db.execute(
         select(Equipment)
-        .options(selectinload(Equipment.category_links).selectinload(EquipmentCategoryLink.category))
+        .options(
+            selectinload(Equipment.category_links).selectinload(EquipmentCategoryLink.category),
+            selectinload(Equipment.location),
+        )
         .where(Equipment.id == equipment_id, Equipment.is_deleted == False)  # noqa: E712
     )
     return result.scalar_one_or_none()
@@ -329,7 +332,10 @@ async def get_equipment_by_id(
     """根据ID获取设备"""
     result = await db.execute(
         select(Equipment)
-        .options(selectinload(Equipment.category_links).selectinload(EquipmentCategoryLink.category))
+        .options(
+            selectinload(Equipment.category_links).selectinload(EquipmentCategoryLink.category),
+            selectinload(Equipment.location),
+        )
         .where(
             Equipment.id == equipment_id,
             Equipment.is_deleted == False,  # noqa: E712
@@ -365,7 +371,10 @@ async def get_equipments(
     """获取设备列表"""
     query = (
         select(Equipment)
-        .options(selectinload(Equipment.category_links).selectinload(EquipmentCategoryLink.category))
+        .options(
+            selectinload(Equipment.category_links).selectinload(EquipmentCategoryLink.category),
+            selectinload(Equipment.location),
+        )
         .where(Equipment.is_deleted == False)  # noqa: E712
     )
 

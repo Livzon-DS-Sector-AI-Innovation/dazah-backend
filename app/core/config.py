@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     FEISHU_EQUIPMENT_CHAT_ID: str = "oc_ba1a54a70a0d611315f29581621c50b5"
 
     # Feishu 组织架构同步
-    FEISHU_SYNC_ROOT_DEPT_ID: str = ""   # 部门同步的根部门 ID（API 触发）
+    FEISHU_SYNC_ROOT_DEPT_ID: str = ""  # 部门同步的根部门 ID（API 触发）
     FEISHU_SYNC_MEMBER_DEPT_ID: str = ""  # 成员同步的目标部门 ID（每日 00:00）
 
     # Feishu WebSocket 长连接（接收消息/事件推送）
@@ -101,6 +101,9 @@ class Settings(BaseSettings):
         "禁止出现'根据规则'、'依据以上信息'等元话语。"
     )
 
+    # MCP — AI Agent 认证
+    MCP_AGENT_API_KEYS: str = ""
+
     # API
     API_V1_PREFIX: str = "/api/v1"
 
@@ -123,8 +126,7 @@ class Settings(BaseSettings):
             missing.append("FRONTEND_URL")
         if missing:
             raise RuntimeError(
-                "以下 .env 配置项缺失或无效，请检查:\n  "
-                + "\n  ".join(missing),
+                "以下 .env 配置项缺失或无效，请检查:\n  " + "\n  ".join(missing),
             )
 
 

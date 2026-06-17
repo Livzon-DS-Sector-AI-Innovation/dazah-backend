@@ -32,4 +32,7 @@ uploads
 
 docs/superpowers
 uploads
-assets
+assets/**/*.xlsx
+assets/**/*.docx
+assets/**/*.doc
+assets/**/*.xls
