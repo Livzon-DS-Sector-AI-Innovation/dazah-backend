@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
 from pydantic import BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,6 +46,11 @@ class Settings(BaseSettings):
 
     # Storage
     STORAGE_ROOT: str = "./storage"
+
+    # LLM (AI 解析配置)
+    LLM_API_KEY: Optional[str] = None
+    LLM_BASE_URL: Optional[str] = "https://api.deepseek.com"
+    LLM_MODEL: Optional[str] = "deepseek-chat"
 
     @property
     def is_production(self) -> bool:

@@ -100,6 +100,7 @@ class ChapterResponse(BaseModel):
 class ChapterDetailResponse(BaseModel):
     """章节详情响应"""
     id: UUID
+    product_dossier_id: UUID
     chapter_code: Optional[str] = None
     chapter_title: str
     level: int
@@ -122,6 +123,7 @@ class AssetResponse(BaseModel):
     file_type: Optional[str] = None
     file_size: Optional[int] = None
     uploaded_at: datetime
+    category_id: Optional[UUID] = None
     
     class Config:
         from_attributes = True
@@ -135,6 +137,7 @@ class AssetUploadResponse(BaseModel):
     file_type: Optional[str] = None
     file_size: Optional[int] = None
     uploaded_at: datetime
+    category_id: Optional[UUID] = None
 
 
 # ====== Parse Result ======
