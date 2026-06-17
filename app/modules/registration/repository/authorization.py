@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.registration.models import AuthorizationLetter, SupplementaryReply
+from app.modules.registration.models import AuthorizationLetter, ReferenceStandard, SupplementaryReply
 
 
 class AuthorizationLetterRepository:
@@ -120,4 +120,59 @@ class SupplementaryReplyRepository:
 
     async def soft_delete(self, reply: "SupplementaryReply") -> None:
         reply.is_deleted = True
+        await self.session.flush()
+
+
+class ReferenceStandardRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, record_id: UUID) -> "ReferenceStandard | None":
+        result = await self.session.execute(
+            select(ReferenceStandard).where(
+                ReferenceStandard.id == record_id,
+                ReferenceStandard.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_records(
+        self,
+        *,
+        drug_name: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list["ReferenceStandard"], int]:
+        stmt = select(ReferenceStandard).where(
+            ReferenceStandard.is_deleted.is_(False)
+        )
+
+        if drug_name:
+            stmt = stmt.where(
+                ReferenceStandard.drug_name.ilike(f"%{drug_name}%")
+            )
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        default_sort = ReferenceStandard.created_at
+        sort_column = getattr(ReferenceStandard, sort_by, default_sort)
+        order_func = desc if sort_order == "desc" else asc
+        stmt = stmt.order_by(order_func(sort_column))
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def create(self, record: "ReferenceStandard") -> "ReferenceStandard":
+        self.session.add(record)
+        await self.session.flush()
+        await self.session.refresh(record)
+        return record
+
+    async def soft_delete(self, record: "ReferenceStandard") -> None:
+        record.is_deleted = True
         await self.session.flush()
