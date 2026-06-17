@@ -1,5 +1,7 @@
 """Work order service: state machine, business logic."""
 
+import asyncio
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -16,6 +18,8 @@ from app.modules.equipment.schemas import (
     WorkOrderUpdate,
     WorkOrderVerify,
 )
+
+logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
 
@@ -193,6 +197,23 @@ async def complete_work_order(
             db, wo.maintenance_plan_id
         )
 
+    # 待验收时，飞书通知责任人确认验收
+    if target == "待验收":
+        responsible = wo.responsible_person
+        equipment = wo.equipment
+        feishu_uid = (
+            getattr(responsible, "feishu_user_id", None)
+            if responsible else None
+        )
+        if feishu_uid:
+            asyncio.ensure_future(_notify_verification(
+                feishu_user_id=feishu_uid,
+                work_order_no=wo.work_order_no,
+                equipment_name=equipment.name if equipment else "",
+                assignee_name=wo.assignee.name if wo.assignee else "",
+                priority=wo.priority,
+            ))
+
     return await repo.get_work_order_by_id(db, wo.id)
 
 
@@ -218,6 +239,53 @@ async def _update_maintenance_plan_on_completion(
     )
     # last_generated_date 保持旧值，让 scheduler 下个周期自然触发
     await db.flush()
+
+
+async def _notify_verification(
+    feishu_user_id: str,
+    work_order_no: str,
+    equipment_name: str,
+    assignee_name: str,
+    priority: str,
+) -> None:
+    """工单进入待验收时，飞书通知责任人确认验收。
+
+    非关键路径：发送失败只记日志，不影响主流程。
+    """
+    try:
+        from app.modules.equipment.feishu.notification import send_user_card
+
+        title = f"🔔 工单待验收 - {work_order_no}"
+        lines = [
+            f"**工单编号：**{work_order_no}",
+            f"**关联设备：**{equipment_name}",
+            f"**优先级：**{priority}",
+        ]
+        if assignee_name:
+            lines.append(f"**维修人员：**{assignee_name}")
+        lines.extend([
+            "",
+            "维修已完成，请及时确认验收。",
+        ])
+        content = "\n".join(lines)
+
+        ok = await send_user_card(
+            open_id=feishu_user_id,
+            title=title,
+            content=content,
+        )
+        if ok:
+            logger.info(
+                "验收通知已发送: %s -> %s", work_order_no, feishu_user_id,
+            )
+        else:
+            logger.warning(
+                "验收通知发送失败: %s -> %s", work_order_no, feishu_user_id,
+            )
+    except Exception:
+        logger.exception(
+            "验收通知异常: %s -> %s", work_order_no, feishu_user_id,
+        )
 
 
 async def verify_work_order(

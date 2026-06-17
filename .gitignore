@@ -7,6 +7,8 @@ __pycache__/
 venv/
 env/
 .env
+.env.development
+.env.production
 *.egg-info/
 dist/
 build/
@@ -33,3 +35,8 @@ docs/superpowers
 assets
 docs/superpowersuploads/
 wheels/
+uploads
+assets/**/*.xlsx
+assets/**/*.docx
+assets/**/*.doc
+assets/**/*.xls

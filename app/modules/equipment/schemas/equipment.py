@@ -189,6 +189,7 @@ class EquipmentResponse(BaseModel):
     category_ids: list[uuid.UUID] = Field(default_factory=list)
     category_names: str | None = None
     location_id: uuid.UUID
+    location_name: str | None = None
     status: EquipmentStatus
     model: str | None
     specification: str | None

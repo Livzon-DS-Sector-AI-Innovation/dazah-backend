@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -6,9 +7,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # dazah-backend/
 
 
+def _get_env_file() -> str:
+    """根据 APP_ENV 选择对应的 .env 文件，默认为 development。"""
+    app_env = os.getenv("APP_ENV", "development")
+    env_file = str(_PROJECT_ROOT / f".env.{app_env}")
+    print(f"Loading environment variables from: {env_file}")
+    return env_file
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(_PROJECT_ROOT / ".env"),
+        env_file=_get_env_file(),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -40,11 +49,15 @@ class Settings(BaseSettings):
     FEISHU_EQUIPMENT_CHAT_ID: str = "oc_ba1a54a70a0d611315f29581621c50b5"
 
     # Feishu 组织架构同步
-    FEISHU_SYNC_ROOT_DEPT_ID: str = ""   # 部门同步的根部门 ID（API 触发）
+    FEISHU_SYNC_ROOT_DEPT_ID: str = ""  # 部门同步的根部门 ID（API 触发）
     FEISHU_SYNC_MEMBER_DEPT_ID: str = ""  # 成员同步的目标部门 ID（每日 00:00）
 
     # Feishu WebSocket 长连接（接收消息/事件推送）
     FEISHU_WS_ENABLED: bool = True
+
+    # Feishu 安全模块机器人（独立应用凭证）
+    SAFETY_FEISHU_APP_ID: str = ""
+    SAFETY_FEISHU_APP_SECRET: str = ""
 
     # Feishu 设备模块交互机器人（独立应用凭证）
     EQUIPMENT_FEISHU_APP_ID: str = ""
@@ -92,6 +105,9 @@ class Settings(BaseSettings):
     DAILY_SYNC_CRON: str = "0 2 * * *"
     CRAWLER_HEADLESS: bool = True
 
+    # MCP — AI Agent 认证
+    MCP_AGENT_API_KEYS: str = ""
+
     # API
     API_V1_PREFIX: str = "/api/v1"
 
@@ -114,8 +130,7 @@ class Settings(BaseSettings):
             missing.append("FRONTEND_URL")
         if missing:
             raise RuntimeError(
-                "以下 .env 配置项缺失或无效，请检查:\n  "
-                + "\n  ".join(missing),
+                "以下 .env 配置项缺失或无效，请检查:\n  " + "\n  ".join(missing),
             )
 
 

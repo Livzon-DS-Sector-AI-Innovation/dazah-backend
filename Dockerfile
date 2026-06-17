@@ -2,8 +2,9 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ENV UV_PYTHON=/usr/local/bin/python3
 
 COPY pyproject.toml uv.lock* ./

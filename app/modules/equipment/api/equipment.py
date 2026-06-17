@@ -36,6 +36,7 @@ async def _equipment_to_response(equipment, db=None) -> EquipmentResponse:
     resp.category_ids = [link.category_id for link in links if not link.is_deleted]
     names = [link.category.name for link in links if not link.is_deleted and link.category]
     resp.category_names = "、".join(names) if names else None
+    resp.location_name = equipment.location.name if equipment.location else None
     # 填充部门信息
     if equipment.department_id and db:
         dept_info = await repo.get_department_info(db, equipment.department_id)

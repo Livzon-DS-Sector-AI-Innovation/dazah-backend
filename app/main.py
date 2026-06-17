@@ -38,6 +38,14 @@ logging.getLogger("websockets").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
+# ── MCP 服务初始化（模块级别，确保 lifespan 可合并）──
+from app.modules.equipment import mcp_tools  # noqa: E402, F401 — 触发 @mcp.tool() 注册
+from app.platform.mcp.middleware import build_mcp_middleware  # noqa: E402
+from app.platform.mcp.server import get_mcp_app  # noqa: E402
+
+mcp_middleware = build_mcp_middleware()
+mcp_asgi = get_mcp_app(path="/", middleware=mcp_middleware)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -131,11 +139,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Shutting down %s", settings.APP_NAME)
 
 
+from fastmcp.utilities.lifespan import combine_lifespans  # noqa: E402
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="原料药事业部工厂基座系统",
     version="0.1.0",
-    lifespan=lifespan,
+    lifespan=combine_lifespans(lifespan, mcp_asgi.lifespan),
     docs_url="/docs" if not settings.is_production else None,
     redoc_url="/redoc" if not settings.is_production else None,
 )
@@ -156,6 +166,10 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 uploads_dir = os.path.abspath(settings.UPLOAD_DIR)
 os.makedirs(uploads_dir, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
+
+# ── 挂载 MCP 服务（AI Agent 协议入口）──
+app.mount("/mcp", mcp_asgi, name="mcp")
+logger.info("MCP server mounted at /mcp")
 
 
 @app.exception_handler(AppException)
@@ -182,9 +196,7 @@ async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     errors = exc.errors()
-    detail = "; ".join(
-        f"{e.get('loc', [''])[-1]}: {e.get('msg', '')}" for e in errors
-    )
+    detail = "; ".join(f"{e.get('loc', [''])[-1]}: {e.get('msg', '')}" for e in errors)
     return error_response(
         message="请求参数校验失败",
         detail=detail,

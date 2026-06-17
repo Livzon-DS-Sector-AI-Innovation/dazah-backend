@@ -68,6 +68,7 @@ ORM 和 migration 规则：
 - 修改 ORM 模型后必须新增 Alembic migration。
 - 不要修改已经合并或执行过的历史 migration，除非用户明确要求。
 - 新增 schema 时同步更新 `app/shared/module_registry.py` 和 migration。
+- **autogenerate 不会自动生成 `CREATE SCHEMA` 语句**。每次新增 schema 或生成包含新 schema 建表语句的迁移时，必须在 `upgrade()` 开头手动添加 `op.execute("CREATE SCHEMA IF NOT EXISTS <schema_name>")`，否则空库部署会报错。
 
 常用命令见 [examples/commands.md](examples/commands.md)。
 

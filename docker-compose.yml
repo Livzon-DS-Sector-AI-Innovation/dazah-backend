@@ -34,12 +34,7 @@ services:
     profiles:
       - init
     build: .
-    environment:
-      APP_ENV: ${APP_ENV:-development}
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
-      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://postgres:postgres@db:5432/dazah}
-      FEISHU_APP_ID: ${FEISHU_APP_ID}
-      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET}
+    env_file: .env.production
     depends_on:
       db:
         condition: service_healthy
