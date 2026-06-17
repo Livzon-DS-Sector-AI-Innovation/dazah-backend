@@ -67,9 +67,9 @@ async def execute_ehs_assessment(
     workflow: PilotWorkflow,
 ) -> dict:
     """执行 EHS 与工艺安全评估"""
-    # 从 step_input 中提取前两步的结果
-    param_result = step_input.get("parameters", [])
-    scale_up_result = step_input
+    # 从累积的 step_input 中提取前两步的结果
+    param_result = step_input.get("param_extraction", {})
+    scale_up_result = step_input.get("scale_up_calc", {})
 
     prompt = _build_prompt(
         param_result=param_result,

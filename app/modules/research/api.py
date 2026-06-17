@@ -637,3 +637,21 @@ async def upload_pilot_document(
             "file_size": len(content),
         }
     )
+
+
+@router.delete("/pilot/workflow/{workflow_id}", summary="删除工作流")
+async def delete_pilot_workflow(
+    workflow_id: uuid_module.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    workflow = await pilot_repo.get_workflow_by_id(db, workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+
+    # Soft delete
+    workflow.is_deleted = True
+    workflow.updated_by = current_user.id if current_user else None
+    await db.flush()
+
+    return success_response(data={"id": str(workflow_id)})
