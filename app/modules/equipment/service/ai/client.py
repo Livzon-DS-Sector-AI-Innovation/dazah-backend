@@ -11,7 +11,7 @@ class QwenClient:
     """
 
     BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    MODEL = "qwen-vl-max"
+    MODEL = "qwen3.7-plus"
     API_KEY = "sk-a2ef55e9d2904572bb039f51e236a250"
 
     def __init__(self, timeout: int = 120):

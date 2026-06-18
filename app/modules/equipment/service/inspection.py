@@ -17,6 +17,9 @@ from app.modules.equipment.models.inspection import (
     InspectionRoute,
     InspectionTask,
 )
+from app.modules.equipment.models.inspection_route_location import (
+    RouteLocation,
+)
 from app.modules.equipment.models.inspection_template import InspectionRecord
 from app.modules.equipment.models.work_order import WorkOrder
 
@@ -51,7 +54,7 @@ async def get_route_by_id(
 async def get_routes(
     db: AsyncSession,
     is_active: bool | None = None,
-    area: str | None = None,
+    location_id: uuid.UUID | None = None,
     period_type: str | None = None,
     keyword: str | None = None,
     page: int = 1,
@@ -60,7 +63,7 @@ async def get_routes(
     return await repo.get_routes(
         db,
         is_active=is_active,
-        area=area,
+        location_id=location_id,
         period_type=period_type,
         keyword=keyword,
         page=page,
@@ -85,11 +88,11 @@ async def delete_route(
     return True
 
 
-async def set_route_equipments(
+async def set_route_locations(
     db: AsyncSession, route_id: uuid.UUID, items: list[dict]
-) -> list:
+) -> list[RouteLocation]:
     await get_route_by_id(db, route_id)
-    return await repo.set_route_equipments(db, route_id, items)
+    return await repo.set_route_locations(db, route_id, items)
 
 
 # ═══════════ 任务 ═══════════
@@ -130,23 +133,19 @@ async def create_task(
     if plan_type == "线路巡检":
         if not has_route:
             raise AppException(message="线路巡检必须选择巡检路线")
-        # 线路巡检时，如果未提供模板，则从路线的默认模板获取
-        if not data.get("template_id"):
-            route = await get_route_by_id(db, data["route_id"])
-            if route.template_id:
-                data["template_id"] = str(route.template_id)
-            else:
-                raise AppException(message="所选路线未配置默认检查模板，请手动选择模板")
+        # 线路巡检时，模板从路线地点下各设备的绑定获取，无需单独提供
     else:
-        # 设备巡检：至少需要提供一个设备
+        # 设备巡检：至少需要提供一个设备和一个模板
         if not has_equipment:
             raise AppException(message="设备巡检至少需要选择一台设备")
-        if not data.get("template_id"):
+        if not data.get("template_ids"):
             raise AppException(message="设备巡检必须选择检查模板")
 
     # JSON 列无法直接序列化 UUID 对象，需提前转为字符串
     if data.get("equipment_ids"):
         data["equipment_ids"] = [str(uid) for uid in data["equipment_ids"]]
+    if data.get("template_ids"):
+        data["template_ids"] = [str(uid) for uid in data["template_ids"]]
 
     for attempt in range(_MAX_RETRIES):
         task_no = await _generate_task_no(db)
@@ -169,8 +168,8 @@ async def get_tasks(
     route_id: uuid.UUID | None = None,
     assigned_to: uuid.UUID | None = None,
     equipment_id: uuid.UUID | None = None,
-    planned_date_from: date | None = None,
-    planned_date_to: date | None = None,
+    planned_time_from: datetime | None = None,
+    planned_time_to: datetime | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[InspectionTask], int]:
@@ -181,8 +180,8 @@ async def get_tasks(
         route_id=route_id,
         assigned_to=assigned_to,
         equipment_id=equipment_id,
-        planned_date_from=planned_date_from,
-        planned_date_to=planned_date_to,
+        planned_time_from=planned_time_from,
+        planned_time_to=planned_time_to,
         page=page,
         page_size=page_size,
     )
@@ -196,14 +195,12 @@ async def get_task_by_id(
 
 async def _refetch_task(db: AsyncSession, task_id: uuid.UUID) -> InspectionTask:
     """eager re-fetch 任务及关联，避免 MissingGreenlet"""
-    from app.modules.equipment.models.inspection import InspectionRoute as IRoute
 
     result = await db.execute(
         select(InspectionTask)
         .options(
-            selectinload(InspectionTask.route).selectinload(IRoute.equipments_rel),
+            selectinload(InspectionTask.route).selectinload(InspectionRoute.locations_rel),
             selectinload(InspectionTask.equipment),
-            selectinload(InspectionTask.template),
             selectinload(InspectionTask.assignee),
         )
         .where(InspectionTask.id == task_id)
@@ -413,6 +410,11 @@ async def submit_equipment_check(
         r["task_id"] = str(task_id)
         r["equipment_id"] = str(equipment_id)
 
+    # 校验：异常项必须填写实际值或备注
+    for r in records:
+        if r.get("result") == "异常" and not r.get("actual_value") and not r.get("remark"):
+            raise AppException(message="检查项异常时必须填写实际值或备注")
+
     # 替换旧记录：先软删除同设备的已有记录，再创建新记录
     await repo.soft_delete_records_by_task_equipment(db, task_id, equipment_id)
     created_records = await repo.create_inspection_records(db, records)
@@ -443,6 +445,52 @@ async def submit_equipment_check(
         )
 
     return created_records
+
+
+async def skip_equipment_check(
+    db: AsyncSession,
+    task_id: uuid.UUID,
+    equipment_id: uuid.UUID,
+    reason: str | None = None,
+) -> list[InspectionRecord]:
+    """跳过某台设备的巡检 — 为该设备所有检查项创建"跳过"记录。
+
+    适用场景：设备停机维修中、无法接近检查等。
+
+    先查该设备关联的模板检查项，为每项创建 result="跳过" 的记录。
+    如果已有记录则覆盖（先删后建）。
+    """
+    from app.modules.equipment.service.ai.service import _get_inspection_items
+
+    task = await _get_task(db, task_id)
+    if task.status != "执行中":
+        raise AppException(
+            message="任务未在'执行中'状态，不能跳过设备检查"
+        )
+
+    # 获取该设备的检查项
+    items = await _get_inspection_items(db, task, equipment_id)
+    if not items:
+        raise AppException(
+            message="该设备没有关联检查项，无法跳过"
+        )
+
+    records = [
+        {
+            "task_id": str(task_id),
+            "equipment_id": str(equipment_id),
+            "template_item_id": str(item.id),
+            "result": "跳过",
+            "actual_value": "",
+            "remark": reason or "现场无法检查",
+        }
+        for item in items
+    ]
+
+    # 先软删除已有记录，再创建新记录
+    await repo.soft_delete_records_by_task_equipment(db, task_id, equipment_id)
+    created = await repo.create_inspection_records(db, records)
+    return created
 
 
 # ═══════════ 照片 ═══════════
@@ -516,9 +564,9 @@ async def get_history(
         ITask.status.in_(["已完成", "已关闭"]),
     ]
     if date_from:
-        conditions.append(ITask.planned_date >= date_from)
+        conditions.append(ITask.planned_time >= date_from)
     if date_to:
-        conditions.append(ITask.planned_date <= date_to)
+        conditions.append(ITask.planned_time <= date_to)
     if equipment_id:
         conditions.append(
             or_(
@@ -539,13 +587,12 @@ async def get_history(
     stmt = (
         select(ITask)
         .options(
-            selectinload(ITask.route).selectinload(InspectionRoute.equipments_rel),
+            selectinload(ITask.route).selectinload(InspectionRoute.locations_rel),
             selectinload(ITask.equipment),
-            selectinload(ITask.template),
             selectinload(ITask.assignee),
         )
         .where(and_(*conditions))
-        .order_by(ITask.planned_date.desc(), ITask.created_at.desc())
+        .order_by(ITask.planned_time.desc(), ITask.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )

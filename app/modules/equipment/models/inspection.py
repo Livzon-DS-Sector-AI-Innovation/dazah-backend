@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
     CheckConstraint,
-    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -24,8 +23,8 @@ from app.shared.base_model import BaseModel
 
 if TYPE_CHECKING:
     from app.modules.equipment.models.equipment import Equipment
-    from app.modules.equipment.models.inspection_template import (
-        InspectionTemplate,
+    from app.modules.equipment.models.inspection_route_location import (
+        RouteLocation,
     )
     from app.platform.identity.models import User
 
@@ -49,9 +48,6 @@ class InspectionRoute(BaseModel):
     description: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="路线描述"
     )
-    area: Mapped[str | None] = mapped_column(
-        String(100), nullable=True, comment="区域"
-    )
     is_active: Mapped[bool] = mapped_column(
         default=True, server_default="true", comment="是否启用"
     )
@@ -61,24 +57,20 @@ class InspectionRoute(BaseModel):
     period_value: Mapped[int | None] = mapped_column(
         Integer, nullable=True, comment="周期数值"
     )
-    template_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("equipment.inspection_templates.id"),
-        nullable=True,
-        comment="默认检查模板ID",
-    )
 
     # 关系
-    equipments_rel: Mapped[list[InspectionRouteEquipment]] = relationship(
-        "InspectionRouteEquipment",
+    locations_rel: Mapped[list[RouteLocation]] = relationship(
+        "RouteLocation",
         back_populates="route",
-        order_by="InspectionRouteEquipment.sort_order",
-    )
-    template: Mapped[InspectionTemplate | None] = relationship(
-        "InspectionTemplate",
-        foreign_keys=[template_id],
+        order_by="RouteLocation.sort_order",
+        primaryjoin=(
+            "and_(InspectionRoute.id == foreign(RouteLocation.route_id), "
+            "RouteLocation.is_deleted == False)"
+        ),
     )
 
 
+# DEPRECATED: replaced by RouteLocationEquipment. Keep table for data reference.
 class InspectionRouteEquipment(BaseModel):
     """路线-设备关联表"""
 
@@ -105,9 +97,9 @@ class InspectionRouteEquipment(BaseModel):
         Integer, default=0, comment="巡检顺序"
     )
 
-    # 关系
+    # 关系（已废弃：equipments_rel 已改为 locations_rel）
     route: Mapped[InspectionRoute] = relationship(
-        back_populates="equipments_rel"
+        "InspectionRoute", foreign_keys=[route_id]
     )
     equipment: Mapped[Equipment] = relationship("Equipment")
 
@@ -151,9 +143,8 @@ class InspectionTask(BaseModel):
     equipment_ids: Mapped[list | None] = mapped_column(
         JSON, nullable=True, comment="设备ID列表（多设备模式）"
     )
-    template_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("equipment.inspection_templates.id"),
-        comment="检查模板ID",
+    template_ids: Mapped[list | None] = mapped_column(
+        JSON, nullable=True, comment="设备巡检绑定的模板ID列表"
     )
     plan_type: Mapped[str] = mapped_column(
         String(20),
@@ -165,7 +156,9 @@ class InspectionTask(BaseModel):
         nullable=True,
         comment="巡检人员ID",
     )
-    planned_date: Mapped[date] = mapped_column(Date, comment="计划日期")
+    planned_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), comment="计划巡检时间"
+    )
     status: Mapped[str] = mapped_column(
         String(20),
         default="待执行",
@@ -196,9 +189,6 @@ class InspectionTask(BaseModel):
     )
     equipment: Mapped[Equipment | None] = relationship(
         "Equipment", foreign_keys=[equipment_id]
-    )
-    template: Mapped[InspectionTemplate] = relationship(
-        "InspectionTemplate", foreign_keys=[template_id]
     )
     assignee: Mapped[User | None] = relationship(
         "User", foreign_keys=[assigned_to]

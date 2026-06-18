@@ -1,7 +1,7 @@
 """Inspection schemas."""
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -20,15 +20,11 @@ class InspectionRouteCreate(BaseModel):
 
     name: str = Field(..., max_length=200, description="路线名称")
     description: str | None = Field(default=None, description="路线描述")
-    area: str | None = Field(default=None, max_length=100, description="区域")
     period_type: InspectionPeriodType = Field(
         default="每日", description="巡检周期类型"
     )
     period_value: int | None = Field(
         default=None, ge=1, description="周期数值"
-    )
-    template_id: uuid.UUID | None = Field(
-        default=None, description="默认检查模板ID"
     )
 
 
@@ -37,38 +33,9 @@ class InspectionRouteUpdate(BaseModel):
 
     name: str | None = Field(default=None, max_length=200)
     description: str | None = Field(default=None)
-    area: str | None = Field(default=None, max_length=100)
     is_active: bool | None = Field(default=None)
     period_type: InspectionPeriodType | None = Field(default=None)
     period_value: int | None = Field(default=None)
-    template_id: uuid.UUID | None = Field(default=None)
-
-
-class InspectionRouteEquipmentItem(BaseModel):
-    """路线设备配置项"""
-
-    equipment_id: uuid.UUID = Field(..., description="设备ID")
-    sort_order: int = Field(default=0, description="排序")
-
-
-class InspectionRouteEquipmentBatch(BaseModel):
-    """批量设置路线设备请求"""
-
-    equipments: list[InspectionRouteEquipmentItem] = Field(
-        ..., min_length=1, description="设备列表"
-    )
-
-
-class RouteEquipmentResponse(BaseModel):
-    """路线设备关联响应"""
-
-    id: uuid.UUID
-    equipment_id: uuid.UUID
-    sort_order: int
-    equipment_name: str | None = None
-    equipment_no: str | None = None
-
-    model_config = {"from_attributes": True}
 
 
 class InspectionRouteResponse(BaseModel):
@@ -77,12 +44,11 @@ class InspectionRouteResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
-    area: str | None
     is_active: bool
     period_type: InspectionPeriodType
     period_value: int | None
-    template_id: uuid.UUID | None
     equipment_count: int = 0
+    location_count: int = 0
     created_at: datetime
     updated_at: datetime
     created_by: uuid.UUID | None
@@ -92,9 +58,105 @@ class InspectionRouteResponse(BaseModel):
 
 
 class InspectionRouteDetailResponse(InspectionRouteResponse):
-    """巡检路线详情响应（含设备列表）"""
+    """巡检路线详情响应（含地点设备列表）"""
 
-    equipments: list[RouteEquipmentResponse] = Field(default_factory=list)
+    locations: list["RouteLocationResponse"] = Field(default_factory=list)
+
+
+# ═══════════ 线路地点配置 ═══════════
+class RouteLocationEquipmentItem(BaseModel):
+    """地点设备配置请求项"""
+
+    equipment_id: uuid.UUID = Field(..., description="设备ID")
+    sort_order: int = Field(default=0, description="排序")
+    template_ids: list[uuid.UUID] = Field(
+        default_factory=list, description="绑定的模板ID列表"
+    )
+
+
+class RouteLocationItem(BaseModel):
+    """线路地点配置请求项"""
+
+    location_id: uuid.UUID = Field(..., description="地点ID")
+    sort_order: int = Field(default=0, description="地点顺序")
+    equipments: list[RouteLocationEquipmentItem] = Field(
+        default_factory=list, description="该地点下的设备列表"
+    )
+
+
+class RouteLocationsBatch(BaseModel):
+    """批量设置线路地点-设备-模板请求"""
+
+    locations: list[RouteLocationItem] = Field(
+        default_factory=list, description="地点列表（全量替换）"
+    )
+
+
+class RouteEquipmentTemplateResponse(BaseModel):
+    """设备-模板绑定响应"""
+
+    id: uuid.UUID
+    template_id: uuid.UUID
+    template_name: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class RouteLocationEquipmentResponse(BaseModel):
+    """线路地点设备响应"""
+
+    id: uuid.UUID
+    equipment_id: uuid.UUID
+    sort_order: int
+    equipment_name: str | None = None
+    equipment_no: str | None = None
+    templates: list[RouteEquipmentTemplateResponse] = Field(
+        default_factory=list
+    )
+
+    model_config = {"from_attributes": True}
+
+
+class RouteLocationResponse(BaseModel):
+    """线路地点响应"""
+
+    id: uuid.UUID
+    location_id: uuid.UUID
+    location_name: str | None = None
+    sort_order: int
+    equipments: list[RouteLocationEquipmentResponse] = Field(
+        default_factory=list
+    )
+
+    model_config = {"from_attributes": True}
+
+
+# ═══════════ 保留旧 schemas（不可删除，可能被其他代码引用） ═══════════
+class InspectionRouteEquipmentItem(BaseModel):
+    """路线设备配置项（已废弃，保留兼容）"""
+
+    equipment_id: uuid.UUID = Field(..., description="设备ID")
+    sort_order: int = Field(default=0, description="排序")
+
+
+class InspectionRouteEquipmentBatch(BaseModel):
+    """批量设置路线设备请求（已废弃，保留兼容）"""
+
+    equipments: list[InspectionRouteEquipmentItem] = Field(
+        ..., min_length=1, description="设备列表"
+    )
+
+
+class RouteEquipmentResponse(BaseModel):
+    """路线设备关联响应（已废弃，保留兼容）"""
+
+    id: uuid.UUID
+    equipment_id: uuid.UUID
+    sort_order: int
+    equipment_name: str | None = None
+    equipment_no: str | None = None
+
+    model_config = {"from_attributes": True}
 
 
 # ═══════════ 巡检任务 ═══════════
@@ -108,8 +170,8 @@ class InspectionTaskCreate(BaseModel):
     equipment_ids: list[uuid.UUID] | None = Field(
         default=None, min_length=1, description="设备ID列表（多设备模式）"
     )
-    template_id: uuid.UUID | None = Field(
-        default=None, description="检查模板ID（线路巡检时可选，从路线默认模板获取）"
+    template_ids: list[uuid.UUID] | None = Field(
+        default=None, min_length=1, description="模板ID列表（设备巡检用）"
     )
     plan_type: InspectionPlanType = Field(
         default="设备巡检", description="巡检类型"
@@ -117,14 +179,14 @@ class InspectionTaskCreate(BaseModel):
     assigned_to: uuid.UUID | None = Field(
         default=None, description="巡检人员ID"
     )
-    planned_date: date = Field(..., description="计划日期")
+    planned_time: datetime = Field(..., description="计划巡检时间")
 
 
 class InspectionTaskUpdate(BaseModel):
     """更新巡检任务请求"""
 
     assigned_to: uuid.UUID | None = Field(default=None)
-    planned_date: date | None = Field(default=None)
+    planned_time: datetime | None = Field(default=None)
 
 
 class InspectionTaskClose(BaseModel):
@@ -141,10 +203,10 @@ class InspectionTaskResponse(BaseModel):
     route_id: uuid.UUID | None
     equipment_id: uuid.UUID | None
     equipment_ids: list[uuid.UUID] | None = None
-    template_id: uuid.UUID
+    template_ids: list[uuid.UUID] | None = None
     plan_type: InspectionPlanType
     assigned_to: uuid.UUID | None
-    planned_date: date
+    planned_time: datetime
     status: InspectionTaskStatus
     overall_result: InspectionOverallResult | None
     started_at: datetime | None
@@ -157,7 +219,6 @@ class InspectionTaskResponse(BaseModel):
     route_name: str | None = None
     equipment_name: str | None = None
     equipment_no: str | None = None
-    template_name: str | None = None
     assignee_name: str | None = None
     equipment_count: int = 0
     completed_count: int = 0
@@ -199,6 +260,7 @@ class InspectionRecordResponse(BaseModel):
     item_name: str | None = None
     expected_result: str | None = None
     created_at: datetime
+    route_location_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

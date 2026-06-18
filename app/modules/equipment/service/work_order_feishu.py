@@ -57,18 +57,31 @@ async def list_user_work_orders(
         return
 
     lines = [f"**共 {len(work_orders)} 个未关闭工单**\n"]
+    options: list[dict] = []
     for i, wo in enumerate(work_orders, 1):
         eq_name = wo.equipment.name if wo.equipment else "未知设备"
+        status_icon = {"待处理": "⏳", "执行中": "🔄", "待验收": "✅"}.get(wo.status, "📋")
         lines.append(
-            f"{i}. **{wo.work_order_no}** | {wo.order_type} | {wo.status}\n"
+            f"**{i}.** {status_icon} {wo.work_order_no} | {wo.order_type} | {wo.status}\n"
             f"   设备: {eq_name}"
         )
+        options.append({
+            "index": i,
+            "work_order_no": wo.work_order_no,
+            "order_type": wo.order_type,
+            "status": wo.status,
+            "equipment_name": eq_name,
+        })
 
     lines.append(
         "\n---\n"
-        "发送「完成 工单号 描述」可提交完成执行中的工单\n"
-        "例: `完成 WO-20260615-0001 更换了密封圈`"
+        "发送「完成 工单号 描述」提交完成\n"
+        "或「完成 序号 描述」，例: `完成 1 更换密封圈`"
     )
+
+    # 保存选择列表，支持后续数字索引完成
+    from app.modules.equipment.service.inspection_session import save_selection
+    await save_selection(open_id, select_type="work_order", options=options)
 
     await send_user_card(
         open_id=open_id,

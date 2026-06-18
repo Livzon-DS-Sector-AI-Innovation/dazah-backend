@@ -70,7 +70,8 @@ from app.modules.equipment.repository.inspection import (
     get_task_by_id,
     get_task_equipment_completed_ids,
     get_tasks,
-    set_route_equipments,
+    set_route_equipments,  # DEPRECATED
+    set_route_locations,
     soft_delete_records_by_task_equipment,
     update_route,
 )

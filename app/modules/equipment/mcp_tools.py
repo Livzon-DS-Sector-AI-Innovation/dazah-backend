@@ -17,6 +17,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.equipment.models.inspection_route_location import (
+    RouteEquipmentTemplate,
+    RouteLocation,
+    RouteLocationEquipment,
+)
+from app.modules.equipment.models.inspection_template import (
+    InspectionTemplateItem,
+)
 from app.modules.equipment.repository.work_order import get_user_work_orders
 from app.modules.equipment.service import (
     complete_work_order,
@@ -48,15 +56,7 @@ from app.platform.mcp.server import mcp
 
 
 async def resolve_user(db: AsyncSession, operator_id: str) -> User:
-    """将 operator_id 解析为 User 对象。
-
-    按以下顺序尝试：
-    1. UUID 格式 → 按主键查询
-    2. feishu_user_id 格式（ou_ 开头）→ UserRepository
-    3. 精确姓名匹配 → UserRepository.list_all(keyword=)，要求唯一
-    4. 都不匹配 → 抛出 ValueError
-    """
-    # 尝试 UUID
+    """将 operator_id 解析为 User 对象。"""
     try:
         uid = uuid.UUID(operator_id)
         user = await db.get(User, uid)
@@ -65,13 +65,11 @@ async def resolve_user(db: AsyncSession, operator_id: str) -> User:
     except ValueError:
         pass
 
-    # 尝试 feishu_user_id（ou_ 前缀）
     repo = UserRepository()
     user = await repo.get_by_feishu_user_id(db, operator_id)
     if user:
         return user
 
-    # 尝试姓名精确匹配
     users, total = await repo.list_all(db, keyword=operator_id, limit=10)
     if total == 1:
         return users[0]
@@ -82,7 +80,7 @@ async def resolve_user(db: AsyncSession, operator_id: str) -> User:
 
 
 def _wo_to_dict(wo: Any) -> dict[str, Any]:
-    """WorkOrder ORM → 字典（只取 Agent 需要的字段）"""
+    """WorkOrder ORM → 字典"""
     return {
         "id": str(wo.id),
         "work_order_no": wo.work_order_no,
@@ -100,17 +98,89 @@ def _wo_to_dict(wo: Any) -> dict[str, Any]:
 
 def _it_to_dict(task: Any) -> dict[str, Any]:
     """InspectionTask ORM → 字典"""
+    route = task.route
+    eq_count = 0
+    if route and route.locations_rel:
+        for loc in route.locations_rel:
+            eq_count += len([e for e in (loc.equipments or []) if not e.is_deleted])
+    elif task.equipment_ids:
+        eq_count = len(task.equipment_ids)
+    elif task.equipment_id:
+        eq_count = 1
+
     return {
         "id": str(task.id),
         "task_no": task.task_no,
         "plan_type": task.plan_type,
         "status": task.status,
         "route_name": task.route.name if task.route else "",
+        "route_id": str(task.route.id) if task.route else "",
         "equipment_name": task.equipment.name if task.equipment else "",
-        "planned_date": task.planned_date.isoformat() if task.planned_date else "",
+        "equipment_count": eq_count,
+        "planned_time": task.planned_time.isoformat() if task.planned_time else "",
         "overall_result": task.overall_result or "",
+        "assignee_name": task.assignee.name if task.assignee else "",
         "created_at": task.created_at.isoformat() if task.created_at else "",
     }
+
+
+async def _get_template_item_map(
+    db: AsyncSession, task: Any
+) -> dict[str, str]:
+    """根据任务类型获取模板检查项的 item_name → template_item_id 映射。
+
+    线路巡检：从路线 → 地点 → 设备 → 模板绑定获取（可能多个模板合并）
+    设备巡检：从 task.template_ids 获取
+    """
+    name_to_id: dict[str, str] = {}
+
+    if task.route_id:
+        # 线路巡检：从路线地点设备绑定获取所有模板项
+        loc_stmt = select(RouteLocation).where(
+            RouteLocation.route_id == task.route_id,
+            RouteLocation.is_deleted == False,  # noqa: E712
+        )
+        locs = (await db.execute(loc_stmt)).scalars().all()
+
+        seen_tids: set[uuid.UUID] = set()
+        for loc in locs:
+            eq_stmt = select(RouteLocationEquipment).where(
+                RouteLocationEquipment.route_location_id == loc.id,
+                RouteLocationEquipment.is_deleted == False,  # noqa: E712
+            )
+            eqs = (await db.execute(eq_stmt)).scalars().all()
+            for eq in eqs:
+                tpl_stmt = select(RouteEquipmentTemplate).where(
+                    RouteEquipmentTemplate.route_equipment_id == eq.id,
+                    RouteEquipmentTemplate.is_deleted == False,  # noqa: E712
+                )
+                tpls = (await db.execute(tpl_stmt)).scalars().all()
+                for tpl in tpls:
+                    if tpl.template_id not in seen_tids:
+                        seen_tids.add(tpl.template_id)
+                        item_stmt = select(InspectionTemplateItem).where(
+                            InspectionTemplateItem.template_id == tpl.template_id,
+                            InspectionTemplateItem.is_deleted == False,  # noqa: E712
+                        )
+                        items = (await db.execute(item_stmt)).scalars().all()
+                        for item_ in items:
+                            name_to_id[item_.item_name] = str(item_.id)
+
+    elif task.template_ids:
+        # 设备巡检：从 task.template_ids JSON 列表获取
+        for tid_str in task.template_ids:
+            tid = uuid.UUID(tid_str) if isinstance(tid_str, str) else tid_str
+            item_stmt = select(InspectionTemplateItem).where(
+                InspectionTemplateItem.template_id == tid,
+                InspectionTemplateItem.is_deleted == False,  # noqa: E712
+            )
+            items = (await db.execute(item_stmt)).scalars().all()
+            for item_ in items:
+                # 同名检查项去重
+                if item_.item_name not in name_to_id:
+                    name_to_id[item_.item_name] = str(item_.id)
+
+    return name_to_id
 
 
 # ─────────────────────────────────────────────────────────────
@@ -158,7 +228,7 @@ async def list_work_orders(
     status: str | None = None,
 ) -> list[dict[str, Any]]:
     """
-    查询指定用户的（未关闭/未完成）维护工单。
+    查询指定用户的维护工单列表。
     适用的业务场景：设备部人员想知道自己当前有哪些工单需要处理，
     Agent 替其查看工单列表，可按工单状态过滤。
 
@@ -197,15 +267,10 @@ async def operate_work_order(
 ) -> dict[str, Any]:
     """
     对维护工单执行状态流转操作：开始维修 或 完成维修。
-    适用于 Agent 替维修人员完成工单状态上报。
-
-    - action="start"：工单从"待处理"变为"执行中"
-    - action="complete"：工单从"执行中"变为"待验收"或"已完成"（取决于工单类型），
-      需要填写 repair_detail（维修过程描述）
 
     Args:
         work_order_id: 工单编号（如 WO-20260616-0001）或工单 UUID
-        action: 操作类型，可选值 start（开始维修）或 complete（完成维修）
+        action: 操作类型，可选值 start / complete
         operator_id: 实际操作人的 user_id 或姓名
         repair_detail: 维修过程描述，action=complete 时必需
     """
@@ -227,9 +292,8 @@ async def operate_work_order(
             "new_status": result.status,
         }
 
-    # action == "complete"
     if not repair_detail or not repair_detail.strip():
-        raise ValueError("完成工单时需要提供 repair_detail（维修过程描述）")
+        raise ValueError("完成工单时需要提供 repair_detail")
 
     from app.modules.equipment.schemas.work_order import WorkOrderComplete
 
@@ -257,8 +321,11 @@ async def submit_inspection(
 ) -> dict[str, Any]:
     """
     提交设备巡检表单，逐项记录检查结果。
-    适用于巡检人员完成现场检查后，Agent 替其将检查结果录入系统。
-    每个检查项需提供检查项目名称、结果（正常/异常/跳过）、实测值和备注。
+
+    支持线路巡检和设备巡检两种模式：
+    - 设备巡检：直接使用 task 上绑定的 template_ids 查找检查项
+    - 线路巡检：从路线 → 地点 → 设备的模板绑定中查找检查项（自动合并多模板）
+
     如果所有设备都已提交，自动完成该巡检任务。
 
     Args:
@@ -277,7 +344,6 @@ async def submit_inspection(
     task_uuid = uuid.UUID(task_id)
     equipment_uuid = uuid.UUID(equipment_id)
 
-    # 获取任务
     task = await get_inspection_task_by_id(db, task_uuid)
 
     # 校验 check_items
@@ -292,22 +358,22 @@ async def submit_inspection(
                 f"检查项 '{item_name}' 的 result '{result}' 无效，"
                 f"可选值：正常 / 异常 / 跳过"
             )
+        # 异常项必须填写实际值或备注
+        if result == "异常" and not item.get("actual_value") and not item.get("remark"):
+            raise ValueError(
+                f"检查项 '{item_name}' 结果为异常，必须填写 actual_value 或 remark"
+            )
 
-    # 加载模板项目，建立 item_name → template_item_id 映射
-    template_id = task.template_id
-    name_to_id: dict[str, str] = {}
-    if template_id:
-        from app.modules.equipment.models.inspection_template import (
-            InspectionTemplateItem,
-        )
+    # 加载模板项映射（支持线路巡检多模板）
+    name_to_id = await _get_template_item_map(db, task)
 
-        stmt = select(InspectionTemplateItem).where(
-            InspectionTemplateItem.template_id == template_id,
-            InspectionTemplateItem.is_deleted == False,  # noqa: E712
-        )
-        res = await db.execute(stmt)
-        template_items = res.scalars().all()
-        name_to_id = {ti.item_name: str(ti.id) for ti in template_items}
+    if not name_to_id:
+        modes = []
+        if task.route_id:
+            modes.append("该路线尚未配置设备检查模板")
+        else:
+            modes.append("该任务未绑定检查模板")
+        raise ValueError("、".join(modes) + "，请先在系统中配置")
 
     # 构建 records
     records: list[dict[str, Any]] = []
@@ -328,14 +394,16 @@ async def submit_inspection(
             else:
                 available = "、".join(list(name_to_id.keys())[:10])
                 raise ValueError(
-                    f"未找到检查项 '{item_name}' 对应的模板项。可用项：{available}"
+                    f"未找到检查项 '{item_name}' 对应的模板项。"
+                    f"请确认：1) 检查项名称与模板完全一致 "
+                    f"2) 该设备已绑定包含此检查项的模板。可用项：{available}"
                 )
         records.append(rec)
 
-    # 提交检查结果
+    # 提交
     submitted = await submit_equipment_check(db, task_uuid, equipment_uuid, records)
 
-    # 提交后重新查询任务状态（禁止 db.refresh，用 re-fetch）
+    # 重新查询任务状态
     task_after = await get_inspection_task_by_id(db, task_uuid)
     all_done = task_after.status == "已完成"
 
@@ -363,8 +431,6 @@ async def list_inspection_tasks(
 ) -> list[dict[str, Any]]:
     """
     查询指定用户的巡检任务列表。
-    适用于设备部人员想知道自己有哪些巡检任务需要执行，
-    Agent 替其查看任务清单，可按任务状态过滤。
 
     Args:
         operator_id: 实际操作人的 user_id 或姓名（替谁查）
@@ -405,10 +471,9 @@ async def update_inspection_task(
 ) -> dict[str, Any]:
     """
     修改巡检任务状态：开始执行、完成、或关闭任务。
-    适用于巡检人员开始巡检或完成巡检后，Agent 替其更新任务状态。
 
     - action="start"：任务从"待执行"变为"执行中"
-    - action="complete"：任务从"执行中"变为"已完成"（仅设备巡检类型）
+    - action="complete"：任务从"执行中"变为"已完成"（设备巡检和线路巡检均支持）
     - action="close"：任务变为"已关闭"
 
     Args:
@@ -432,7 +497,7 @@ async def update_inspection_task(
         result = await start_inspection_task(db, task_uuid)
     elif action == "complete":
         result = await complete_inspection_task(db, task_uuid)
-    else:  # close
+    else:
         result = await close_inspection_task(db, task_uuid, remark=remark)
 
     return {

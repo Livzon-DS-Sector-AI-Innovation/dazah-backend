@@ -21,6 +21,11 @@ from app.modules.equipment.models.inspection import (
     InspectionRouteEquipment,
     InspectionTask,
 )
+from app.modules.equipment.models.inspection_route_location import (
+    RouteEquipmentTemplate,
+    RouteLocation,
+    RouteLocationEquipment,
+)
 from app.modules.equipment.models.inspection_template import (
     InspectionRecord,
     InspectionTemplate,
@@ -65,6 +70,9 @@ __all__ = [
     "InspectionTemplateItem",
     "Location",
     "MaintenancePlan",
+    "RouteEquipmentTemplate",
+    "RouteLocation",
+    "RouteLocationEquipment",
     "EquipmentSparePart",
     "SparePart",
     "SparePartStock",
