@@ -1,0 +1,1 @@
+// equipment module TypeScript types

@@ -1,0 +1,102 @@
+# Dazah 项目完整 Docker 部署配置
+# 使用 docker.xuanyuan.me 镜像加速器
+
+services:
+  # PostgreSQL 数据库
+  db:
+    image: docker.xuanyuan.me/library/postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-dazah}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-dazah}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: docker.xuanyuan.me/library/redis:latest
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端 API 服务
+  backend:
+    build:
+      context: ./dazah-backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_NAME: ${APP_NAME:-dazah-backend}
+      APP_ENV: production
+      DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-dazah}
+      REDIS_URL: redis://redis:6379/0
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-7}
+      # 飞书配置（可选）
+      FEISHU_APP_ID: ${FEISHU_APP_ID:-}
+      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+      FEISHU_BOT_CHAT_ID: ${FEISHU_BOT_CHAT_ID:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./dazah-backend/uploads:/app/uploads
+
+  # 前端 Web 服务
+  frontend:
+    build:
+      context: ./dazah-frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://backend:8000/api/v1
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+  # Nginx 反向代理（可选，生产环境推荐使用）
+  nginx:
+    image: docker.xuanyuan.me/library/nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro  # SSL 证书目录（可选）
+    depends_on:
+      - frontend
+      - backend
+    profiles:
+      - nginx
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  default:
+    name: dahzah-network

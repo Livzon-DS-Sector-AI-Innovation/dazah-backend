@@ -1,0 +1,23 @@
+# 前端 Docker Compose 配置
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${BACKEND_URL:-http://backend:8000/api/v1}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  default:
+    name: dahzah-network

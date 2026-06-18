@@ -1,0 +1,76 @@
+# ========================================
+# Dazah 项目 .gitignore
+# ========================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+*.log
+logs/
+
+# Node
+node_modules/
+.next/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 数据库
+*.db
+*.sqlite
+
+# 敏感文件
+.env.local
+.env.production
+*.pem
+*.key
+ssl/
+
+# 临时文件
+*.tmp
+*.temp
+.cache/
+nul
+
+# 压缩包
+*.zip
+*.tar
+*.tar.gz
+
+# 部署包
+deploy-package/
+module-package/
+
+# 旧的开发文件夹（不纳入版本控制）
+dahzah-*-automation/
+dahzah-*-management/
+dahzah-reagent-module/
+quality-module/
+dahzah-deploy/
+old-*/
+temp/
+
+# 后端运行时生成的文件
+dazah-backend/uploads/
+dazah-backend/.venv/
+dazah-backend/logs/
+dazah-backend/backend.log

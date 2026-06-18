@@ -1,0 +1,1 @@
+// hr module TypeScript types
