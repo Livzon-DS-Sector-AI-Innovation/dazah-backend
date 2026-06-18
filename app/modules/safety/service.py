@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.llm import llm_client
 from app.modules.safety.feishu.notification import send_user_card
 from app.modules.safety.models import (
     Accident,
@@ -1449,57 +1450,37 @@ class SafetyService:
 
     # ── AI 集成 ──
 
-    async def _get_ai_service(self) -> AIService:
-        """获取文本模型 AIService（安全模块数据库配置）"""
-        config = await self.repo.get_active_api_call_config(config_type="text")
-        if config:
-            logger.debug("使用数据库 API 配置: %s (%s)", config.config_name, config.model_name)
-            return AIService(
-                api_key=config.api_key,
-                base_url=config.api_base_url,
-                model=config.model_name,
-                timeout=config.timeout_seconds,
-            )
+    async def _get_ai_service(self):
+        """获取文本模型 - 使用 core.llm 统一客户端"""
+        # Return a wrapper that uses llm_client
+        class TextAIService:
+            async def chat_parsed(self, messages, expected_keys, temperature=0.1):
+                return await llm_client.chat_json(
+                    messages=messages,
+                    expected_keys=expected_keys,
+                    temperature=temperature,
+                )
+            
+            async def close(self):
+                pass  # llm_client manages its own connections
+        
+        return TextAIService()
 
-        # 自动种子：从环境变量迁移到数据库
-        await _ensure_ai_config_seeded(self.session, "text")
-        config = await self.repo.get_active_api_call_config(config_type="text")
-        if config:
-            return AIService(
-                api_key=config.api_key,
-                base_url=config.api_base_url,
-                model=config.model_name,
-                timeout=config.timeout_seconds,
-            )
-
-        raise AIOutputError("安全模块未配置文本 AI 模型，请在 API 配置页面进行配置")
-
-    async def _get_vision_ai_service(self) -> AIService:
-        """获取视觉模型 AIService（安全模块数据库配置）"""
-        config = await self.repo.get_active_api_call_config(config_type="vision")
-        if config:
-            logger.debug(
-                "使用数据库视觉API配置: %s (%s)", config.config_name, config.model_name
-            )
-            return AIService(
-                api_key=config.api_key,
-                base_url=config.api_base_url,
-                model=config.model_name,
-                timeout=config.timeout_seconds,
-            )
-
-        # 自动种子：从环境变量迁移到数据库
-        await _ensure_ai_config_seeded(self.session, "vision")
-        config = await self.repo.get_active_api_call_config(config_type="vision")
-        if config:
-            return AIService(
-                api_key=config.api_key,
-                base_url=config.api_base_url,
-                model=config.model_name,
-                timeout=config.timeout_seconds,
-            )
-
-        raise AIOutputError("安全模块未配置视觉 AI 模型，请在 API 配置页面进行配置")
+    async def _get_vision_ai_service(self):
+        """获取视觉模型 - 使用 core.llm 统一客户端"""
+        class VisionAIService:
+            async def chat_vision_parsed(self, text_prompt, image_urls, expected_keys, temperature=0.1):
+                return await llm_client.chat_vision_json(
+                    text_prompt=text_prompt,
+                    image_urls=image_urls,
+                    expected_keys=expected_keys,
+                    temperature=temperature,
+                )
+            
+            async def close(self):
+                pass  # llm_client manages its own connections
+        
+        return VisionAIService()
 
     def _build_context(self, script_number: int, item: Any) -> str:
         """从当前记录构建供 AI 使用的上下文字符串"""
@@ -2549,30 +2530,20 @@ class RegulationService:
 
     # ==================== AI 辅助方法 ====================
 
-    async def _get_ai_client(self) -> AIService:
-        """获取文本模型 AI 服务客户端（安全模块数据库配置）"""
-        config = await self.repo.get_active_api_call_config(config_type="text")
-        if config:
-            logger.debug("使用数据库 API 配置: %s (%s)", config.config_name, config.model_name)
-            return AIService(
-                api_key=config.api_key,
-                base_url=config.api_base_url,
-                model=config.model_name,
-                timeout=config.timeout_seconds,
-            )
-
-        # 自动种子：从环境变量迁移到数据库
-        await _ensure_ai_config_seeded(self.session, "text")
-        config = await self.repo.get_active_api_call_config(config_type="text")
-        if config:
-            return AIService(
-                api_key=config.api_key,
-                base_url=config.api_base_url,
-                model=config.model_name,
-                timeout=config.timeout_seconds,
-            )
-
-        raise AIOutputError("安全模块未配置文本 AI 模型，请在 API 配置页面进行配置")
+    async def _get_ai_client(self):
+        """获取文本模型 - 使用 core.llm 统一客户端"""
+        class TextAIService:
+            async def chat_parsed(self, messages, expected_keys, temperature=0.1):
+                return await llm_client.chat_json(
+                    messages=messages,
+                    expected_keys=expected_keys,
+                    temperature=temperature,
+                )
+            
+            async def close(self):
+                pass  # llm_client manages its own connections
+        
+        return TextAIService()
 
     async def _ai_identify_scope(
         self,
@@ -3371,30 +3342,20 @@ class SpecialOperationReportService:
             logger.debug("使用硬编码工作流配置: %s — %s", module_code, config.get("name"))
         return config
 
-    async def _get_ai_service(self) -> "AIService":
-        """获取文本模型 AI 服务客户端（安全模块数据库配置）"""
-        config = await self.repo.get_active_api_call_config(config_type="text")
-        if config:
-            logger.debug("使用数据库 API 配置: %s (%s)", config.config_name, config.model_name)
-            return AIService(
-                api_key=config.api_key,
-                base_url=config.api_base_url,
-                model=config.model_name,
-                timeout=config.timeout_seconds,
-            )
-
-        # 自动种子：从环境变量迁移到数据库
-        await _ensure_ai_config_seeded(self.session, "text")
-        config = await self.repo.get_active_api_call_config(config_type="text")
-        if config:
-            return AIService(
-                api_key=config.api_key,
-                base_url=config.api_base_url,
-                model=config.model_name,
-                timeout=config.timeout_seconds,
-            )
-
-        raise AIOutputError("安全模块未配置文本 AI 模型，请在 API 配置页面进行配置")
+    async def _get_ai_service(self):
+        """获取文本模型 - 使用 core.llm 统一客户端"""
+        class TextAIService:
+            async def chat_parsed(self, messages, expected_keys, temperature=0.1):
+                return await llm_client.chat_json(
+                    messages=messages,
+                    expected_keys=expected_keys,
+                    temperature=temperature,
+                )
+            
+            async def close(self):
+                pass  # llm_client manages its own connections
+        
+        return TextAIService()
 
     async def _identify_critical(
         self, report: "SpecialOperationReport"
