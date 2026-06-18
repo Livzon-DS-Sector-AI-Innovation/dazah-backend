@@ -126,6 +126,14 @@ BUSINESS_MODULES: tuple[ModuleDefinition, ...] = (
         owner_hint="QA/QC 负责人",
         description="偏差、CAPA、检验、放行、变更和质量体系数据入口。",
     ),
+    ModuleDefinition(
+        code="dossier_writer",
+        name="资料撰写",
+        path="/registration/dossier-writer",
+        db_schema="dossier_writer",
+        owner_hint="注册事务负责人",
+        description="申报资料撰写工具，包括模板管理、章节编辑、素材管理和AI辅助填充。",
+    ),
 )
 
 MODULES_BY_CODE = {module.code: module for module in BUSINESS_MODULES}
