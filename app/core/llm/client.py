@@ -301,3 +301,71 @@ class LLMClient:
 
 # Global singleton instance
 llm_client = LLMClient()
+
+    async def stream_chat(
+        self,
+        messages: list[dict],
+        temperature: Optional[float] = None,
+        max_tokens: int = 4096,
+    ):
+        """Stream chat completion tokens.
+        
+        Yields dicts with keys:
+            - type: "reasoning" | "content"
+            - text: the token text
+        """
+        import json as json_module
+        
+        config = await get_config("text")
+        temp = temperature if temperature is not None else config.temperature
+        
+        body = {
+            "model": config.model_name,
+            "messages": messages,
+            "temperature": temp,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        
+        async with httpx.AsyncClient(
+            base_url=config.api_base_url.rstrip("/"),
+            headers={
+                "Authorization": f"Bearer {config.api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=config.timeout_seconds,
+        ) as client:
+            async with client.stream("POST", "/chat/completions", json=body) as resp:
+                if resp.status_code == 429:
+                    raise LLMRateLimitError("Rate limit exceeded", status_code=429)
+                
+                if resp.is_error:
+                    error_text = await resp.aread()
+                    raise LLMProviderError(
+                        f"Stream API error: {resp.status_code} - {error_text.decode()[:500]}",
+                        status_code=resp.status_code,
+                    )
+                
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    
+                    data = line[6:]  # Remove "data: " prefix
+                    if data == "[DONE]":
+                        break
+                    
+                    try:
+                        chunk = json_module.loads(data)
+                        if not chunk.get("choices"):
+                            continue
+                        
+                        delta = chunk["choices"][0].get("delta", {})
+                        reasoning = delta.get("reasoning_content")
+                        content = delta.get("content")
+                        
+                        if reasoning:
+                            yield {"type": "reasoning", "text": reasoning}
+                        if content:
+                            yield {"type": "content", "text": content}
+                    except json_module.JSONDecodeError:
+                        continue
