@@ -296,7 +296,10 @@ async def update_asset_category(
     category_id = body.get("category_id")
     asset.category_id = category_id if category_id else None
     await db.commit()
-    await db.refresh(asset)
+    result = await db.execute(
+        select(ChapterAsset).where(ChapterAsset.id == asset_id)
+    )
+    asset = result.scalar_one()
     
     return success_response(
         data={
