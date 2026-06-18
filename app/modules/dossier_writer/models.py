@@ -6,7 +6,12 @@ from sqlalchemy import String, Boolean, Integer, Text, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.base_model import BaseModel
-from .field_models import AssetCategory  # noqa: F401
+from .field_models import (  # noqa: F401
+    AssetCategory,
+    FieldMapping,
+    FieldFillResult,
+    AssetPageSplit,
+)
 
 
 class ProductDossier(BaseModel):
