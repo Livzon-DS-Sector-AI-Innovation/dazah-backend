@@ -61,3 +61,5 @@ api_router.include_router(
     prefix="/dossier-writer",
     tags=["申报资料撰写"],
 )
+from app.core.llm.api import router as llm_router
+api_router.include_router(llm_router, tags=["LLM配置"])

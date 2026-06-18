@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from app.modules.research.llm_service import LLMConfig, call_llm
+from app.core.llm import llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ async def analyze_deviation_async(deviation_id: uuid.UUID, user_id: str):
 
             # Call LLM
             # LLM config is global
-            result = await call_llm(prompt)
+            result = await llm_client.chat_json([{"role": "user", "content": prompt}])
 
             # Parse and save result
             if isinstance(result, dict):
@@ -103,7 +103,7 @@ async def analyze_deviation_sync(deviation: Deviation) -> dict | None:
 
         # Call LLM
         # LLM config is global
-        result = await call_llm(prompt)
+        result = await llm_client.chat_json([{"role": "user", "content": prompt}])
 
         if isinstance(result, dict):
             return result

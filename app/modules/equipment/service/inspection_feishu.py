@@ -411,16 +411,15 @@ async def process_correction(open_id: str, user_text: str) -> None:
         return
 
     # 调用 AI 解析修改
-    from app.modules.equipment.service.ai.client import AIAnalysisError, QwenClient
+    from app.modules.equipment.service.ai.client import AIAnalysisError, parse_correction
     from app.modules.equipment.service.ai.prompts import (
         CORRECTION_SYSTEM_PROMPT,
         build_correction_user_prompt,
     )
 
-    client = QwenClient()
     try:
         user_prompt = build_correction_user_prompt(current_results, user_text)
-        raw_response = await client.parse_correction(
+        raw_response = await parse_correction(
             system_prompt=CORRECTION_SYSTEM_PROMPT,
             user_prompt=user_prompt,
         )
@@ -432,12 +431,10 @@ async def process_correction(open_id: str, user_text: str) -> None:
             "请换一种方式描述，或发送新照片重新分析。",
         )
         return
-    except httpx.RequestError as e:
+    except Exception as e:
         logger.exception("AI 修正请求失败: open_id=%s", open_id)
         await _reply_text(open_id, f"AI 服务暂时不可用：{e}\n请稍后再试。")
         return
-    finally:
-        await client.close()
 
     # 解析 AI 响应
     try:

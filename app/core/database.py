@@ -7,7 +7,7 @@ from app.shared.module_registry import BUSINESS_SCHEMAS
 
 settings = get_settings()
 
-_search_path = "public,identity," + ",".join(BUSINESS_SCHEMAS)
+_search_path = "public,identity,core," + ",".join(BUSINESS_SCHEMAS)
 
 engine = create_async_engine(
     settings.DATABASE_URL,

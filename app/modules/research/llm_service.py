@@ -1,165 +1,17 @@
-"""LLM 服务模块 - 支持动态配置管理"""
+"""LLM 服务模块 - 使用 core.llm 统一客户端"""
 
 import json
-import os
-import re
-from pathlib import Path
-from typing import Any
-import httpx
-from dotenv import load_dotenv, set_key, unset_key
-
-# 加载 .env 文件
-env_path = Path(__file__).parent.parent.parent.parent / ".env"
-load_dotenv(env_path)
-
-
-class LLMConfig:
-    """LLM 配置管理类"""
-    
-    def __init__(self):
-        self.reload()
-    
-    def reload(self):
-        """重新加载配置"""
-        load_dotenv(env_path, override=True)
-        self.api_key = os.getenv("OPENAI_API_KEY", "")
-        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
-        self.model = os.getenv("OPENAI_MODEL", "deepseek-v4-flash")
-    
-    def get_config(self) -> dict[str, str]:
-        """获取当前配置（隐藏 API Key）"""
-        return {
-            "api_key": self._mask_key(self.api_key),
-            "base_url": self.base_url,
-            "model": self.model,
-            "is_configured": bool(self.api_key)
-        }
-    
-    def update_config(self, api_key: str = None, base_url: str = None, model: str = None):
-        """更新配置并保存到 .env 文件"""
-        if api_key is not None:
-            # Reject masked keys (prevent saving masked version back to .env)
-            if "***" in api_key:
-                print("Warning: Ignoring masked API key, not saving to .env")
-                return
-            
-            self.api_key = api_key
-            self._save_to_env("OPENAI_API_KEY", api_key)
-        
-        if base_url is not None:
-            self.base_url = base_url
-            self._save_to_env("OPENAI_BASE_URL", base_url)
-        
-        if model is not None:
-            self.model = model
-            self._save_to_env("OPENAI_MODEL", model)
-    
-    def _save_to_env(self, key: str, value: str):
-        """直接写入 .env 文件，避免 set_key 的截断问题"""
-        if not env_path.exists():
-            env_path.write_text("")
-        
-        lines = env_path.read_text().splitlines()
-        found = False
-        
-        for i, line in enumerate(lines):
-            if line.startswith(f"{key}="):
-                lines[i] = f"{key}={value}"
-                found = True
-                break
-        
-        if not found:
-            lines.append(f"{key}={value}")
-        
-        env_path.write_text("\n".join(lines) + "\n")
-    
-    def _mask_key(self, key: str) -> str:
-        """隐藏 API Key，只显示前10位"""
-        if not key:
-            return ""
-        if len(key) <= 10:
-            return key
-        return key[:10] + "*" * (len(key) - 10)
-    
-    async def test_connection(self) -> dict[str, Any]:
-        """测试 LLM 连接"""
-        if not self.api_key:
-            return {"success": False, "message": "❌ API Key 未配置，请输入您的 API Key"}
-        
-        if not self.api_key.startswith("sk-"):
-            return {"success": False, "message": "❌ API Key 格式错误，应以 sk- 开头"}
-        
-        if len(self.api_key) < 20:
-            return {"success": False, "message": "❌ API Key 长度不足，请检查是否完整复制"}
-        
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [{"role": "user", "content": "Hello"}],
-                        "max_tokens": 5,
-                    },
-                )
-                
-                if response.status_code == 200:
-                    return {"success": True, "message": f"✅ 连接成功！模型: {self.model}"}
-                elif response.status_code == 401:
-                    return {"success": False, "message": "❌ API Key 无效，请检查是否正确"}
-                elif response.status_code == 404:
-                    return {"success": False, "message": f"❌ 模型 {self.model} 不存在，请检查模型名称"}
-                elif response.status_code == 429:
-                    return {"success": False, "message": "❌ 请求过于频繁，请稍后再试"}
-                elif response.status_code >= 500:
-                    return {"success": False, "message": f"❌ 服务器错误 ({response.status_code})，请稍后再试"}
-                else:
-                    error_text = response.text[:100]
-                    return {"success": False, "message": f"❌ 请求失败 ({response.status_code}): {error_text}"}
-        except httpx.TimeoutException:
-            return {"success": False, "message": "❌ 连接超时，请检查网络或 Base URL 是否正确"}
-        except httpx.ConnectError:
-            return {"success": False, "message": "❌ 无法连接到服务器，请检查 Base URL 是否正确"}
-        except Exception as e:
-            return {"success": False, "message": f"❌ 未知错误: {str(e)}"}
-
-
-# 全局配置实例
-llm_config = LLMConfig()
+from app.core.llm import llm_client
 
 
 async def call_llm(prompt: str, system_prompt: str = "") -> dict:
-    """调用 LLM API"""
-    if not llm_config.api_key:
-        raise ValueError("大语言模型未配置，请先在界面中配置大语言模型")
-    
+    """调用 LLM API - 使用 core.llm 统一客户端"""
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
     
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{llm_config.base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {llm_config.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": llm_config.model,
-                "messages": messages,
-                "temperature": 0.1,
-                "response_format": {"type": "json_object"},
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
-        return json.loads(content)
+    return await llm_client.chat_json(messages)
 
 
 def build_q3d_prompt(text: str) -> str:
@@ -198,48 +50,29 @@ def build_q3c_prompt(steps: list[dict]) -> str:
     
     # ICH Q3C Solvent Database
     ich_class1 = ["Benzene", "Carbon tetrachloride", "1,2-Dichloroethane", "1,1-Dichloroethene", "1,1,1-Trichloroethane"]
+    ich_class2 = ["Acetonitrile", "Chlorobenzene", "1,1,2-Trichloroethane", "Acetic Acid", "Acetone", "Anisole",
+                  "1-Butanol", "2-Butanol", "Butyl Acetate", "tert-Butylmethyl ether", "Chloroform", "Cumene",
+                  "Cyclohexane", "Cyclohexanol", "Cyclopentane", "1,2-Dichloroethylene", "Dichloromethane",
+                  "1,2-Dimethoxyethane", "N,N-Dimethylacetamide", "N,N-Dimethylformamide", "2-Methoxyethanol",
+                  "Dimethyl sulfoxide", "1,4-Dioxane", "Ethanol", "Ethyl Acetate", "Ethyl ether", "Ethyl formate",
+                  "Ethylene Glycol", "Formamide", "Heptane", "Hexane", "Isobutanol", "Isopropyl Acetate",
+                  "Isopropyl ether", "Isopropanol", "Methanol", "2-Methyl-1-propanol", "Methyl Acetate",
+                  "Methyl ethyl ketone", "Methyl isobutyl ketone", "2-Methyltetrahydrofuran", "N-Methylpyrrolidone",
+                  "Nitromethane", "Pentane", "1-Pentanol", "1-Propanol", "2-Propanol", "Propyl Acetate",
+                  "Pyridine", "Tetrahydrofuran", "Tetralin", "Toluene", "1,1,2-Trichloroethylene", "Xylenes"]
+    ich_class3 = ["1,2,4-Trimethylbenzene", "2-Ethoxyethanol", "Sulfolane"]
     
-    ich_class2 = [
-        "Acetonitrile", "Chlorobenzene", "Chloroform", "Cumene", "Cyclohexane",
-        "Cyclopentyl methyl ether", "1,2-Dichloroethene", "Dichloromethane",
-        "1,2-Dimethoxyethane", "N,N-Dimethylacetamide", "N,N-Dimethylformamide",
-        "1,4-Dioxane", "2-Ethoxyethanol", "Ethyleneglycol", "Formamide", "Hexane",
-        "Methanol", "2-Methoxyethanol", "Methylbutyl ketone", "Methylcyclohexane",
-        "Methylisobutylketone", "N-Methylpyrrolidone", "Nitromethane", "Pyridine",
-        "Sulfolane", "Tertiary-butyl alcohol", "Tetrahydrofuran", "Tetralin",
-        "Toluene", "1,1,2-Trichloroethene", "Xylene"
-    ]
-    
-    ich_class3 = [
-        "Acetic acid", "Acetone", "Anisole", "1-Butanol", "2-Butanol", "Butyl acetate",
-        "tert-Butylmethyl ether", "Dimethyl sulfoxide", "Ethanol", "Ethyl acetate",
-        "Ethyl ether", "Ethyl formate", "Formic acid", "Heptane", "Isobutyl acetate",
-        "Isopropyl acetate", "Methyl acetate", "3-Methyl-1-butanol", "Methylethyl ketone",
-        "2-Methyl-1-propanol", "2-Methyltetrahydrofuran", "Pentane", "1-Pentanol",
-        "1-Propanol", "2-Propanol", "Propyl acetate", "Triethylamine"
-    ]
-    
-    # Solvent synonyms (Chinese + English + abbreviations)
+    # Common solvent synonyms
     solvent_synonyms = {
+        "ethanol": ["alcohol", "ethyl alcohol", "乙醇", "无水乙醇", "95% 乙醇"],
+        "methanol": ["methyl alcohol", "甲醇", "无水甲醇"],
+        "acetone": ["2-propanone", "丙酮"],
+        "acetonitrile": ["methyl cyanide", "乙腈"],
         "dichloromethane": ["DCM", "methylene chloride", "二氯甲烷"],
-        "dimethylformamide": ["DMF", "N,N-dimethylformamide", "N,N-二甲基甲酰胺"],
-        "dimethylsulfoxide": ["DMSO", "二甲基亚砜"],
+        "chloroform": ["trichloromethane", "三氯甲烷"],
         "tetrahydrofuran": ["THF", "四氢呋喃"],
-        "acetonitrile": ["MeCN", "ACN", "乙腈"],
-        "methanol": ["MeOH", "methyl alcohol", "甲醇"],
-        "ethanol": ["EtOH", "ethyl alcohol", "乙醇", "无水乙醇"],
-        "isopropanol": ["IPA", "isopropyl alcohol", "2-propanol", "异丙醇"],
-        "acetone": ["propanone", "丙酮"],
-        "ethyl acetate": ["EtOAc", "乙酸乙酯"],
         "toluene": ["methylbenzene", "甲苯"],
-        "benzene": ["苯"],
-        "chloroform": ["trichloromethane", "氯仿"],
-        "carbon tetrachloride": ["四氯化碳"],
-        "1,2-dichloroethane": ["DCE", "1,2-二氯乙烷"],
-        "1,4-dioxane": ["dioxane", "1,4-二氧六环"],
-        "n-methyl-2-pyrrolidone": ["NMP", "N-甲基吡咯烷酮"],
-        "pyridine": ["吡啶"],
-        "hexane": ["n-hexane", "正己烷"],
+        "hexane": ["正己烷"],
         "heptane": ["n-heptane", "正庚烷"],
         "cyclohexane": ["环己烷"],
         "diethyl ether": ["ether", "乙醚"],

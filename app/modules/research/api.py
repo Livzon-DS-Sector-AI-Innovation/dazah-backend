@@ -95,26 +95,6 @@ async def analyze_ich_q3c(
     return success_response(data=result)
 
 
-@router.get("/llm/config", summary="获取 LLM 配置")
-async def get_llm_config(current_user: CurrentUser = None) -> JSONResponse:
-    config = await service.get_llm_config()
-    return success_response(data=config)
-
-
-@router.put("/llm/config", summary="更新 LLM 配置")
-async def update_llm_config(
-    data: dict = Body(...),
-    current_user: CurrentUser = None,
-) -> JSONResponse:
-    config = await service.update_llm_config(data)
-    return success_response(data=config)
-
-
-@router.post("/llm/test", summary="测试 LLM 连接")
-async def test_llm_connection(current_user: CurrentUser = None) -> JSONResponse:
-    result = await service.test_llm_connection()
-    return success_response(data=result)
-
 
 @router.post("/ich/analyze", summary="ICH Q3C/Q3D 联合分析")
 async def analyze_ich_combined(

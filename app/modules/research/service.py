@@ -185,27 +185,3 @@ async def delete_ich_record(
     await db.delete(record)
     await db.commit()
 
-
-async def get_llm_config() -> dict:
-    """Get LLM configuration."""
-    from app.modules.research.llm_service import llm_config
-    return llm_config.get_config()
-
-
-async def update_llm_config(data: dict) -> dict:
-    """Update LLM configuration."""
-    from app.modules.research.llm_service import llm_config
-    
-    api_key = data.get('api_key')
-    base_url = data.get('base_url')
-    model = data.get('model')
-    
-    llm_config.update_config(api_key=api_key, base_url=base_url, model=model)
-    
-    return llm_config.get_config()
-
-
-async def test_llm_connection() -> dict:
-    """Test LLM connection."""
-    from app.modules.research.llm_service import llm_config
-    return await llm_config.test_connection()

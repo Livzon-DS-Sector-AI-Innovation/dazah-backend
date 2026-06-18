@@ -14,7 +14,7 @@ from app.modules.equipment.models.inspection_template import (
     InspectionTemplate,
     InspectionTemplateItem,
 )
-from app.modules.equipment.service.ai.client import AIAnalysisError, QwenClient
+from app.modules.equipment.service.ai.client import AIAnalysisError, analyze_image
 from app.modules.equipment.service.ai.prompts import (
     SYSTEM_PROMPT,
     build_user_prompt,
@@ -66,9 +66,8 @@ async def analyze_inspection_photo(
     ]
     user_prompt = build_user_prompt(items_input)
 
-    client = QwenClient()
     try:
-        raw_response = await client.analyze_image(
+        raw_response = await analyze_image(
             image_base64=image_base64,
             image_mime_type=image_mime_type,
             system_prompt=SYSTEM_PROMPT,
@@ -76,13 +75,11 @@ async def analyze_inspection_photo(
         )
     except AIAnalysisError:
         raise
-    except httpx.RequestError as e:
+    except Exception as e:
         raise AppException(
             message=f"AI 服务连接失败: {str(e)}",
             status_code=502,
         ) from e
-    finally:
-        await client.close()
 
     # 4. 解析 AI 响应
     try:

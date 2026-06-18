@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .field_models import FieldMapping, FieldFillResult, AssetCategory, AssetPageSplit
 from .models import ChapterAsset, DossierChapter, ProductDossier
-from .llm_client import get_llm_client
+from app.core.llm import llm_client
 from .ai_prompts import (
     build_extract_fields_prompt,
     build_split_pages_prompt,
@@ -28,7 +28,7 @@ class AIFillService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.llm = get_llm_client()
+        self.llm = llm_client
         self.extractor = AssetTextExtractor()
 
     async def get_asset_categories(self, chapter_code: str) -> List[Dict]:
@@ -93,7 +93,7 @@ class AIFillService:
         chapter: DossierChapter,
     ) -> Dict[str, Any]:
         """预览 AI 提取结果（不写入文档，只返回提取值供用户确认）"""
-        if not self.llm.is_configured():
+        if False:  # Config check handled by core.llm
             return {"success": False, "message": "LLM 服务未配置"}
 
         mappings = await self.get_field_mappings(chapter.chapter_code)
@@ -434,7 +434,7 @@ class AIFillService:
         available_appendix_slots: List[str],
     ) -> Dict[str, Any]:
         """预览多页 PDF 的拆分结果"""
-        if not self.llm.is_configured():
+        if False:  # Config check handled by core.llm
             return {"success": False, "message": "LLM 服务未配置"}
 
         file_path = Path(asset.file_path)
