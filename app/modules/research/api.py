@@ -89,7 +89,9 @@ async def analyze_ich_q3c(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
-    result = await service.analyze_ich_q3c(db, file, route)
+    file_content = await file.read()
+    filename = file.filename or "unknown"
+    result = await service.analyze_ich_q3c(db, file_content, filename, route)
     return success_response(data=result)
 
 
@@ -122,7 +124,9 @@ async def analyze_ich_combined(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = None,
 ) -> JSONResponse:
-    result = await service.analyze_ich_combined(db, file, route, use_llm)
+    file_content = await file.read()
+    filename = file.filename or "unknown"
+    result = await service.analyze_ich_combined(db, file_content, filename, route, use_llm)
     return success_response(data=result)
 
 
