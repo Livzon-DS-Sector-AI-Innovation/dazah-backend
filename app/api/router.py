@@ -13,6 +13,7 @@ from app.modules.registration import router as registration_router
 from app.modules.research import router as research_router
 from app.modules.regulatory_tracker import router as regulatory_tracker_router
 from app.modules.production.label_verification_api import router as label_verification_router
+from app.modules.production.pressure_api import router as pressure_router
 from app.modules.safety import router as safety_router
 from app.modules.warehouse import router as warehouse_router
 from app.platform.identity.api import (
@@ -55,6 +56,7 @@ api_router.include_router(
 )
 api_router.include_router(quality_router, prefix="/quality", tags=["质量管理"])
 api_router.include_router(label_verification_router, prefix="/quality", tags=["质量管理 - 标签复核"])
+api_router.include_router(pressure_router, prefix="/production", tags=["生产管理 - 压差统计"])
 api_router.include_router(regulatory_tracker_router, tags=["法规追踪"])
 api_router.include_router(
     dossier_writer_router,
