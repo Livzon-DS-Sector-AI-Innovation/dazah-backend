@@ -130,9 +130,9 @@ def upgrade() -> None:
                existing_comment='部门路径 JSON，如 [{"name":"公司","id":"xxx"},...]',
                existing_nullable=True,
                schema='identity')
-    op.add_column('special_operation_reports', sa.Column('is_critical', sa.Boolean(), server_default='false', nullable=False, comment='是否关键作业（AI自动判定+可手动修改）'), schema='safety')
-    op.add_column('special_operation_reports', sa.Column('is_critical_reason', sa.Text(), nullable=True, comment='关键作业判定理由'), schema='safety')
-    op.add_column('special_operation_reports', sa.Column('is_critical_updated_by', sa.String(length=100), nullable=True, comment='手动修改关键作业标记的操作人'), schema='safety')
+    op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='safety' AND table_name='special_operation_reports' AND column_name='is_critical') THEN ALTER TABLE safety.special_operation_reports ADD COLUMN is_critical BOOLEAN DEFAULT 'false' NOT NULL; END IF; END $$;")
+    op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='safety' AND table_name='special_operation_reports' AND column_name='is_critical_reason') THEN ALTER TABLE safety.special_operation_reports ADD COLUMN is_critical_reason TEXT; END IF; END $$;")
+    op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='safety' AND table_name='special_operation_reports' AND column_name='is_critical_updated_by') THEN ALTER TABLE safety.special_operation_reports ADD COLUMN is_critical_updated_by VARCHAR(100); END IF; END $$;")
     # ### end Alembic commands ###
 
 

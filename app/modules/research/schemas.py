@@ -76,3 +76,74 @@ class EDBOOptimizeResponse(BaseModel):
     row_count: int = Field(..., description="结果行数")
     prediction_data: Optional[str] = Field(None, description="预测文件 CSV 文本（可选）")
     prediction_filename: Optional[str] = Field(None, description="预测文件名（可选）")
+
+
+# ===== Pilot Workflow Schemas =====
+
+PilotWorkflowStatus = Literal["pending", "running", "waiting_approval", "completed", "failed"]
+PilotWorkflowStepStatus = Literal["pending", "running", "waiting_approval", "completed", "failed", "skipped"]
+
+
+class PilotWorkflowStepResponse(BaseModel):
+    """工作流步骤响应"""
+    id: str
+    workflow_id: str
+    step_order: int
+    step_code: str
+    step_name: str
+    status: str
+    input_data: dict | None = None
+    output_data: dict | None = None
+    error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PilotWorkflowCreate(BaseModel):
+    """创建中试工作流请求"""
+    project_id: str | None = Field(default=None, max_length=50, description="所属研发项目ID")
+    product_name: str = Field(..., min_length=1, max_length=200, description="产品名称")
+    scale_up_ratio: float = Field(default=10.0, ge=1, le=10000, description="放大倍数")
+    equipment_type: str = Field(..., min_length=1, max_length=100, description="设备类型")
+    equipment_volume: float = Field(..., ge=1, le=100000, description="设备容积(L)")
+    input_context: dict | None = Field(default=None, description="输入上下文")
+
+
+class PilotWorkflowResponse(BaseModel):
+    """中试工作流响应"""
+    id: str
+    project_id: str | None
+    product_name: str
+    scale_up_ratio: float
+    equipment_type: str
+    equipment_volume: float
+    input_document_path: str | None
+    input_context: dict | None
+    status: str
+    final_report: dict | None
+    created_at: datetime
+    updated_at: datetime
+    created_by: uuid.UUID | None
+    updated_by: uuid.UUID | None
+    steps: list[PilotWorkflowStepResponse] = []
+
+    model_config = {"from_attributes": True}
+
+
+class PilotWorkflowListItem(BaseModel):
+    """中试工作流列表项"""
+    id: str
+    product_name: str
+    scale_up_ratio: float
+    equipment_type: str
+    equipment_volume: float
+    status: str
+    created_at: datetime
+    step_count: int = 0
+    completed_step_count: int = 0
+
+    model_config = {"from_attributes": True}

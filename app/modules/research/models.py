@@ -81,3 +81,264 @@ class ICHAnalysisRecord(BaseModel):
     notes: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="备注"
     )
+
+
+class RouteDevelopment(BaseModel):
+    """打通路线开发记录"""
+
+    __tablename__ = "route_developments"
+    __table_args__ = {"schema": "research"}
+
+    # Override id from BaseModel to use String (DB column is varchar)
+    id: Mapped[str] = mapped_column(
+        String(50), primary_key=True, comment="主键ID"
+    )
+
+    project_id: Mapped[str] = mapped_column(
+        String(50), comment="所属研发项目ID"
+    )
+    route_no: Mapped[str] = mapped_column(
+        String(50), comment="路线编号"
+    )
+    name: Mapped[str] = mapped_column(
+        String(200), comment="路线名称"
+    )
+    source: Mapped[str] = mapped_column(
+        String(50), default="manual", comment="来源: manual/literature/llm"
+    )
+    source_reference: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="来源引用"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="描述"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), default="planning",
+        comment="状态: planning/in_progress/completed/failed"
+    )
+    current_module: Mapped[str] = mapped_column(
+        String(20), default="research",
+        comment="当前工作流阶段: research/trial/assessment/confirmation"
+    )
+    literature_sources: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="文献来源数据"
+    )
+    candidate_routes: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="候选路线列表"
+    )
+    selected_route_ids: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="已选路线ID列表"
+    )
+    experiment_plans: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="实验方案列表"
+    )
+    assessment: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="四维度评估结果"
+    )
+    deliverables: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="交付物列表"
+    )
+    start_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="开始日期"
+    )
+    end_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="结束日期"
+    )
+
+
+class RouteExperiment(BaseModel):
+    """打通路线实验记录"""
+
+    __tablename__ = "route_experiments"
+    __table_args__ = {"schema": "research"}
+
+    # Override id from BaseModel to use String (DB column is varchar)
+    id: Mapped[str] = mapped_column(
+        String(50), primary_key=True, comment="主键ID"
+    )
+
+    route_id: Mapped[str] = mapped_column(
+        String(50), comment="所属路线ID"
+    )
+    experiment_no: Mapped[str] = mapped_column(
+        String(50), comment="实验编号"
+    )
+    title: Mapped[str] = mapped_column(
+        String(200), comment="实验标题"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="实验描述"
+    )
+    experiment_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="实验日期"
+    )
+    operator: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="操作人"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), default="planned",
+        comment="状态: planned/in_progress/completed/failed"
+    )
+    reaction_temp: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="反应温度"
+    )
+    reaction_time: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="反应时间"
+    )
+    yield_pct: Mapped[float | None] = mapped_column(
+        nullable=True, comment="收率(%)"
+    )
+    purity: Mapped[float | None] = mapped_column(
+        nullable=True, comment="纯度(%)"
+    )
+    impurities: Mapped[float | None] = mapped_column(
+        nullable=True, comment="杂质(%)"
+    )
+    result_summary: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="结果摘要"
+    )
+
+
+class ProcessOptimization(BaseModel):
+    """工艺优化记录"""
+
+    __tablename__ = "process_optimizations"
+    __table_args__ = {"schema": "research"}
+
+    # Override id from BaseModel to use String (DB column is varchar)
+    id: Mapped[str] = mapped_column(
+        String(50), primary_key=True, comment="主键ID"
+    )
+
+    project_id: Mapped[str] = mapped_column(
+        String(50), comment="所属研发项目ID"
+    )
+    optimization_no: Mapped[str] = mapped_column(
+        String(50), comment="优化编号"
+    )
+    name: Mapped[str] = mapped_column(
+        String(200), comment="优化任务名称"
+    )
+    source_route_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, comment="来源路线ID"
+    )
+    source_route_name: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, comment="来源路线名称"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="描述"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), default="planning",
+        comment="状态: planning/in_progress/completed/failed"
+    )
+    current_module: Mapped[str] = mapped_column(
+        String(20), default="doe",
+        comment="当前工作流阶段: doe/impurity/crystal/quality/scaleup/report"
+    )
+    doe_experiment: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="DOE实验设计与分析数据"
+    )
+    impurity_study: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="杂质研究数据"
+    )
+    crystal_form_study: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="晶型研究数据"
+    )
+    quality_standard_set: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="质量标准数据"
+    )
+    scale_up_study: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="公斤级放大数据"
+    )
+    start_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="开始日期"
+    )
+    end_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="结束日期"
+    )
+
+
+class PilotWorkflow(BaseModel):
+    """中试研究工作流"""
+
+    __tablename__ = "pilot_workflows"
+    __table_args__ = {"schema": "research"}
+
+    # Override id from BaseModel to use String (DB column is varchar)
+    id: Mapped[str] = mapped_column(
+        String(50), primary_key=True, comment="主键ID"
+    )
+
+    project_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, comment="所属研发项目ID"
+    )
+    product_name: Mapped[str] = mapped_column(
+        String(200), comment="产品名称"
+    )
+    scale_up_ratio: Mapped[float] = mapped_column(
+        default=10.0, comment="放大倍数"
+    )
+    equipment_type: Mapped[str] = mapped_column(
+        String(100), comment="设备类型"
+    )
+    equipment_volume: Mapped[float] = mapped_column(
+        comment="设备容积(L)"
+    )
+    input_document_path: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="输入文档路径"
+    )
+    input_context: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="输入上下文"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending",
+        comment="状态: pending/running/waiting_approval/completed/failed"
+    )
+    final_report: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="最终报告"
+    )
+
+
+class PilotWorkflowStep(BaseModel):
+    """中试研究工作流步骤"""
+
+    __tablename__ = "pilot_workflow_steps"
+    __table_args__ = {"schema": "research"}
+
+    # Override id from BaseModel to use String (DB column is varchar)
+    id: Mapped[str] = mapped_column(
+        String(50), primary_key=True, comment="主键ID"
+    )
+
+    workflow_id: Mapped[str] = mapped_column(
+        String(50), comment="所属工作流ID"
+    )
+    step_order: Mapped[int] = mapped_column(
+        comment="步骤顺序"
+    )
+    step_code: Mapped[str] = mapped_column(
+        String(50), comment="步骤代码"
+    )
+    step_name: Mapped[str] = mapped_column(
+        String(200), comment="步骤名称"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending",
+        comment="状态: pending/running/waiting_approval/completed/failed/skipped"
+    )
+    input_data: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="输入数据"
+    )
+    output_data: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="输出数据"
+    )
+    error_message: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="错误信息"
+    )
+    started_at: Mapped[date | None] = mapped_column(
+        nullable=True, comment="开始时间"
+    )
+    completed_at: Mapped[date | None] = mapped_column(
+        nullable=True, comment="完成时间"
+    )

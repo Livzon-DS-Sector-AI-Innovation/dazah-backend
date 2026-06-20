@@ -16,6 +16,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    from sqlalchemy import inspect
+    conn = op.get_bind()
+    insp = inspect(conn)
+    if "departments" in [t for t in insp.get_table_names(schema="hr")]:
+        return  # tables already created by initial schema
     op.execute("CREATE SCHEMA IF NOT EXISTS hr")
 
     op.create_table(
