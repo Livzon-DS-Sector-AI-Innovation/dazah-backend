@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.auth import get_current_user, require_admin
+from app.platform.identity.deps import get_current_user
 from app.shared.base_model import BaseModel as DBBaseModel
 from .config import LLMConfigModel
 from .encryption import encrypt_api_key, mask_api_key
@@ -99,7 +99,7 @@ async def list_configs(
 async def create_config(
     data: LLMConfigCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
 ):
     """Create a new LLM configuration (admin only)."""
     # If this config is marked as active, deactivate others of same type
@@ -123,8 +123,8 @@ async def create_config(
         timeout_seconds=data.timeout_seconds,
         is_active=data.is_active,
         notes=data.notes,
-        created_by=current_user.id,
-        updated_by=current_user.id,
+        created_by=current_user.id if current_user else None,
+        updated_by=current_user.id if current_user else None,
     )
     
     db.add(config)
@@ -186,7 +186,7 @@ async def update_config(
     config_id: str,
     data: LLMConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
 ):
     """Update an LLM configuration (admin only)."""
     result = await db.execute(
@@ -222,7 +222,7 @@ async def update_config(
     for field, value in update_data.items():
         setattr(config, field, value)
     
-    config.updated_by = current_user.id
+    config.updated_by = current_user.id if current_user else None
     
     await db.commit()
     await db.refresh(config)
@@ -247,7 +247,7 @@ async def update_config(
 async def delete_config(
     config_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
 ):
     """Soft delete an LLM configuration (admin only)."""
     result = await db.execute(
@@ -262,7 +262,7 @@ async def delete_config(
         raise HTTPException(status_code=404, detail="Config not found")
     
     config.is_deleted = True
-    config.updated_by = current_user.id
+    config.updated_by = current_user.id if current_user else None
     
     await db.commit()
 

@@ -299,9 +299,6 @@ class LLMClient:
             return {"status": "error", "detail": str(e)}
 
 
-# Global singleton instance
-llm_client = LLMClient()
-
     async def stream_chat(
         self,
         messages: list[dict],
@@ -369,3 +366,7 @@ llm_client = LLMClient()
                             yield {"type": "content", "text": content}
                     except json_module.JSONDecodeError:
                         continue
+
+
+# Global singleton instance
+llm_client = LLMClient()
