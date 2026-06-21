@@ -19,17 +19,11 @@ from app.platform.identity.api import (
     dept_router,
     personnel_router,
     sync_router,
-    user_router,
-)
-from app.platform.identity.api import (
-    router as identity_router,
 )
 from app.platform.system import router as system_router
 
 api_router = APIRouter()
 
-api_router.include_router(identity_router, prefix="/identity", tags=["身份认证"])
-api_router.include_router(user_router, prefix="/identity", tags=["用户信息"])
 api_router.include_router(dept_router, prefix="/identity", tags=["组织架构"])
 api_router.include_router(personnel_router, prefix="/identity", tags=["人员名单"])
 api_router.include_router(sync_router, prefix="/identity", tags=["飞书同步"])
