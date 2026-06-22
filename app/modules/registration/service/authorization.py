@@ -123,7 +123,10 @@ def _docx_replace(
         
         # 处理 document.xml
         if 'word/document.xml' in files:
-            doc_xml = files['word/document.xml'].decode('utf-8')
+            try:
+                doc_xml = files['word/document.xml'].decode('utf-8')
+            except UnicodeDecodeError:
+                raise ValueError("模板文件编码错误：DOCX 文档包含非 UTF-8 编码的内容")
             
             for old_text, new_text in replacement_dict.items():
                 if old_text in doc_xml:
