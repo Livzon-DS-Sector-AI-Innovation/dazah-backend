@@ -2,12 +2,13 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.response import success_response
+from app.platform.identity.deps import CurrentUser
 from app.platform.identity.repository import DepartmentRepository, UserRepository
 from app.platform.identity.schemas import (
     DepartmentResponse,
@@ -19,10 +20,96 @@ from app.platform.identity.schemas import (
 
 logger = logging.getLogger(__name__)
 
+auth_router = APIRouter(prefix="/auth", tags=["认证"])
 user_router = APIRouter(tags=["用户信息"])
 dept_router = APIRouter(prefix="/departments", tags=["组织架构"])
 personnel_router = APIRouter(prefix="/personnel", tags=["人员名单"])
 sync_router = APIRouter(prefix="/sync", tags=["飞书同步"])
+
+
+# ── Auth (SSO) ──────────────────────────────────────────────────────
+
+
+@auth_router.get("/login", summary="发起飞书 SSO 登录")
+async def login(
+    settings: Settings = Depends(get_settings),
+) -> RedirectResponse:
+    """Generate state token and redirect user to Feishu authorization page."""
+    from app.platform.identity.service import generate_state_token
+    from app.platform.integrations.feishu.oauth import FeishuOAuthClient
+
+    state = generate_state_token()
+    oauth = FeishuOAuthClient.from_settings()
+    authorize_url = oauth.build_authorize_url(state)
+    return RedirectResponse(url=authorize_url, status_code=302)
+
+
+@auth_router.get("/callback", summary="飞书 SSO 回调")
+async def auth_callback(
+    code: str = Query(...),
+    state: str = Query(""),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> RedirectResponse:
+    """Handle the OAuth callback from Feishu.
+
+    Exchanges code for tokens, upserts user, generates JWT, then redirects
+    to the frontend with the token as a query parameter.
+    """
+    from app.platform.identity.service import (
+        handle_oauth_callback,
+        validate_state_token,
+    )
+
+    # Validate state for CSRF protection
+    if state and not validate_state_token(state):
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error=invalid_state",
+            status_code=302,
+        )
+
+    try:
+        user, token = await handle_oauth_callback(db, code)
+    except Exception as exc:
+        logger.exception("OAuth callback failed")
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error=callback_failed",
+            status_code=302,
+        )
+
+    # Redirect to frontend with token
+    return RedirectResponse(
+        url=f"{settings.FRONTEND_URL}/auth/callback?token={token}",
+        status_code=302,
+    )
+
+
+@auth_router.get("/logout", summary="登出")
+async def logout(
+    settings: Settings = Depends(get_settings),
+) -> RedirectResponse:
+    """Redirect to frontend login page (frontend handles cookie clearing)."""
+    return RedirectResponse(
+        url=f"{settings.FRONTEND_URL}/login",
+        status_code=302,
+    )
+
+
+# ── Current User ────────────────────────────────────────────────────
+
+
+@user_router.get("/me", summary="获取当前登录用户信息")
+async def get_me(
+    current_user: CurrentUser,
+) -> JSONResponse:
+    """Return the currently authenticated user's profile.
+
+    Authentication via Bearer header or auth_token cookie.
+    """
+    if current_user is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="未登录或登录已过期")
+    return success_response(data=UserResponse.model_validate(current_user).model_dump())
 
 
 # ── Departments ─────────────────────────────────────────────────────

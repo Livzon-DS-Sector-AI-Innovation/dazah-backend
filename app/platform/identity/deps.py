@@ -1,7 +1,7 @@
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Request
+from fastapi import Cookie, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -14,12 +14,26 @@ async def get_current_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    auth_token: str | None = Cookie(default=None),
 ) -> User | None:
+    """Resolve the current user from either:
+    1. Authorization: Bearer <jwt> header (API clients)
+    2. auth_token cookie (browser SSO flow)
+    """
+    token = None
+
+    # 1. Try Bearer header first
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    if auth.startswith("Bearer "):
+        token = auth.removeprefix("Bearer ")
+
+    # 2. Fall back to cookie
+    if not token and auth_token:
+        token = auth_token
+
+    if not token:
         return None
 
-    token = auth.removeprefix("Bearer ")
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=["HS256"]

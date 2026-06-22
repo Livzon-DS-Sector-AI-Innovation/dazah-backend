@@ -16,9 +16,11 @@ from app.modules.production.label_verification_api import router as label_verifi
 from app.modules.safety import router as safety_router
 from app.modules.warehouse import router as warehouse_router
 from app.platform.identity.api import (
+    auth_router,
     dept_router,
     personnel_router,
     sync_router,
+    user_router,
 )
 from app.platform.system import router as system_router
 
@@ -26,6 +28,8 @@ api_router = APIRouter()
 
 api_router.include_router(dept_router, prefix="/identity", tags=["组织架构"])
 api_router.include_router(personnel_router, prefix="/identity", tags=["人员名单"])
+api_router.include_router(auth_router, prefix="/identity", tags=["认证"])
+api_router.include_router(user_router, prefix="/identity", tags=["用户信息"])
 api_router.include_router(sync_router, prefix="/identity", tags=["飞书同步"])
 api_router.include_router(system_router, prefix="/system", tags=["系统"])
 api_router.include_router(production_router, prefix="/production", tags=["生产管理"])

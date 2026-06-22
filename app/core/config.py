@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
     FEISHU_REDIRECT_URI: str = ""
+    FEISHU_SCOPES: str = "contact:contact.base:readonly contact:user.base:readonly"
     FRONTEND_URL: str = ""
 
     # Feishu 设备部
