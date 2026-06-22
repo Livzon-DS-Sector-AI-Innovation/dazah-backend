@@ -1,36 +1,34 @@
-"""员工上岗评估表 Excel 文档生成器."""
+"""员工上岗评估表 文档生成器."""
 
 from datetime import date
 from io import BytesIO
+from pathlib import Path
+from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, Side
-from pydantic import BaseModel, Field
+from openpyxl.styles import Alignment, Border, Side, Font
+from docx import Document
+
+from app.modules.hr.models import Employee
+from app.modules.hr.schemas import OnboardingEvaluationInput
 
 
-class OnboardingEvaluationInput(BaseModel):
-    employee_name: str = Field(..., max_length=64, description="员工姓名")
-    employee_number: str | None = Field(None, max_length=32, description="工作卡号")
-    gender: str | None = Field(None, max_length=8, description="性别")
-    department_position: str | None = Field(None, max_length=128, description="所在部门/岗位")
-    hire_date: date | None = Field(None, description="入厂时间")
-    training_period: str | None = Field(None, max_length=64, description="培训/考核期")
-    regularization_date: date | None = Field(None, description="转正时间")
-    assessment_contents: list[str] = Field(default_factory=list, description="上岗培训期内考核内容")
-    comprehensive_comment: str | None = Field(None, max_length=1024, description="培训/考核期综合评语")
-    is_qualified: bool | None = Field(None, description="是否同意上岗")
-    assigned_position: str | None = Field(None, max_length=64, description="担任岗位")
-    assessment_method: str | None = Field(None, max_length=32, description="考核方式")
-    dept_manager_signature: str | None = Field(None, max_length=64, description="部门负责人签名")
-    signature_date: date | None = Field(None, description="签名日期")
-    remarks: str | None = Field(None, max_length=512, description="备注")
-    dept_manager_agree: bool | None = Field(None, description="部门负责人是否同意")
-    hr_manager_agree: bool | None = Field(None, description="人事行政部负责人是否同意")
-    qa_manager_agree: bool | None = Field(None, description="质量管理负责人是否同意")
-    dept_manager: str | None = Field(None, max_length=64, description="部门负责人")
-    hr_manager: str | None = Field(None, max_length=64, description="人事行政部负责人")
-    qa_manager: str | None = Field(None, max_length=64, description="质量管理负责人")
-    approval_date: date | None = Field(None, description="审批日期")
+NEW_TEMPLATE_NAME = "R-GN-2002 E 员工上岗评估表.docx"
+
+
+def _find_new_template() -> Path:
+    """Locate the new factory docx template."""
+    candidates = [
+        Path("新厂人员培训管理规程") / NEW_TEMPLATE_NAME,
+        Path("../新厂人员培训管理规程") / NEW_TEMPLATE_NAME,
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "新厂人员培训管理规程"
+        / NEW_TEMPLATE_NAME,
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    raise FileNotFoundError(f"模板文件未找到: {NEW_TEMPLATE_NAME}")
 
 
 def _cell_border():
@@ -46,7 +44,7 @@ def _left_align():
     return Alignment(horizontal="left", vertical="center", wrap_text=True)
 
 
-def generate_onboarding_evaluation(data: OnboardingEvaluationInput) -> BytesIO:
+def _generate_old(data: OnboardingEvaluationInput) -> BytesIO:
     """根据填写的评估信息生成员工上岗评估表 Excel 文档."""
     wb = Workbook()
     ws = wb.active
@@ -289,3 +287,57 @@ def generate_onboarding_evaluation(data: OnboardingEvaluationInput) -> BytesIO:
     wb.save(buffer)
     buffer.seek(0)
     return buffer
+
+
+def _generate_new(employee: Employee) -> BytesIO:
+    """Fill the new factory onboarding evaluation docx template."""
+    template_path = _find_new_template()
+    doc = Document(str(template_path))
+
+    if not doc.tables:
+        raise ValueError("模板中未找到表格")
+
+    table = doc.tables[0]
+
+    # Row 0: [姓名] [] [部门] [] [工作卡号] []
+    table.rows[0].cells[1].text = employee.name or ""
+    table.rows[0].cells[3].text = employee.department or ""
+    table.rows[0].cells[5].text = employee.employee_number or ""
+
+    # Row 1: [学历] [] [专业] [] [毕业时间] []
+    table.rows[1].cells[1].text = employee.education or ""
+    table.rows[1].cells[3].text = employee.major or ""
+    grad_date_str = str(employee.graduation_date) if employee.graduation_date else ""
+    table.rows[1].cells[5].text = grad_date_str
+
+    # Row 2: [报到日期] [] [考核人] [] [考核时间] []
+    hire_date_str = str(employee.hire_date) if employee.hire_date else ""
+    table.rows[2].cells[1].text = hire_date_str
+    table.rows[2].cells[3].text = ""
+    table.rows[2].cells[5].text = ""
+
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def generate_onboarding_evaluation(data: Any, factory: str = "old") -> BytesIO:
+    """根据员工数据或填写的评估信息生成上岗评估表文档.
+
+    Returns a BytesIO buffer containing the generated document.
+    """
+    if factory == "new":
+        if isinstance(data, Employee):
+            return _generate_new(data)
+        raise ValueError("新厂上岗评估表需要 Employee 对象")
+    if isinstance(data, Employee):
+        input_data = OnboardingEvaluationInput(
+            employee_name=data.name,
+            employee_number=data.employee_number,
+            gender=data.gender,
+            department_position=f"{data.department}/{data.position}" if data.department or data.position else None,
+            hire_date=data.hire_date,
+        )
+        return _generate_old(input_data)
+    return _generate_old(data)

@@ -4,7 +4,7 @@ from datetime import date
 from io import BytesIO
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl.styles import Alignment, Border, Side, Font
 from pydantic import BaseModel, Field
 
 

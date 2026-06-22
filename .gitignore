@@ -1,14 +1,12 @@
 __pycache__/
 *.py[cod]
-*$py/class
+*$py.class
 *.so
 .Python
 .venv/
 venv/
 env/
 .env
-.env.development
-.env.production
 *.egg-info/
 dist/
 build/
@@ -28,22 +26,11 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
-uploads
 
-# Docs and assets
-docs/superpowersscripts/bitable_inspect_result.json
 docs/superpowers
-docs/superpowersuploads/
 
-# Local storage data
-storage/
-
-# Wheels
-wheels/
-
-# Assets
-assets
-assets/**/*.xlsx
-assets/**/*.docx
-assets/**/*.doc
-assets/**/*.xls
+# runtime / uploads
+.backend.pid
+.frontend.pid
+uploads/
+backups/
