@@ -199,7 +199,11 @@ async def edbo_optimize(
         )
 
     # Read CSV content
-    csv_content = (await file.read()).decode("utf-8")
+    try:
+        csv_content = (await file.read()).decode("utf-8")
+    except UnicodeDecodeError:
+        from app.core.response import error_response
+        return error_response(message="文件编码错误：请使用 UTF-8 编码的 CSV 文件")
 
     # Run EDBO+ optimization
     try:
