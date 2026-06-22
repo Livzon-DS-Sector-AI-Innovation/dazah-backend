@@ -88,3 +88,84 @@ async def maintenance_plan_loop() -> None:
             logger.exception("维护计划自动生成循环异常")
 
     logger.info("维护计划自动生成任务已停止")
+
+
+# ── Timeout scanning ────────────────────────────────────────────────
+
+stop_timeout_flag = asyncio.Event()
+
+
+async def scan_timeout_work_orders() -> None:
+    """扫描超时未接单的工单"""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select
+
+    from app.core.config import get_settings
+    from app.core.database import async_session_factory
+    from app.modules.equipment.models.work_order import WorkOrder
+    from app.platform.integrations.feishu.contact import get_department_leader
+    from app.platform.integrations.feishu.message import send_timeout_notification
+
+    settings = get_settings()
+    dept_id = settings.FEISHU_EQUIPMENT_DEPT_ID
+    if not dept_id:
+        return
+
+    async with async_session_factory() as db:
+        try:
+            from app.modules.equipment.service.maintenance_config import (
+                get_claim_timeout_config,
+            )
+
+            config = await get_claim_timeout_config(db)
+            result = await db.execute(
+                select(WorkOrder).where(
+                    WorkOrder.status == "待处理",
+                    WorkOrder.is_deleted == False,  # noqa: E712
+                )
+            )
+            pending_orders = result.scalars().all()
+
+            now = datetime.now(UTC)
+            priority_map = {
+                "紧急": "emergency", "高": "high",
+                "中": "medium", "低": "low",
+            }
+            for order in pending_orders:
+                attr = priority_map.get(order.priority, "medium")
+                timeout_minutes = getattr(config, attr, 60)
+                elapsed = (now - order.reported_at).total_seconds() / 60
+                if elapsed > timeout_minutes:
+                    leader = await get_department_leader(dept_id)
+                    leader_name = (
+                        leader.get("name", "主管") if leader else "主管"
+                    )
+                    await send_timeout_notification(
+                        order.work_order_no, "设备", leader_name,
+                    )
+                    logger.info(
+                        "Timeout WO %s (%.0f min > %d min)",
+                        order.work_order_no, elapsed, timeout_minutes,
+                    )
+        except Exception:
+            logger.exception("Timeout scan error")
+        finally:
+            await db.rollback()
+
+
+async def timeout_scan_loop() -> None:
+    """每60秒扫描超时工单"""
+    logger.info("工单超时扫描任务已启动（每60秒）")
+    while not stop_timeout_flag.is_set():
+        try:
+            await scan_timeout_work_orders()
+        except Exception:
+            logger.exception("Timeout scan error")
+        try:
+            await asyncio.wait_for(
+                stop_timeout_flag.wait(), timeout=60,
+            )
+        except TimeoutError:
+            pass
+    logger.info("工单超时扫描任务已停止")
