@@ -19,6 +19,11 @@ class RegulatoryDocumentRead(BaseModel):
     original_url: str | None = None
     is_new: bool
     is_read: bool
+    ai_summary: str | None = None
+    ai_key_points: list[str] | None = None
+    ai_relevance_score: float | None = None
+    ai_analyzed_at: datetime | None = None
+    ai_analysis_status: str | None = None
     first_found_at: datetime
     last_checked_at: datetime | None = None
     created_at: datetime

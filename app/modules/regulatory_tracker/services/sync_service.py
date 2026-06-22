@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.regulatory_tracker import repository as repo
 from app.modules.regulatory_tracker.crawler.cde_crawler import CdeDomesticGuidelineAdapter
 from app.modules.regulatory_tracker.models import DataChannel, DataSource
+from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_and_update
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ async def upsert_document(
         "first_found_at": datetime.now(timezone.utc),
         "last_checked_at": datetime.now(timezone.utc),
     })
-    return ("created", doc.id)
+    return ("created", doc)
 
 
 async def sync_page_to_db(
@@ -111,12 +112,17 @@ async def sync_page_to_db(
             stats["checked"] += 1
             try:
                 normalized = adapter.normalize_record(record)
-                action, _ = await upsert_document(
+                action, result = await upsert_document(
                     db, source.id, channel.id, normalized
                 )
                 if action == "created":
                     stats["new"] += 1
                     new_on_page += 1
+                    # Trigger AI analysis for new documents
+                    try:
+                        await analyze_and_update(db, result)
+                    except Exception as e:
+                        logger.error(f"AI 分析失败: {e}")
                 elif action == "updated":
                     stats["updated"] += 1
             except Exception as e:

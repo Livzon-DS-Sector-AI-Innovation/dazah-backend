@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime
-from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, UniqueConstraint, Text, Float
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.base_model import BaseModel
@@ -50,6 +50,22 @@ class RegulatoryDocument(BaseModel):
     )
     last_checked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # AI analysis fields
+    ai_summary: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="AI 生成的文档摘要"
+    )
+    ai_key_points: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="AI 提取的关键要点"
+    )
+    ai_relevance_score: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="AI 评估的相关性评分 (0-1)"
+    )
+    ai_analyzed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="AI 分析完成时间"
+    )
+    ai_analysis_status: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, comment="AI 分析状态: pending/completed/failed"
     )
     raw_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 

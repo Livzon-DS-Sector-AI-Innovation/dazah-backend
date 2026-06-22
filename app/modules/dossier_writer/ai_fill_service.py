@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .field_models import FieldMapping, FieldFillResult, AssetCategory, AssetPageSplit
 from .models import ChapterAsset, DossierChapter, ProductDossier
-from app.core.llm import llm_client
+from app.core.llm import llm_client, LLMError
 from .ai_prompts import (
     build_extract_fields_prompt,
     build_split_pages_prompt,
@@ -129,7 +129,6 @@ class AIFillService:
             category_groups.setdefault(cat, []).append(m)
 
         # 对每个分类组调用 AI 提取
-        total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         for category_name, group_mappings in category_groups.items():
             # 找到该分类下的素材文件
@@ -219,29 +218,25 @@ class AIFillService:
                 product_name=dossier.product_name,
             )
 
-            llm_result = await self.llm.chat_json(messages)
-            if not llm_result["success"]:
+            try:
+                parsed_result = await self.llm.chat_json(messages)
+            except LLMError as e:
                 for m in non_table_fields:
                     results.append({
                         "field_name": m.field_name,
                         "field_type": m.field_type,
                         "value": None,
                         "confidence": 0.0,
-                        "source": f"AI 提取失败: {llm_result.get('error', '')}",
+                        "source": f"AI 提取失败: {e}",
                         "field_mapping_id": str(m.id),
                         "source_category": m.source_category,
                     })
                 continue
 
-            # 记录 token 用量
-            usage = llm_result.get("usage", {})
-            for k in total_usage:
-                total_usage[k] += usage.get(k, 0)
-
             # 解析 AI 返回的字段
             parsed_fields = {
                 f["field_name"]: f
-                for f in llm_result.get("parsed", {}).get("fields", [])
+                for f in parsed_result.get("fields", [])
             }
 
             for m in non_table_fields:
@@ -272,7 +267,6 @@ class AIFillService:
             "success": True,
             "message": f"提取完成: {len(results)} 个字段",
             "fields": results,
-            "token_usage": total_usage,
         }
 
     async def confirm_and_fill(
@@ -324,14 +318,14 @@ class AIFillService:
                 template_tables=template_tables,
                 extracted_fields=text_fields,
             )
-            llm_result = await self.llm.chat_json(messages)
-            if llm_result["success"]:
-                fill_instructions = llm_result.get("parsed", {}).get("fills", [])
+            try:
+                parsed_result = await self.llm.chat_json(messages)
+                fill_instructions = parsed_result.get("fills", [])
                 _logger.info(f"[Fill] AI returned {len(fill_instructions)} fill instructions:")
                 for inst in fill_instructions:
                     _logger.info(f"  {inst.get('field_name')}: action={inst.get('fill_action')} target={inst.get('target')}")
-            else:
-                _logger.warning(f"[Fill] AI location prompt failed: {llm_result.get('message')}")
+            except LLMError as e:
+                _logger.warning(f"[Fill] AI location prompt failed: {e}")
 
         # 加载素材（带分类名称），用于图片插入
         chapter_assets = await self.get_chapter_assets(chapter.id)
@@ -450,11 +444,12 @@ class AIFillService:
             available_appendix_slots=available_appendix_slots,
         )
 
-        llm_result = await self.llm.chat_json(messages)
-        if not llm_result["success"]:
-            return {"success": False, "message": f"AI 拆分失败: {llm_result.get('error', '')}"}
+        try:
+            parsed_result = await self.llm.chat_json(messages)
+        except LLMError as e:
+            return {"success": False, "message": f"AI 拆分失败: {e}"}
 
-        pages = llm_result.get("parsed", {}).get("pages", [])
+        pages = parsed_result.get("pages", [])
 
         # 保存拆分结果到数据库
         for page_info in pages:

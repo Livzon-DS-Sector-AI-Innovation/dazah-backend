@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.modules.regulatory_tracker import repository as repo
+from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_new_documents, analyze_and_update
 from app.modules.regulatory_tracker.schemas import (
     RegulatoryDocumentRead,
     SyncJobRead,
@@ -83,6 +84,11 @@ async def list_documents(
             "firstFoundAt": doc.first_found_at.isoformat() if doc.first_found_at else None,
             "lastCheckedAt": doc.last_checked_at.isoformat() if doc.last_checked_at else None,
             "createdAt": doc.created_at.isoformat() if doc.created_at else None,
+            "aiSummary": doc.ai_summary,
+            "aiKeyPoints": doc.ai_key_points,
+            "aiRelevanceScore": doc.ai_relevance_score,
+            "aiAnalyzedAt": doc.ai_analyzed_at.isoformat() if doc.ai_analyzed_at else None,
+            "aiAnalysisStatus": doc.ai_analysis_status,
         })
     
     return {
@@ -175,4 +181,45 @@ async def list_sync_jobs(
             "pageSize": pageSize,
             "totalPages": (total + pageSize - 1) // pageSize if pageSize > 0 else 0,
         },
+    }
+
+# ============ AI 分析 ============
+
+@router.post("/regulatory-documents/analyze", summary="触发 AI 分析")
+async def trigger_ai_analysis(
+    limit: int = Query(10, ge=1, le=50, description="最多分析文档数量"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    触发 AI 分析未处理的文档。
+    """
+    stats = await analyze_new_documents(db, limit=limit)
+    return {
+        "code": 200,
+        "message": "success",
+        "data": stats,
+    }
+
+
+@router.post("/regulatory-documents/{doc_id}/analyze", summary="分析单个文档")
+async def analyze_single_document(
+    doc_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    对单个文档执行 AI 分析。
+    """
+    doc = await repo.get_document_by_id(db, doc_id)
+    if not doc:
+        return {
+            "code": 404,
+            "message": "文档不存在",
+            "data": None,
+        }
+    
+    success = await analyze_and_update(db, doc)
+    return {
+        "code": 200,
+        "message": "success" if success else "failed",
+        "data": {"id": str(doc_id), "analyzed": success},
     }

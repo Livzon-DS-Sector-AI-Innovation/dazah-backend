@@ -12,6 +12,7 @@ from app.core.database import async_session_factory
 from app.modules.regulatory_tracker import repository as repo
 from app.modules.regulatory_tracker.models import DataChannel, DataSource
 from app.modules.regulatory_tracker.services.sync_service import run_sync_job
+from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_new_documents
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,24 @@ async def daily_sync_job():
         logger.exception("❌ 每日同步任务异常")
 
 
+
+
+async def daily_ai_analysis_job():
+    """每日 AI 分析任务：分析新采集的法规文档。"""
+    logger.info("⏰ 开始每日 AI 分析任务")
+
+    try:
+        async with async_session_factory() as db:
+            stats = await analyze_new_documents(db, limit=20)
+            logger.info(
+                "✅ AI 分析完成: analyzed=%d failed=%d skipped=%d",
+                stats["analyzed"],
+                stats["failed"],
+                stats["skipped"],
+            )
+    except Exception:
+        logger.exception("❌ AI 分析任务异常")
+
 def start_scheduler():
     """启动定时调度器。"""
     settings = get_settings()
@@ -89,6 +108,24 @@ def start_scheduler():
         name="CDE 国内药品技术指导原则每日同步",
         replace_existing=True,
     )
+    
+    # AI 分析任务：在同步后 1 小时运行
+    ai_trigger = CronTrigger(
+        minute=parts[0],
+        hour=str((int(parts[1]) + 1) % 24),
+        day=parts[2],
+        month=parts[3],
+        day_of_week=parts[4],
+        timezone="Asia/Shanghai",
+    )
+    scheduler.add_job(
+        daily_ai_analysis_job,
+        trigger=ai_trigger,
+        id="daily_ai_analysis",
+        name="法规文档 AI 每日分析",
+        replace_existing=True,
+    )
+    
     scheduler.start()
     logger.info("📅 Scheduler 已启动, cron=%s (Asia/Shanghai)", cron_expr)
 
