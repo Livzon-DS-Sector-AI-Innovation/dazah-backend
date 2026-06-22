@@ -127,3 +127,8 @@ async def delete_label_verification(
 ):
     await service.delete_verification(verification_id)
     return success_response(message="标签复核记录删除成功")
+
+# ============ 压差统计路由 ============
+from app.modules.production.pressure_api import router as pressure_router
+
+router.include_router(pressure_router, tags=["压差统计"])
