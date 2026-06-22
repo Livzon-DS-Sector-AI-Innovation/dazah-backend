@@ -17,13 +17,21 @@ class SSOCallbackResult(BaseModel):
 class UserResponse(BaseModel):
     id: UUID
     name: str
+    en_name: str | None = None
     email: str | None = None
+    enterprise_email: str | None = None
     mobile: str | None = None
     avatar_url: str | None = None
+    avatar_thumb: str | None = None
+    avatar_middle: str | None = None
+    avatar_big: str | None = None
     employee_no: str | None = None
     department: str | None = None
     position: str | None = None
     feishu_user_id: str | None = None
+    feishu_open_id: str | None = None
+    feishu_union_id: str | None = None
+    tenant_key: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -76,13 +84,21 @@ class PersonnelItem(BaseModel):
     """人员列表项"""
     id: UUID
     name: str
+    en_name: str | None = None
     employee_no: str | None = None
     email: str | None = None
+    enterprise_email: str | None = None
     mobile: str | None = None
     department: str | None = None
     position: str | None = None
     feishu_user_id: str | None = None
+    feishu_open_id: str | None = None
+    feishu_union_id: str | None = None
     avatar_url: str | None = None
+    avatar_thumb: str | None = None
+    avatar_middle: str | None = None
+    avatar_big: str | None = None
+    tenant_key: str | None = None
     feishu_department_ids: list[str] | None = None
 
     @field_validator("feishu_department_ids", mode="before")

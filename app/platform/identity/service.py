@@ -40,10 +40,17 @@ async def handle_oauth_callback(
 
     open_id = info.get("open_id", "")
     user_id = info.get("user_id", "")
+    union_id = info.get("union_id", "")
     name = info.get("name", "")
+    en_name = info.get("en_name")
     avatar_url = info.get("avatar_url") or info.get("avatar_middle")
+    avatar_thumb = info.get("avatar_thumb")
+    avatar_middle = info.get("avatar_middle")
+    avatar_big = info.get("avatar_big")
     email = info.get("email") or info.get("enterprise_email")
+    enterprise_email = info.get("enterprise_email")
     mobile = info.get("mobile")
+    tenant_key = info.get("tenant_key")
 
     if not open_id:
         raise ValueError("Feishu user info missing open_id")
@@ -60,18 +67,32 @@ async def handle_oauth_callback(
             name=name,
             feishu_user_id=user_id,
             feishu_open_id=open_id,
+            feishu_union_id=union_id,
+            en_name=en_name,
             email=email,
+            enterprise_email=enterprise_email,
             mobile=mobile,
             avatar_url=avatar_url,
+            avatar_thumb=avatar_thumb,
+            avatar_middle=avatar_middle,
+            avatar_big=avatar_big,
+            tenant_key=tenant_key,
         )
         logger.info("Created new user: %s (open_id=%s)", name, open_id)
     else:
         # Update profile info on each login
         user.name = name or user.name
         user.feishu_user_id = user_id or user.feishu_user_id
+        user.feishu_union_id = union_id or user.feishu_union_id
+        user.en_name = en_name or user.en_name
         user.email = email or user.email
+        user.enterprise_email = enterprise_email or user.enterprise_email
         user.mobile = mobile or user.mobile
         user.avatar_url = avatar_url or user.avatar_url
+        user.avatar_thumb = avatar_thumb or user.avatar_thumb
+        user.avatar_middle = avatar_middle or user.avatar_middle
+        user.avatar_big = avatar_big or user.avatar_big
+        user.tenant_key = tenant_key or user.tenant_key
         logger.info("Updated user: %s (open_id=%s)", user.name, open_id)
 
     await db.commit()
