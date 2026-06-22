@@ -19,6 +19,8 @@ async def upload_images(
     work_order_id: uuid.UUID,
     files: list[UploadFile],
 ) -> list[WorkOrderImage]:
+    from app.core.storage import is_enabled as minio_enabled, upload_object
+
     settings = get_settings()
     wo = await repo.get_work_order_by_id(db, work_order_id)
     if not wo:
@@ -47,16 +49,28 @@ async def upload_images(
             )
 
         stored_name = f"{uuid.uuid4()}{ext}"
-        file_path = os.path.join(upload_dir, stored_name)
-
         content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
+
+        if minio_enabled():
+            object_key = f"work-orders/{work_order_id}/{stored_name}"
+            upload_object(
+                module="equipment",
+                object_key=object_key,
+                data=content,
+                length=len(content),
+                content_type=file.content_type or "image/jpeg",
+            )
+            stored_path = object_key
+        else:
+            file_path = os.path.join(upload_dir, stored_name)
+            with open(file_path, "wb") as f:
+                f.write(content)
+            stored_path = file_path
 
         image = await repo.create_image(db, {
             "work_order_id": work_order_id,
             "file_name": file.filename or stored_name,
-            "file_path": file_path,
+            "file_path": stored_path,
             "file_size": file_size,
         })
         images.append(image)
@@ -71,11 +85,18 @@ async def get_images(
 
 
 async def delete_image(db: AsyncSession, image_id: uuid.UUID) -> None:
+    from app.core.storage import delete_object, is_enabled as minio_enabled
+
     image = await repo.get_image_by_id(db, image_id)
     if not image:
         raise NotFoundException("图片", str(image_id))
 
-    if os.path.exists(image.file_path):
+    if minio_enabled():
+        try:
+            delete_object("equipment", image.file_path)
+        except Exception:
+            pass
+    elif os.path.exists(image.file_path):
         os.remove(image.file_path)
 
     await repo.delete_image(db, image)

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AppException, NotFoundException
+from app.core.storage import delete_object, is_enabled as minio_enabled, upload_object
 from app.modules.equipment import repository as repo
 from app.modules.equipment.models.inspection import (
     InspectionPhoto,
@@ -135,10 +136,38 @@ async def create_task(
             raise AppException(message="线路巡检必须选择巡检路线")
         # 线路巡检时，模板从路线地点下各设备的绑定获取，无需单独提供
     else:
-        # 设备巡检：至少需要提供一个设备和一个模板
+        # 设备巡检：至少需要提供一个设备
         if not has_equipment:
             raise AppException(message="设备巡检至少需要选择一台设备")
-        if not data.get("template_ids"):
+
+        equipment_templates = data.get("equipment_templates")
+        template_ids = data.get("template_ids")
+
+        if equipment_templates:
+            # 新方式：逐设备绑定模板
+            equipment_ids = data.get("equipment_ids", [])
+            eq_id_set = {str(eid) for eid in equipment_ids}
+            # 校验 equipment_templates 的 key 都在 equipment_ids 中
+            for eq_id in equipment_templates:
+                if eq_id not in eq_id_set:
+                    raise AppException(
+                        message=f"设备 {eq_id} 不在已选择的设备列表中"
+                    )
+            # 校验每个已选设备都绑定了至少一个模板
+            for eq_id in eq_id_set:
+                if eq_id not in equipment_templates or not equipment_templates[eq_id]:
+                    raise AppException(
+                        message="每台已选设备必须绑定至少一个检查模板"
+                    )
+            # 将 UUID 转为字符串存储
+            data["equipment_templates"] = {
+                str(k): [str(tid) for tid in v]
+                for k, v in equipment_templates.items()
+            }
+        elif template_ids:
+            # 兼容旧方式：扁平模板列表（所有模板应用于所有设备）
+            pass
+        else:
             raise AppException(message="设备巡检必须选择检查模板")
 
     # JSON 列无法直接序列化 UUID 对象，需提前转为字符串
@@ -194,12 +223,26 @@ async def get_task_by_id(
 
 
 async def _refetch_task(db: AsyncSession, task_id: uuid.UUID) -> InspectionTask:
-    """eager re-fetch 任务及关联，避免 MissingGreenlet"""
+    """eager re-fetch 任务及关联，避免 MissingGreenlet
+
+    线路巡检需要加载到 RouteLocation.equipments → Equipment 和
+    RouteLocation.location，确保通知服务和后续逻辑不触发懒加载。
+    """
+    from app.modules.equipment.models.inspection_route_location import (
+        RouteLocation,
+        RouteLocationEquipment,
+    )
 
     result = await db.execute(
         select(InspectionTask)
         .options(
-            selectinload(InspectionTask.route).selectinload(InspectionRoute.locations_rel),
+            selectinload(InspectionTask.route)
+            .selectinload(InspectionRoute.locations_rel)
+            .selectinload(RouteLocation.equipments)
+            .selectinload(RouteLocationEquipment.equipment),
+            selectinload(InspectionTask.route)
+            .selectinload(InspectionRoute.locations_rel)
+            .selectinload(RouteLocation.location),
             selectinload(InspectionTask.equipment),
             selectinload(InspectionTask.assignee),
         )
@@ -500,20 +543,34 @@ async def upload_photo(
     if file is None:
         raise AppException(message="请提供照片文件")
 
-    filename = f"{uuid.uuid4()}_{file.filename}"
-    file_path = os.path.normpath(os.path.join(_UPLOAD_DIR, filename))
-    if not file_path.startswith(os.path.normpath(_UPLOAD_DIR)):
-        raise AppException(message="非法文件路径")
-
     content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    filename = f"{uuid.uuid4()}_{file.filename}"
+
+    if minio_enabled():
+        # MinIO 模式：上传到对象存储
+        object_key = f"inspection/{filename}"
+        upload_object(
+            module="equipment",
+            object_key=object_key,
+            data=content,
+            length=len(content),
+            content_type=file.content_type or "image/jpeg",
+        )
+        stored_path = object_key
+    else:
+        # 本地文件系统模式（兼容旧部署）
+        file_path = os.path.normpath(os.path.join(_UPLOAD_DIR, filename))
+        if not file_path.startswith(os.path.normpath(_UPLOAD_DIR)):
+            raise AppException(message="非法文件路径")
+        with open(file_path, "wb") as f:
+            f.write(content)
+        stored_path = file_path
 
     photo_data = {
         "task_id": str(task_id),
         "equipment_id": str(equipment_id) if equipment_id else None,
         "file_name": file.filename or "unknown",
-        "file_path": file_path,
+        "file_path": stored_path,
         "file_size": len(content),
     }
     return await repo.create_photo(db, photo_data)
@@ -531,8 +588,17 @@ async def delete_photo(
     photo = await repo.get_photo_by_id(db, photo_id)
     if not photo:
         raise NotFoundException("照片", str(photo_id))
-    if os.path.exists(photo.file_path):
+
+    if minio_enabled():
+        # MinIO 模式：从对象存储删除
+        try:
+            delete_object("equipment", photo.file_path)
+        except Exception:
+            # 删除 MinIO 文件失败不阻塞数据库操作
+            pass
+    elif os.path.exists(photo.file_path):
         os.remove(photo.file_path)
+
     return await repo.delete_photo(db, photo_id)
 
 
@@ -576,10 +642,19 @@ async def get_history(
     count_stmt = select(func.count(ITask.id)).where(and_(*conditions))
     total = (await db.execute(count_stmt)).scalar_one()
 
+    from app.modules.equipment.models.inspection_route_location import (
+        RouteLocation,
+    )
+
     stmt = (
         select(ITask)
         .options(
-            selectinload(ITask.route).selectinload(InspectionRoute.locations_rel),
+            selectinload(ITask.route)
+            .selectinload(InspectionRoute.locations_rel)
+            .selectinload(RouteLocation.equipments),
+            selectinload(ITask.route)
+            .selectinload(InspectionRoute.locations_rel)
+            .selectinload(RouteLocation.location),
             selectinload(ITask.equipment),
             selectinload(ITask.assignee),
         )

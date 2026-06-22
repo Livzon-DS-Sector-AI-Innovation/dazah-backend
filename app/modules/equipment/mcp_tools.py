@@ -130,7 +130,7 @@ async def _get_template_item_map(
     """根据任务类型获取模板检查项的 item_name → template_item_id 映射。
 
     线路巡检：从路线 → 地点 → 设备 → 模板绑定获取（可能多个模板合并）
-    设备巡检：从 task.template_ids 获取
+    设备巡检：从 task.equipment_templates 或 task.template_ids 获取
     """
     name_to_id: dict[str, str] = {}
 
@@ -166,8 +166,26 @@ async def _get_template_item_map(
                         for item_ in items:
                             name_to_id[item_.item_name] = str(item_.id)
 
+    elif task.equipment_templates:
+        # 新方式：从设备-模板映射聚合所有唯一模板
+        seen_tids: set[uuid.UUID] = set()
+        for tpl_ids in task.equipment_templates.values():
+            for tid_str in tpl_ids:
+                tid = uuid.UUID(tid_str) if isinstance(tid_str, str) else tid_str
+                if tid not in seen_tids:
+                    seen_tids.add(tid)
+        for tid in seen_tids:
+            item_stmt = select(InspectionTemplateItem).where(
+                InspectionTemplateItem.template_id == tid,
+                InspectionTemplateItem.is_deleted == False,  # noqa: E712
+            )
+            items = (await db.execute(item_stmt)).scalars().all()
+            for item_ in items:
+                if item_.item_name not in name_to_id:
+                    name_to_id[item_.item_name] = str(item_.id)
+
     elif task.template_ids:
-        # 设备巡检：从 task.template_ids JSON 列表获取
+        # 兼容旧数据：从 task.template_ids JSON 列表获取
         for tid_str in task.template_ids:
             tid = uuid.UUID(tid_str) if isinstance(tid_str, str) else tid_str
             item_stmt = select(InspectionTemplateItem).where(

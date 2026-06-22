@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
 
+    # MinIO / S3-compatible object storage
+    MINIO_ENABLED: bool = False
+    MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_BUCKET_PREFIX: str = "dazah"
+    MINIO_SECURE: bool = False
+
     # Energy
     ENERGY_AUTO_COLLECT_ENABLED: bool = False
 

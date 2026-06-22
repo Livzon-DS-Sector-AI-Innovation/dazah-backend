@@ -239,7 +239,8 @@ async def _get_inspection_items(
     """获取巡检检查项 — 统一处理线路巡检和设备巡检的多模板合并。
 
     线路巡检：从 route → locations → equipment → templates 链获取
-    设备巡检：从 task.template_ids JSON 列表获取
+    设备巡检（新）：从 task.equipment_templates 按设备匹配
+    设备巡检（旧）：从 task.template_ids 扁平列表（兼容）
     """
     all_items: list[InspectionTemplateItem] = []
     seen_names: set[str] = set()
@@ -269,7 +270,15 @@ async def _get_inspection_items(
                 for tpl in tpls:
                     template_ids.add(tpl.template_id)
 
+    elif task.equipment_templates:
+        # 新方式：从设备-模板映射中获取该设备绑定的模板
+        eq_id_str = str(equipment_id)
+        tpl_ids = task.equipment_templates.get(eq_id_str, [])
+        for tid_str in tpl_ids:
+            template_ids.add(uuid.UUID(tid_str))
+
     elif task.template_ids:
+        # 兼容旧数据：扁平模板列表（所有模板应用于所有设备）
         for tid_str in task.template_ids:
             tid = uuid.UUID(tid_str) if isinstance(tid_str, str) else tid_str
             template_ids.add(tid)

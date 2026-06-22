@@ -144,7 +144,12 @@ class InspectionTask(BaseModel):
         JSON, nullable=True, comment="设备ID列表（多设备模式）"
     )
     template_ids: Mapped[list | None] = mapped_column(
-        JSON, nullable=True, comment="设备巡检绑定的模板ID列表"
+        JSON,
+        nullable=True,
+        comment="[DEPRECATED] 模板ID列表，推荐用 equipment_templates",
+    )
+    equipment_templates: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="设备-模板绑定 {equipment_id: [template_id,...]}"
     )
     plan_type: Mapped[str] = mapped_column(
         String(20),

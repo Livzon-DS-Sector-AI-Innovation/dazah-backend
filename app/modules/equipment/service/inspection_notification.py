@@ -105,7 +105,14 @@ async def _get_template_items(
                 tpls = (await db.execute(tpl_stmt)).scalars().all()
                 for tpl in tpls:
                     template_id_set.add(tpl.template_id)
+    elif task.equipment_templates:
+        # 新方式：从设备-模板映射聚合所有唯一模板
+        for tpl_ids in task.equipment_templates.values():
+            for t in tpl_ids:
+                tid = uuid.UUID(t) if isinstance(t, str) else t
+                template_id_set.add(tid)
     elif task.template_ids:
+        # 兼容旧数据
         for t in task.template_ids:
             tid = uuid.UUID(t) if isinstance(t, str) else t
             template_id_set.add(tid)

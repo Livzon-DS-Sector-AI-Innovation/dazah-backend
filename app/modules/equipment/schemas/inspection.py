@@ -171,7 +171,10 @@ class InspectionTaskCreate(BaseModel):
         default=None, min_length=1, description="设备ID列表（多设备模式）"
     )
     template_ids: list[uuid.UUID] | None = Field(
-        default=None, min_length=1, description="模板ID列表（设备巡检用）"
+        default=None, min_length=1, description="[DEPRECATED] 模板ID列表，推荐用 equipment_templates"
+    )
+    equipment_templates: dict[str, list[uuid.UUID]] | None = Field(
+        default=None, description="设备-模板映射（设备巡检用）: {equipment_id: [template_id, ...]}"
     )
     plan_type: InspectionPlanType = Field(
         default="设备巡检", description="巡检类型"
@@ -204,6 +207,7 @@ class InspectionTaskResponse(BaseModel):
     equipment_id: uuid.UUID | None
     equipment_ids: list[uuid.UUID] | None = None
     template_ids: list[uuid.UUID] | None = None
+    equipment_templates: dict[str, list[uuid.UUID]] | None = None
     plan_type: InspectionPlanType
     assigned_to: uuid.UUID | None
     planned_time: datetime

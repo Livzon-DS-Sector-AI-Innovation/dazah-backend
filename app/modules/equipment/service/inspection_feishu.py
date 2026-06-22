@@ -53,7 +53,7 @@ os.makedirs(_UPLOAD_DIR, exist_ok=True)
 
 # 命令关键词映射
 _START_COMMANDS = {"开始", "开始巡检", "start"}
-_SUBMIT_COMMANDS = {"提交", "确认", "确认提交", "submit", "ok", "好的"}
+_SUBMIT_COMMANDS = {"提交", "确认提交", "submit"}
 _SKIP_COMMANDS = {"跳过", "skip", "pass"}
 _PROGRESS_COMMANDS = {"进度", "状态", "progress", "status"}
 _CONTINUE_COMMANDS = {"继续", "下一台", "下一个", "next", "continue"}
@@ -884,7 +884,23 @@ async def _cmd_modify(open_id: str, session: dict, user_text: str) -> None:
             updated_results.append(r)
 
     # 更新会话
-    from app.modules.equipment.service.inspection_session import update_session
+    from app.modules.equipment.service.inspection_session import (
+        get_session as redis_get_session,
+        update_session,
+    )
+
+    # 二次校验：确保 AI 调用期间会话状态未被并发修改
+    fresh_session = await redis_get_session(open_id)
+    if (
+        fresh_session is None
+        or fresh_session.get("state") != SessionState.CONFIRMING
+        or fresh_session.get("task_id") != session.get("task_id")
+    ):
+        await _reply_text(
+            open_id,
+            "会话状态已变更，修改未能保存。\n请重新发送照片或文字描述检查结果。",
+        )
+        return
 
     await update_session(open_id, pending_results=updated_results)
 
@@ -1429,18 +1445,32 @@ async def _save_photo(
     equipment_id: uuid.UUID,
     image_bytes: bytes,
 ) -> InspectionPhoto:
-    """保存巡检照片到文件和数据库。"""
-    filename = f"{uuid.uuid4()}_feishu.jpg"
-    file_path = os.path.normpath(os.path.join(_UPLOAD_DIR, filename))
+    """保存巡检照片到 MinIO（或本地文件系统）和数据库。"""
+    from app.core.storage import is_enabled as minio_enabled, upload_object
 
-    with open(file_path, "wb") as f:
-        f.write(image_bytes)
+    filename = f"{uuid.uuid4()}_feishu.jpg"
+
+    if minio_enabled():
+        object_key = f"inspection/{filename}"
+        upload_object(
+            module="equipment",
+            object_key=object_key,
+            data=image_bytes,
+            length=len(image_bytes),
+            content_type="image/jpeg",
+        )
+        stored_path = object_key
+    else:
+        file_path = os.path.normpath(os.path.join(_UPLOAD_DIR, filename))
+        with open(file_path, "wb") as f:
+            f.write(image_bytes)
+        stored_path = file_path
 
     photo = InspectionPhoto(
         task_id=task_id,
         equipment_id=equipment_id,
         file_name=filename,
-        file_path=file_path,
+        file_path=stored_path,
         file_size=len(image_bytes),
     )
     db.add(photo)
