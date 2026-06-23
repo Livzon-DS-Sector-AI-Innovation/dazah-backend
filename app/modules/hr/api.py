@@ -1,39 +1,36 @@
 from datetime import date
 from io import BytesIO
-from urllib.parse import quote
+import logging
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Query
+logger = logging.getLogger(__name__)
+from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from urllib.parse import quote
 
 from app.core.database import get_db
 from app.core.response import paginated_response, success_response
-from app.modules.hr.analysis_api import router as analysis_router
-from app.modules.hr.document_generator import generate_onboarding_training_record
-from app.modules.hr.evaluation_document_generator import generate_training_evaluation
-from app.modules.hr.notification_document_generator import (
-    generate_training_notification,
-)
-from app.modules.hr.onboarding_evaluation_document_generator import (
-    generate_onboarding_evaluation,
-)
-from app.modules.hr.prejob_document_generator import generate_prejob_training_plan
 from app.modules.hr.schemas import (
     AnnualTrainingPlanCreate,
     AnnualTrainingPlanItemBatchUpdate,
     AnnualTrainingPlanItemResponse,
     AnnualTrainingPlanResponse,
     AnnualTrainingPlanUpdate,
-    DepartmentCreate,
-    DepartmentResponse,
-    DepartmentUpdate,
+    CandidateCreate,
+    CandidateListResponse,
+    CandidateResponse,
+    CandidateUpdate,
+    CandidateUpdateRecommendationLevel,
     DepartureRecordCreate,
     DepartureRecordResponse,
     DepartureRecordUpdate,
+    DepartmentCreate,
+    DepartmentResponse,
+    DepartmentUpdate,
     EmployeeCreate,
     EmployeeResponse,
     EmployeeUpdate,
@@ -47,32 +44,52 @@ from app.modules.hr.schemas import (
     TeamUpdate,
     TrainingEvaluationInput,
     TrainingLedgerCreate,
-    TrainingLedgerPageCreate,
-    TrainingLedgerPageResponse,
     TrainingLedgerResponse,
     TrainingLedgerUpdate,
+    TrainingLedgerPageCreate,
+    TrainingLedgerPageResponse,
     TrainingNotificationInput,
     TrainingNotifyInput,
     TrainingSignInSheetInput,
 )
+from app.modules.hr.models import Employee
+from app.modules.hr.document_generator import generate_onboarding_training_record
+from app.modules.hr.evaluation_document_generator import generate_training_evaluation
+from app.modules.hr.notification_document_generator import generate_training_notification
+from app.modules.hr.onboarding_evaluation_document_generator import generate_onboarding_evaluation
+from app.modules.hr.prejob_document_generator import generate_prejob_training_plan
+from app.modules.hr.signin_document_generator import generate_training_sign_in_sheet
+from app.modules.hr.analysis_api import router as analysis_router
 from app.modules.hr.service import (
     AnnualTrainingPlanItemService,
     AnnualTrainingPlanService,
-    DepartmentService,
+    CandidateService,
     DepartureRecordService,
+    DepartmentService,
     EmployeeService,
     OffboardingRecordService,
     OnboardingRecordService,
     TeamService,
-    TrainingLedgerPageService,
     TrainingLedgerService,
+    TrainingLedgerPageService,
 )
-from app.modules.hr.signin_document_generator import generate_training_sign_in_sheet
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
 from app.shared.schemas import PageParams
 
 router = create_module_router(MODULES_BY_CODE["hr"])
+
+
+async def _get_new_employee(employee_id: UUID, session: AsyncSession) -> Employee:
+    """Query employees_new clone table and construct an Employee instance."""
+    sql = text(
+        "SELECT * FROM hr.employees_new WHERE id = :id AND is_deleted = false"
+    )
+    result = await session.execute(sql, {"id": str(employee_id)})
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="未找到该新厂员工")
+    return Employee(**dict(row))
 
 
 def get_employee_service(session: AsyncSession = Depends(get_db)) -> EmployeeService:
@@ -131,6 +148,12 @@ def get_annual_training_plan_item_service(
     session: AsyncSession = Depends(get_db),
 ) -> AnnualTrainingPlanItemService:
     return AnnualTrainingPlanItemService(session)
+
+
+def get_candidate_service(
+    session: AsyncSession = Depends(get_db),
+) -> CandidateService:
+    return CandidateService(session)
 
 
 # ─── Employee Routes ───
@@ -285,12 +308,20 @@ async def feishu_approval_webhook(
 )
 async def export_onboarding_training_record(
     employee_id: UUID,
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
     service: EmployeeService = Depends(get_employee_service),
+    session: AsyncSession = Depends(get_db),
 ):
     """根据员工数据自动生成并下载入职培训记录 Word 文档。"""
-    employee = await service.get_employee(employee_id)
+    if factory == "old":
+        employee = await service.get_employee(employee_id)
+    else:
+        try:
+            employee = await _get_new_employee(employee_id, session)
+        except HTTPException:
+            employee = await service.get_employee(employee_id)
     try:
-        buffer: BytesIO = generate_onboarding_training_record(employee)
+        buffer: BytesIO = generate_onboarding_training_record(employee, factory)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -312,12 +343,20 @@ async def export_onboarding_training_record(
 )
 async def export_prejob_training_plan(
     employee_id: UUID,
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
     service: EmployeeService = Depends(get_employee_service),
+    session: AsyncSession = Depends(get_db),
 ):
-    """根据员工数据自动生成并下载岗前培训计划 Excel 文档。"""
-    employee = await service.get_employee(employee_id)
+    """根据员工数据自动生成并下载岗前培训计划文档。"""
+    if factory == "old":
+        employee = await service.get_employee(employee_id)
+    else:
+        try:
+            employee = await _get_new_employee(employee_id, session)
+        except HTTPException:
+            employee = await service.get_employee(employee_id)
     try:
-        buffer: BytesIO = generate_prejob_training_plan(employee)
+        buffer: BytesIO = generate_prejob_training_plan(employee, factory)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -325,10 +364,16 @@ async def export_prejob_training_plan(
         buffer.seek(0)
         yield buffer.read()
 
-    filename = f"prejob_training_plan_{employee.employee_number}.xlsx"
+    ext = "xlsx" if factory == "old" else "docx"
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if factory == "old"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    filename = f"prejob_training_plan_{employee.employee_number}.{ext}"
     return StreamingResponse(
         _iterfile(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -339,35 +384,43 @@ async def export_prejob_training_plan(
 )
 async def export_onboarding_evaluation_by_employee(
     employee_id: UUID,
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
     service: EmployeeService = Depends(get_employee_service),
+    session: AsyncSession = Depends(get_db),
 ):
-    """根据员工档案预填基本信息并导出上岗评估表 Excel 文档。"""
-    employee = await service.get_employee(employee_id)
-
-    payload = OnboardingEvaluationInput(
-        employee_name=employee.name or "",
-        employee_number=employee.employee_number or None,
-        gender=employee.gender or None,
-        department_position=f"{employee.department or ''}/{employee.position or ''}",
-        hire_date=employee.hire_date,
-    )
-    buffer: BytesIO = generate_onboarding_evaluation(payload)
+    """根据员工档案预填基本信息并导出上岗评估表文档。"""
+    if factory == "old":
+        employee = await service.get_employee(employee_id)
+    else:
+        try:
+            employee = await _get_new_employee(employee_id, session)
+        except HTTPException:
+            employee = await service.get_employee(employee_id)
+    try:
+        buffer: BytesIO = generate_onboarding_evaluation(employee, factory)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     def _iterfile():
         buffer.seek(0)
         yield buffer.read()
 
     safe_date = str(employee.hire_date).replace("-", "") if employee.hire_date else "nodate"
-    filename = f"onboarding_evaluation_{employee.employee_number}_{safe_date}.xlsx"
+    ext = "xlsx" if factory == "old" else "docx"
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if factory == "old"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    filename = f"onboarding_evaluation_{employee.employee_number}_{safe_date}.{ext}"
     return StreamingResponse(
         _iterfile(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 import zipfile
-
 
 @router.post("/training-sign-in-sheet", summary="生成培训签到表")
 async def export_training_sign_in_sheet(
@@ -501,19 +554,26 @@ async def export_training_evaluation(
 @router.post("/onboarding-evaluation", summary="生成员工上岗评估表")
 async def export_onboarding_evaluation(
     payload: OnboardingEvaluationInput,
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
 ):
-    """根据填写的评估信息自动生成员工上岗评估表 Excel 文档。"""
-    buffer: BytesIO = generate_onboarding_evaluation(payload)
+    """根据填写的评估信息自动生成员工上岗评估表文档。"""
+    buffer: BytesIO = generate_onboarding_evaluation(payload, factory)
 
     def _iterfile():
         buffer.seek(0)
         yield buffer.read()
 
     safe_date = str(payload.evaluation_date).replace("-", "") if payload.evaluation_date else "nodate"
-    filename = f"onboarding_evaluation_{safe_date}.xlsx"
+    ext = "xlsx" if factory == "old" else "docx"
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if factory == "old"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    filename = f"onboarding_evaluation_{safe_date}.{ext}"
     return StreamingResponse(
         _iterfile(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -1672,6 +1732,227 @@ async def list_new_departments(
     return paginated_response(
         data=data, page=page_params.page,
         page_size=page_params.page_size, total=total,
+    )
+
+
+# ─── Candidate Routes ───
+
+@router.get("/candidates", summary="候选人列表")
+async def list_candidates(
+    position: str | None = Query(None, description="职位筛选"),
+    education: str | None = Query(None, description="学历筛选"),
+    recommendation_level: str | None = Query(None, description="推荐等级筛选（支持逗号分隔多个值）"),
+    sync_status: str | None = Query(None, description="飞书同步状态筛选: synced/failed/unsynced"),
+    keyword: str | None = Query(None, description="姓名/职位关键词"),
+    page_params: PageParams = Depends(),
+    service: CandidateService = Depends(get_candidate_service),
+):
+    candidates, total = await service.list_candidates(
+        position=position,
+        education=education,
+        recommendation_level=recommendation_level,
+        sync_status=sync_status,
+        keyword=keyword,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    logger.debug("API recommendation_level=%s, total=%s", recommendation_level, total)
+    data = [
+        CandidateResponse.model_validate(c).model_dump(mode="json")
+        for c in candidates
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/candidates/parse-preview", summary="预览简历AI解析结果")
+async def preview_resume_parse(
+    resume: UploadFile = File(..., description="简历 PDF 附件"),
+    position: str = Form(..., max_length=64, description="应聘职位名称"),
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """上传简历 PDF，转为图片后由 AI 视觉识别并返回预览字段（不保存）。"""
+    resume_bytes = await resume.read()
+    result = await service.parse_resume_preview(resume_bytes, position)
+    return success_response(data=result)
+
+
+@router.post("/candidates", summary="新建候选人")
+async def create_candidate(
+    name: str = Form(..., max_length=64, description="候选人姓名"),
+    position: str = Form(..., max_length=64, description="应聘职位名称"),
+    resume: UploadFile = File(..., description="简历 PDF 附件"),
+    gender: str | None = Form(None, max_length=8, description="性别"),
+    school: str | None = Form(None, max_length=128, description="学校名称"),
+    education: str | None = Form(None, max_length=16, description="学历"),
+    major: str | None = Form(None, max_length=64, description="专业"),
+    match_report: str | None = Form(None, description="AI 匹配度报告"),
+    recommendation_level: str | None = Form(
+        None, max_length=16, description="推荐等级"
+    ),
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """手动新建候选人：上传简历 PDF，创建本地记录并同步到飞书。"""
+    resume_bytes = await resume.read()
+    candidate = await service.create_candidate_with_resume(
+        name=name,
+        position=position,
+        resume_bytes=resume_bytes,
+        filename=resume.filename or f"{name}.pdf",
+        gender=gender,
+        school=school,
+        education=education,
+        major=major,
+        match_report=match_report,
+        recommendation_level=recommendation_level,
+    )
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="候选人创建成功",
+    )
+
+
+@router.post("/candidates/sync-from-feishu", summary="从飞书同步候选人数据")
+async def sync_candidates_from_feishu(
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """手动触发：从飞书多维表格拉取全部候选人数据并 upsert 到本地 PG。"""
+    stats = await service.sync_from_feishu()
+    msg = (
+        f"同步完成：新增 {stats['created']} 条，"
+        f"更新 {stats['updated']} 条，失败 {stats['failed']} 条"
+    )
+    return success_response(
+        data=stats,
+        message=msg,
+    )
+
+
+@router.get("/candidates/sync-status", summary="候选人同步状态")
+async def get_candidates_sync_status(
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """查看本地与飞书的候选人数据同步统计。"""
+    status = await service.get_sync_status()
+    return success_response(
+        data=status.model_dump(mode="json"),
+    )
+
+
+@router.post("/candidates/{candidate_id}/sync-to-feishu", summary="同步候选人到飞书")
+async def sync_candidate_to_feishu(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """手动触发：将单个候选人（含简历）同步到飞书多维表格。"""
+    candidate = await service.sync_candidate_to_feishu(candidate_id)
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="候选人与简历已同步到飞书",
+    )
+
+
+@router.get("/candidates/{candidate_id}", summary="候选人详情")
+async def get_candidate(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    candidate = await service.get_candidate(candidate_id)
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+    )
+
+
+@router.put("/candidates/{candidate_id}", summary="更新候选人信息")
+async def update_candidate(
+    candidate_id: UUID,
+    payload: CandidateUpdate,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    candidate = await service.update_candidate(candidate_id, payload)
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="候选人信息更新成功",
+    )
+
+
+@router.delete("/candidates/{candidate_id}", summary="删除候选人")
+async def delete_candidate(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    await service.delete_candidate(candidate_id)
+    return success_response(message="候选人删除成功")
+
+
+@router.put("/candidates/{candidate_id}/recommendation-level", summary="更新候选人推荐等级")
+async def update_candidate_recommendation_level(
+    candidate_id: UUID,
+    payload: CandidateUpdateRecommendationLevel,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    candidate = await service.update_recommendation_level(
+        candidate_id, payload.recommendation_level
+    )
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="推荐等级更新成功",
+    )
+
+
+@router.get("/candidates/{candidate_id}/resume-preview", summary="简历预览")
+async def preview_candidate_resume(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """获取候选人简历 PDF。优先读取本地存储，若不存在则从飞书下载。"""
+    import os
+
+    from app.core.exceptions import NotFoundException
+
+    candidate = await service.get_candidate(candidate_id)
+
+    # 优先读取本地文件
+    if candidate.resume_storage_path and os.path.exists(candidate.resume_storage_path):
+        def iter_file():
+            with open(candidate.resume_storage_path, "rb") as f:
+                while chunk := f.read(64 * 1024):
+                    yield chunk
+
+        return StreamingResponse(
+            content=iter_file(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="resume.pdf"'},
+        )
+
+    # 回退：从飞书实时下载
+    attachments = candidate.resume_attachments or []
+    if not attachments:
+        raise NotFoundException("简历附件", str(candidate_id))
+
+    file_token = attachments[0].get("file_token")
+    if not file_token:
+        raise NotFoundException("简历附件", str(candidate_id))
+
+    try:
+        tmp_download_url = await service.bitable.get_resume_download_url(file_token)
+    except Exception as exc:
+        logger.warning("Failed to get feishu download url for candidate %s: %s", candidate_id, exc)
+        raise NotFoundException("简历附件", str(candidate_id)) from exc
+
+    import httpx
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        response = await client.get(tmp_download_url)
+        response.raise_for_status()
+
+    return StreamingResponse(
+        content=response.iter_bytes(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="resume.pdf"'},
     )
 
 

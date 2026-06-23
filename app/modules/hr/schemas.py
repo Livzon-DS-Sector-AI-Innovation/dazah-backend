@@ -779,3 +779,51 @@ class AnnualTrainingPlanItemResponse(AnnualTrainingPlanItemBase):
 
 class AnnualTrainingPlanItemBatchUpdate(BaseModel):
     items: list[AnnualTrainingPlanItemCreate] = Field(default_factory=list, description="明细列表")
+class CandidateBase(BaseModel):
+    name: str = Field(..., max_length=64, description="候选人姓名")
+    position: str = Field(..., max_length=64, description="应聘职位名称")
+    gender: str | None = Field(None, max_length=8, description="性别")
+    school: str | None = Field(None, max_length=128, description="学校名称")
+    education: str | None = Field(None, max_length=16, description="学历")
+    major: str | None = Field(None, max_length=64, description="专业")
+    match_report: str | None = Field(None, description="候选人匹配度报告")
+    recommendation_level: str | None = Field(None, max_length=16, description="推荐等级")
+
+
+class CandidateResponse(CandidateBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    resume_attachments: list[dict] | None = None
+    feishu_record_id: str | None = None
+    feishu_synced_at: date | None = None
+    feishu_sync_status: str | None = None
+    feishu_sync_error: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CandidateListResponse(BaseModel):
+    code: int
+    message: str
+    data: list[CandidateResponse]
+    meta: dict | None = None
+
+
+class CandidateUpdateRecommendationLevel(BaseModel):
+    recommendation_level: str = Field(..., max_length=16, description="推荐等级")
+
+
+class CandidateCreate(CandidateBase):
+    pass
+
+
+class CandidateUpdate(BaseModel):
+    name: str | None = Field(None, max_length=64, description="候选人姓名")
+    position: str | None = Field(None, max_length=64, description="应聘职位名称")
+    gender: str | None = Field(None, max_length=8, description="性别")
+    school: str | None = Field(None, max_length=128, description="学校名称")
+    education: str | None = Field(None, max_length=16, description="学历")
+    major: str | None = Field(None, max_length=64, description="专业")
+    match_report: str | None = Field(None, description="候选人匹配度报告")
+    recommendation_level: str | None = Field(None, max_length=16, description="推荐等级")

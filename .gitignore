@@ -34,4 +34,3 @@ docs/superpowers
 .frontend.pid
 uploads/
 backups/
-.env.*

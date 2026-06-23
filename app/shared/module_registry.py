@@ -92,7 +92,7 @@ BUSINESS_MODULES: tuple[ModuleDefinition, ...] = (
         path="/hr",
         db_schema="hr",
         owner_hint="人事负责人",
-        description="人员、岗位、培训、考勤等人事业务数据入口。",
+        description="人员、岗位、培训等人事业务数据入口。",
     ),
     ModuleDefinition(
         code="research",
@@ -111,14 +111,6 @@ BUSINESS_MODULES: tuple[ModuleDefinition, ...] = (
         description="注册资料、申报进度、变更事项和法规跟踪数据入口。",
     ),
     ModuleDefinition(
-        code="regulatory_tracker",
-        name="法规追踪",
-        path="/regulatory_tracker",
-        db_schema="regulatory_tracker",
-        owner_hint="注册事务负责人",
-        description="法规自动监控追踪，包括数据源管理、栏目配置、文档同步和采集任务。",
-    ),
-    ModuleDefinition(
         code="quality",
         name="质量管理",
         path="/quality",
@@ -127,12 +119,12 @@ BUSINESS_MODULES: tuple[ModuleDefinition, ...] = (
         description="偏差、CAPA、检验、放行、变更和质量体系数据入口。",
     ),
     ModuleDefinition(
-        code="dossier_writer",
-        name="资料撰写",
-        path="/registration/dossier-writer",
-        db_schema="dossier_writer",
-        owner_hint="注册事务负责人",
-        description="申报资料撰写工具，包括模板管理、章节编辑、素材管理和AI辅助填充。",
+        code="product",
+        name="产品信息",
+        path="/product",
+        db_schema="product",
+        owner_hint="生产/研发负责人",
+        description="产品台账、规格、工艺路线、BOM 和状态数据入口。",
     ),
 )
 
