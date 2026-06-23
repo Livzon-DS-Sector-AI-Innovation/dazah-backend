@@ -11,8 +11,14 @@ logger = logging.getLogger(__name__)
 DATA_SOURCE_DEFINITIONS: list[dict] = [
     {
         "key": "hazard_open_count",
-        "label": "待整改隐患数",
-        "description": "当前状态为「待整改」的隐患数量",
+        "label": "未关闭隐患数",
+        "description": "当前状态为「未关闭」(status=open) 的隐患数量",
+        "default_enabled": True,
+    },
+    {
+        "key": "hazard_open_details",
+        "label": "未关闭隐患明细",
+        "description": "所有未关闭隐患的详细列表（编号、位置、等级、描述、责任部门、发现日期、整改状态、限期）",
         "default_enabled": True,
     },
     {
@@ -95,6 +101,7 @@ async def fetch_data_sources(repo, enabled_keys: list[str]) -> dict[str, str]:
 
     fetchers = {
         "hazard_open_count": lambda: _count_pending_hazards(repo),
+        "hazard_open_details": lambda: _fetch_open_hazards_details(repo),
         "hazard_total_count": lambda: _count_total_hazards(repo),
         "check_today_count": lambda: _count_checks_since(repo, today),
         "check_week_count": lambda: _count_checks_since(repo, week_start),
@@ -139,7 +146,7 @@ def build_default_template(enabled_sources: list[dict]) -> str:
             lines.append(f"- **{src['label']}**: {{{{ {src['key']} }}}}")
     lines.append("")
     lines.append("---")
-    lines.append("⏰ 数据截止: {{{{ runtime.timestamp }}}}")
+    lines.append("⏰ 数据截止: {{ runtime.timestamp }}")
     return "\n".join(lines)
 
 
@@ -154,7 +161,7 @@ def render_template(template: str, variables: dict[str, str]) -> str:
     return re.sub(r"\{\{\s*([^}]+)\s*\}\}", replacer, template)
 
 
-def build_card_json(
+async def build_card_json(
     title: str,
     rendered_markdown: str,
     header_color: str = "blue",
@@ -165,7 +172,7 @@ def build_card_json(
     """
     from app.modules.safety.feishu.notification import build_card
 
-    return build_card(title=title, content=rendered_markdown, header_template=header_color)
+    return await build_card(title=title, content=rendered_markdown, header_template=header_color)
 
 
 # ── Internal fetcher helpers ──
@@ -181,11 +188,60 @@ async def _count_pending_hazards(repo) -> int:
         .select_from(HazardReport)
         .where(
             HazardReport.is_deleted == False,
-            HazardReport.status == "pending_rectification",
+            HazardReport.status == "open",
         )
     )
     result = await repo.session.execute(query)
     return result.scalar() or 0
+
+
+async def _fetch_open_hazards_details(repo) -> str:
+    """Query all open hazards and return a markdown-formatted detail list."""
+    from sqlalchemy import select
+
+    from app.modules.safety.models import HazardReport
+
+    query = (
+        select(HazardReport)
+        .where(
+            HazardReport.is_deleted == False,
+            HazardReport.status == "open",
+        )
+        .order_by(HazardReport.hazard_level.desc(), HazardReport.discovered_at.desc())
+    )
+    result = await repo.session.execute(query)
+    hazards = result.scalars().all()
+
+    if not hazards:
+        return "✅ 当前无未关闭隐患"
+
+    LEVEL_MAP = {"general": "一般", "major": "较大", "critical": "重大"}
+    STATUS_MAP = {
+        "pending": "待整改",
+        "in_progress": "整改中",
+        "replied": "已回复",
+        "completed": "已完成",
+    }
+
+    lines: list[str] = []
+    for i, h in enumerate(hazards, 1):
+        level = LEVEL_MAP.get(h.hazard_level, h.hazard_level or "—")
+        desc = h.description or "—"
+        # 截断过长的描述
+        if len(desc) > 60:
+            desc = desc[:57] + "..."
+        dept = h.department or "—"
+        discovered = h.discovered_at.strftime("%Y-%m-%d") if h.discovered_at else "—"
+        deadline = h.deadline.strftime("%Y-%m-%d") if h.deadline else "—"
+        status = STATUS_MAP.get(h.rectification_status, h.rectification_status or "—")
+
+        lines.append(
+            f"**{i}. {h.hazard_no}** | {'⚠️' if h.hazard_level == 'critical' else '🔶' if h.hazard_level == 'major' else '🔹'} {level}\n"
+            f"描述：{desc}\n"
+            f"责任：{dept} | 发现：{discovered} | 限期：{deadline} | {status}\n"
+        )
+
+    return "\n".join(lines)
 
 
 async def _count_total_hazards(repo) -> int:

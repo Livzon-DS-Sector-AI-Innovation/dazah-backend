@@ -693,13 +693,12 @@ HAZARD_WORKFLOW_STEP_CONFIG: dict[int, dict[str, Any]] = {
         ),
         "output_format": (
             '{"hazard_type":"unsafe_condition","hazard_level":"major",'
-            '"hazard_category":"equipment","description":"具体隐患描述",'
-            '"location":"具体部位","key_defect":"关键缺陷",'
+            '"hazard_category":"equipment","key_defect":"关键缺陷",'
             '"major_hazard_basis":"重大隐患判定依据或空"}'
         ),
         "expected_keys": [
             "hazard_type", "hazard_level", "hazard_category",
-            "description", "location", "key_defect", "major_hazard_basis",
+            "key_defect", "major_hazard_basis",
         ],
     },
     2: {
@@ -732,9 +731,8 @@ HAZARD_WORKFLOW_STEP_CONFIG: dict[int, dict[str, Any]] = {
             "行业最佳实践"
         ),
         "output_format": (
-            '{"control_measures":"具体管控措施",'
-            '"corrective_preventive_measures":"具体纠正预防措施"}'
+            '{"corrective_preventive_measures":"具体纠正预防措施"}'
         ),
-        "expected_keys": ["control_measures", "corrective_preventive_measures"],
+        "expected_keys": ["corrective_preventive_measures"],
     },
 }

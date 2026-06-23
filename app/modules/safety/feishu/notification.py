@@ -147,6 +147,7 @@ async def send_group_card(
     title: str,
     content: str,
     elements: list[dict] | None = None,
+    header_template: str = "orange",
 ) -> bool:
     """使用安全模块飞书应用发送卡片消息到群聊。
 
@@ -155,6 +156,7 @@ async def send_group_card(
         title: 卡片标题
         content: 卡片正文（支持 markdown）
         elements: 额外的卡片元素
+        header_template: 标题颜色模板（orange/blue/green/red/purple）
 
     Returns:
         True 表示发送成功，False 表示失败（不抛异常）
@@ -172,7 +174,7 @@ async def send_group_card(
             "config": {"wide_screen_mode": True},
             "header": {
                 "title": {"tag": "plain_text", "content": title},
-                "template": "orange",
+                "template": header_template,
             },
             "elements": [
                 {"tag": "markdown", "content": content},
