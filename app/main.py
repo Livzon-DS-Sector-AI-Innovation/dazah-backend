@@ -82,7 +82,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         equipment_ws_task = asyncio.create_task(start_equipment_ws())
 
     # ── 安全模块专属飞书事件订阅（WebSocket 长连接，独立应用凭据）──
-    import app.modules.safety.bot_handler as _  # noqa: F401 — 注册事件处理器
     from app.modules.safety.feishu.event_client import start_ws, stop_ws
 
     safety_ws_task = asyncio.create_task(start_ws())

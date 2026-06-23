@@ -8,8 +8,14 @@ from app.modules.safety.feishu.client import (
     get_safety_feishu_client,
     get_safety_tenant_token,
 )
+from app.modules.safety.feishu.identity_resolver import (
+    IdentityResolver,
+    ResolvedPerson,
+)
 
 __all__ = [
     "get_safety_feishu_client",
     "get_safety_tenant_token",
+    "IdentityResolver",
+    "ResolvedPerson",
 ]

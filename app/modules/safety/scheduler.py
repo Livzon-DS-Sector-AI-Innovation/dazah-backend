@@ -69,7 +69,7 @@ async def execute_single_task(task, safety_repo) -> None:
         rendered = render_template(template, variables)
 
         # Build and send card
-        card_json = build_card_json(
+        card_json = await build_card_json(
             title=task.name,
             rendered_markdown=rendered,
             header_color=task.header_color or "blue",
