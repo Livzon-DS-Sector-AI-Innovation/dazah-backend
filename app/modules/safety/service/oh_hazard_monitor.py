@@ -11,6 +11,7 @@ from app.modules.safety.models import (
     OhHazardMonitor,
 )
 from app.modules.safety.repository import SafetyRepository
+from app.platform.audit.service import record_audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,30 @@ class OhHazardMonitorService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = SafetyRepository(session)
+
+    async def _audit(
+        self,
+        action: str,
+        resource_type: str,
+        resource_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None,
+        old_value: dict[str, Any] | None = None,
+        new_value: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            await record_audit_log(
+                self.session,
+                action=action,
+                user_id=user_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                old_value=old_value,
+                new_value=new_value,
+                extra=extra,
+            )
+        except Exception:
+            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
 
     # ── CRUD ──
 
@@ -45,16 +70,24 @@ class OhHazardMonitorService:
     async def create_monitor(self, data: Any) -> OhHazardMonitor:
         """创建监测记录"""
         create_data = data.model_dump()
-        return await self.repo.create_hazard_monitor(create_data)
+        item = await self.repo.create_hazard_monitor(create_data)
+        await self._audit("create", "oh_hazard_monitor", resource_id=item.id)
+        return item
 
     async def update_monitor(self, monitor_id: uuid.UUID, data: Any) -> OhHazardMonitor | None:
         """更新监测记录"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_hazard_monitor(monitor_id, update_data)
+        item = await self.repo.update_hazard_monitor(monitor_id, update_data)
+        if item:
+            await self._audit("update", "oh_hazard_monitor", resource_id=monitor_id)
+        return item
 
     async def delete_monitor(self, monitor_id: uuid.UUID) -> bool:
         """删除监测记录（软删除）"""
-        return await self.repo.delete_hazard_monitor(monitor_id)
+        result = await self.repo.delete_hazard_monitor(monitor_id)
+        if result:
+            await self._audit("delete", "oh_hazard_monitor", resource_id=monitor_id)
+        return result
 
     # ── 工作流 ──
 

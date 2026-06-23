@@ -148,7 +148,7 @@ async def send_group_card(
     content: str,
     elements: list[dict] | None = None,
     header_template: str = "orange",
-) -> bool:
+) -> str | None:
     """使用安全模块飞书应用发送卡片消息到群聊。
 
     Args:
@@ -159,7 +159,7 @@ async def send_group_card(
         header_template: 标题颜色模板（orange/blue/green/red/purple）
 
     Returns:
-        True 表示发送成功，False 表示失败（不抛异常）
+        成功返回飞书 message_id（如 "om_xxx"），失败返回 None（不抛异常）
     """
     try:
         client = await get_safety_feishu_client()
@@ -204,11 +204,13 @@ async def send_group_card(
                 "安全模块 send_group_card 失败: chat_id=%s, code=%s, msg=%s",
                 chat_id, resp.code, resp.msg,
             )
-            return False
-        return True
+            return None
+        message_id = resp.data.message_id if resp.data else None
+        logger.info("安全模块群卡片已发送: chat_id=%s, message_id=%s", chat_id, message_id)
+        return message_id
     except Exception:
         logger.exception("安全模块 send_group_card 异常")
-        return False
+        return None
 
 
 async def build_card(

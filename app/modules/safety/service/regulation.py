@@ -1,7 +1,6 @@
 """Safety business workflows."""
 
 import logging
-import os
 import uuid
 from datetime import datetime
 from typing import Any
@@ -9,6 +8,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.safety.repository import SafetyRepository
+from app.platform.audit.service import record_audit_log
 from app.platform.integrations.ai.client import AIOutputError, AIService
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,30 @@ class RegulationService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = SafetyRepository(session)
+
+    async def _audit(
+        self,
+        action: str,
+        resource_type: str,
+        resource_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None,
+        old_value: dict[str, Any] | None = None,
+        new_value: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            await record_audit_log(
+                self.session,
+                action=action,
+                user_id=user_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                old_value=old_value,
+                new_value=new_value,
+                extra=extra,
+            )
+        except Exception:
+            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
 
     # ==================== 安全操作规程 CRUD ====================
 
@@ -47,16 +71,24 @@ class RegulationService:
         """创建安全操作规程"""
 
         create_data = data.model_dump() if not isinstance(data, dict) else data
-        return await self.repo.create_regulation(create_data)
+        item = await self.repo.create_regulation(create_data)
+        await self._audit("create", "regulation", resource_id=item.id)
+        return item
 
     async def update_regulation(self, regulation_id: uuid.UUID, data) -> Any | None:
         """更新安全操作规程"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_regulation(regulation_id, update_data)
+        item = await self.repo.update_regulation(regulation_id, update_data)
+        if item:
+            await self._audit("update", "regulation", resource_id=regulation_id)
+        return item
 
     async def delete_regulation(self, regulation_id: uuid.UUID) -> bool:
         """删除安全操作规程"""
-        return await self.repo.delete_regulation(regulation_id)
+        result = await self.repo.delete_regulation(regulation_id)
+        if result:
+            await self._audit("delete", "regulation", resource_id=regulation_id)
+        return result
 
     # ==================== 修订记录 CRUD ====================
 
@@ -99,16 +131,24 @@ class RegulationService:
             "revision_time": datetime.now(),
             "notes": data.notes,
         }
-        return await self.repo.create_revision(revision_data)
+        item = await self.repo.create_revision(revision_data)
+        await self._audit("create", "regulation_revision", resource_id=item.id)
+        return item
 
     async def update_revision(self, revision_id: uuid.UUID, data) -> Any | None:
         """更新修订记录"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_revision(revision_id, update_data)
+        item = await self.repo.update_revision(revision_id, update_data)
+        if item:
+            await self._audit("update", "regulation_revision", resource_id=revision_id)
+        return item
 
     async def delete_revision(self, revision_id: uuid.UUID) -> bool:
         """删除修订记录"""
-        return await self.repo.delete_revision(revision_id)
+        result = await self.repo.delete_revision(revision_id)
+        if result:
+            await self._audit("delete", "regulation_revision", resource_id=revision_id)
+        return result
 
     # ==================== 人工修订流程 ====================
 

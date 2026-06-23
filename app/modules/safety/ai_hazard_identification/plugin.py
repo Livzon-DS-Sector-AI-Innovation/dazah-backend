@@ -46,10 +46,8 @@ from app.modules.safety.ai_hazard_identification.rules import (
 from app.modules.safety.ai_hazard_identification.schemas import (
     HazardIdentificationInput,
     HazardIdentificationOutput,
-    HazardLevelEnum,
     RectificationSuggestion,
     PluginConfig,
-    ValidationResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -223,7 +221,6 @@ class AIHazardIdentifier:
         expected_keys = get_expected_keys()
 
         try:
-            from app.platform.integrations.ai.client import AIService
             # 检查 AI 服务是否支持 vision
             if hasattr(self.ai_service, "chat_vision_parsed"):
                 return await self.ai_service.chat_vision_parsed(

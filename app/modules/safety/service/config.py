@@ -1,6 +1,7 @@
-"""Safety business workflows — AI 工作流配置 + 硬编码 AI 模型工厂."""
+"""Safety business workflows — AI 工作流配置 + AI 模型工厂."""
 
 import logging
+import os
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,25 +16,28 @@ from app.modules.safety.schemas import (
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════
-# 硬编码 AI 模型配置（内网部署，不依赖环境变量和数据库）
+# AI 模型配置（从环境变量读取，支持部署时覆盖）
 # ═══════════════════════════════════════════════════════════
 
-_HARDCODED_AI_CONFIG = {
-    "text": {
-        "api_key": "sk-3b7d6bd5252246ff8af5f30a0f97b8f5",
-        "base_url": "https://api.deepseek.com",
-        "model": "deepseek-v4-flash",
-        "temperature": 0.1,
-        "timeout": 120,
-    },
-    "vision": {
-        "api_key": "sk-a2ef55e9d2904572bb039f51e236a250",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "model": "qwen-vl-max",
-        "temperature": 0.1,
-        "timeout": 120,
-    },
-}
+
+def _get_ai_config() -> dict:
+    """读取 AI 模型配置，环境变量优先，否则回退到硬编码默认值。"""
+    return {
+        "text": {
+            "api_key": os.getenv("SAFETY_AI_TEXT_API_KEY", "sk-3b7d6bd5252246ff8af5f30a0f97b8f5"),
+            "base_url": os.getenv("SAFETY_AI_TEXT_BASE_URL", "https://api.deepseek.com"),
+            "model": os.getenv("SAFETY_AI_TEXT_MODEL", "deepseek-v4-flash"),
+            "temperature": 0.1,
+            "timeout": 120,
+        },
+        "vision": {
+            "api_key": os.getenv("SAFETY_AI_VISION_API_KEY", "sk-a2ef55e9d2904572bb039f51e236a250"),
+            "base_url": os.getenv("SAFETY_AI_VISION_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            "model": os.getenv("SAFETY_AI_VISION_MODEL", "qwen-vl-max"),
+            "temperature": 0.1,
+            "timeout": 120,
+        },
+    }
 
 
 def create_ai_service(config_type: str = "text"):
@@ -43,7 +47,7 @@ def create_ai_service(config_type: str = "text"):
     """
     from app.platform.integrations.ai.client import AIService
 
-    cfg = _HARDCODED_AI_CONFIG.get(config_type)
+    cfg = _get_ai_config().get(config_type)
     if not cfg:
         raise ValueError(f"不支持的 AI 配置类型: {config_type}，可选: text / vision")
 

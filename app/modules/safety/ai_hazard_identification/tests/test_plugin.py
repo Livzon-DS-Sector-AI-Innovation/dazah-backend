@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 import pytest
 
 from app.modules.safety.ai_hazard_identification.prompts import (
@@ -16,14 +15,12 @@ from app.modules.safety.ai_hazard_identification.prompts import (
     FEWSHOT_EXAMPLES,
     build_context_text,
     build_full_prompt,
-    build_vision_context_text,
     get_expected_keys,
     get_db_seed_config,
 )
 from app.modules.safety.ai_hazard_identification.rules import (
     RuleEngine,
     auto_correct,
-    BANNED_PHRASES,
 )
 from app.modules.safety.ai_hazard_identification.schemas import (
     HazardCategoryEnum,
@@ -33,7 +30,6 @@ from app.modules.safety.ai_hazard_identification.schemas import (
     HazardTypeEnum,
     PluginConfig,
     RectificationSuggestion,
-    ValidationResult,
 )
 
 

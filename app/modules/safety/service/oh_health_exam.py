@@ -11,6 +11,7 @@ from app.modules.safety.models import (
     OhHealthExam,
 )
 from app.modules.safety.repository import SafetyRepository
+from app.platform.audit.service import record_audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,30 @@ class OhHealthExamService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = SafetyRepository(session)
+
+    async def _audit(
+        self,
+        action: str,
+        resource_type: str,
+        resource_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None,
+        old_value: dict[str, Any] | None = None,
+        new_value: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            await record_audit_log(
+                self.session,
+                action=action,
+                user_id=user_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                old_value=old_value,
+                new_value=new_value,
+                extra=extra,
+            )
+        except Exception:
+            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
 
     # ── CRUD ──
 
@@ -45,16 +70,24 @@ class OhHealthExamService:
     async def create_exam(self, data: Any) -> OhHealthExam:
         """创建体检记录"""
         create_data = data.model_dump()
-        return await self.repo.create_health_exam(create_data)
+        item = await self.repo.create_health_exam(create_data)
+        await self._audit("create", "oh_health_exam", resource_id=item.id)
+        return item
 
     async def update_exam(self, exam_id: uuid.UUID, data: Any) -> OhHealthExam | None:
         """更新体检记录"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_health_exam(exam_id, update_data)
+        item = await self.repo.update_health_exam(exam_id, update_data)
+        if item:
+            await self._audit("update", "oh_health_exam", resource_id=exam_id)
+        return item
 
     async def delete_exam(self, exam_id: uuid.UUID) -> bool:
         """删除体检记录（软删除）"""
-        return await self.repo.delete_health_exam(exam_id)
+        result = await self.repo.delete_health_exam(exam_id)
+        if result:
+            await self._audit("delete", "oh_health_exam", resource_id=exam_id)
+        return result
 
     # ── 工作流 ──
 

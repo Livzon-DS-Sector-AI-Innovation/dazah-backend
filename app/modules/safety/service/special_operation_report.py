@@ -2,9 +2,9 @@
 
 import json
 import logging
-import os
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,8 @@ from app.modules.safety.schemas import (
     SpecialOperationReportCreate,
     SpecialOperationReportUpdate,
 )
-from app.platform.integrations.ai.client import AIOutputError, AIService
+from app.platform.audit.service import record_audit_log
+from app.platform.integrations.ai.client import AIService
 from app.platform.integrations.ai.prompts import (
     STANDALONE_WORKFLOW_CONFIG,
     build_prompt,
@@ -32,6 +33,30 @@ class SpecialOperationReportService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = SafetyRepository(session)
+
+    async def _audit(
+        self,
+        action: str,
+        resource_type: str,
+        resource_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None,
+        old_value: dict[str, Any] | None = None,
+        new_value: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            await record_audit_log(
+                self.session,
+                action=action,
+                user_id=user_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                old_value=old_value,
+                new_value=new_value,
+                extra=extra,
+            )
+        except Exception:
+            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
 
     # ── CRUD ──
 
@@ -63,18 +88,26 @@ class SpecialOperationReportService:
         self, data: SpecialOperationReportCreate
     ) -> SpecialOperationReport:
         """创建报备"""
-        return await self.repo.create_special_operation_report(data.model_dump())
+        item = await self.repo.create_special_operation_report(data.model_dump())
+        await self._audit("create", "special_operation_report", resource_id=item.id)
+        return item
 
     async def update_report(
         self, report_id: uuid.UUID, data: SpecialOperationReportUpdate
     ) -> SpecialOperationReport | None:
         """更新报备"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_special_operation_report(report_id, update_data)
+        item = await self.repo.update_special_operation_report(report_id, update_data)
+        if item:
+            await self._audit("update", "special_operation_report", resource_id=report_id)
+        return item
 
     async def delete_report(self, report_id: uuid.UUID) -> bool:
         """删除报备"""
-        return await self.repo.delete_special_operation_report(report_id)
+        result = await self.repo.delete_special_operation_report(report_id)
+        if result:
+            await self._audit("delete", "special_operation_report", resource_id=report_id)
+        return result
 
     # ── 工作流 ──
 

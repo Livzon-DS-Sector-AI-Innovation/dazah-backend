@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import or_, select
 
+from app.modules.safety.feishu.dept_config import DEPARTMENT_CONFIG
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -113,9 +115,9 @@ class IdentityResolver:
     ) -> ResolvedPerson | None:
         """按部门名称查找部门负责人 → open_id。
 
-        查找链路：
-          1. identity.departments → 匹配部门 → 取 leader_user_id
-          2. identity.users → leader_user_id → open_id
+        查找链路（配置优先）：
+          1. DEPT_CONFIG → 命中则用 leader 姓名 → resolve_by_name
+          2. identity.departments → 匹配部门 → 取 leader_user_id → _find_user_by_user_id
 
         Args:
             department_name: 部门名称（如 HazardReport.department）
@@ -130,6 +132,17 @@ class IdentityResolver:
             )
             return None
 
+        # ── 配置优先：Bitable 人工维护的部门负责人 ──
+        config = DEPARTMENT_CONFIG.get(dept.name)
+        if config and config.get("leader"):
+            leader_name = config["leader"]
+            logger.info(
+                "resolve_department_leader: %r → config leader %r",
+                department_name, leader_name,
+            )
+            return await self.resolve_by_name(leader_name, department_hint=dept.name)
+
+        # ── 回退：identity.departments 的 leader_user_id ──
         if not dept.leader_user_id:
             logger.warning(
                 "resolve_department_leader: 部门 %r 无 leader_user_id", dept.name
@@ -154,15 +167,11 @@ class IdentityResolver:
         self,
         department_name: str,
     ) -> ResolvedPerson | None:
-        """按部门名称查找分管领导（父部门负责人）→ open_id。
+        """按部门名称查找分管领导 → open_id。
 
-        分管领导定义：责任部门的上级部门（父部门）的负责人。
-        无父部门则返回 None。
-
-        查找链路：
-          1. identity.departments → 匹配部门 → 取 parent_feishu_department_id
-          2. identity.departments → 父部门 → 取 leader_user_id
-          3. identity.users → leader_user_id → open_id
+        查找链路（配置优先）：
+          1. DEPT_CONFIG → 命中且有 supervisor → 用 supervisor 姓名 → resolve_by_name
+          2. identity.departments → 父部门 leader → _find_user_by_user_id
 
         Args:
             department_name: 部门名称（如 HazardReport.department）
@@ -177,6 +186,17 @@ class IdentityResolver:
             )
             return None
 
+        # ── 配置优先：Bitable 人工维护的分管领导 ──
+        config = DEPARTMENT_CONFIG.get(dept.name)
+        if config and config.get("supervisor"):
+            supervisor_name = config["supervisor"]
+            logger.info(
+                "resolve_supervising_leader: %r → config supervisor %r",
+                department_name, supervisor_name,
+            )
+            return await self.resolve_by_name(supervisor_name, department_hint=dept.name)
+
+        # ── 回退：identity.departments 的父部门 leader ──
         if not dept.parent_feishu_department_id:
             logger.info(
                 "resolve_supervising_leader: %r 无父部门，无分管领导", dept.name

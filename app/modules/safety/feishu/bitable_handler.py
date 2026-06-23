@@ -17,6 +17,7 @@ from typing import Any
 
 from app.core.redis import redis_client
 from app.modules.safety.feishu.bitable_client import SafetyBitableClient
+from app.modules.safety.feishu.dept_config import DEPARTMENT_CONFIG
 from app.modules.safety.feishu.event_client import on_event
 from app.modules.safety.schemas.enums import HazardCategory, HazardLevel, HazardType
 from app.modules.safety.service.safety import (
@@ -26,6 +27,19 @@ from app.modules.safety.service.safety import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── 调试文件日志：追踪通知流程的完整调用链 ──
+_debug_log_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "debug_notify.log")
+
+
+def _debug_log(msg: str) -> None:
+    """写调试日志到文件（用于排查通知未发送问题）。"""
+    try:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        with open(_debug_log_path, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] {msg}\n")
+    except Exception:
+        pass
 
 # ═══════════════════════════════════════════════════════════════
 # 字段映射：Bitable 中文字段名 → HazardReport 英文字段名
@@ -39,7 +53,7 @@ BITABLE_TO_MODEL: dict[str, str] = {
     "检查类别":            "inspection_category",       # multi_select → 逗号拼接
     "隐患描述":            "description",
     "责任部门":            "department",
-    "责任人":              "rectification_responsible_person_name",
+    "整改责任人":              "rectification_responsible_person_name",
     # ── 隐患分类/分级（AI 识别，由平台回写）──
     "隐患分类（AI）":       "hazard_type",               # single_select: 人的不安全行为/物的不安全状态/环境的不安全因素/管理的缺陷
     "隐患类别（AI）":       "hazard_category",            # single_select: 设备设施/危化储存/仪表+电气/...（13种）
@@ -131,7 +145,8 @@ def _extract_person_info(value: Any) -> dict[str, str]:
     """从 Bitable person 字段一次性提取全部可用信息。
 
     Bitable person 字段值格式（事件 / API 返回）：
-        [{"id": "ou_xxx", "name": "张三", "email": "zhangsan@example.com", ...}]
+        旧格式: [{"id": "ou_xxx", "name": "张三", "email": "zhangsan@example.com", ...}]
+        新格式: {"users": [{"userId": "7307...", "name": "张三", ...}]}
 
     Returns:
         {"name": ..., "id": ..., "email": ...}  —— 缺失字段为空字符串。
@@ -139,6 +154,20 @@ def _extract_person_info(value: Any) -> dict[str, str]:
     """
     if not value:
         return {"name": "", "id": "", "email": ""}
+
+    # ── 新格式: {"users": [{"userId": ..., "name": ...}]} ──
+    if isinstance(value, dict) and "users" in value:
+        users = value["users"]
+        if isinstance(users, list) and users:
+            first = users[0]
+            if isinstance(first, dict):
+                return {
+                    "name": (first.get("name") or "").strip(),
+                    "id": (first.get("userId") or first.get("id") or "").strip(),
+                    "email": (first.get("email") or "").strip(),
+                }
+        return {"name": "", "id": "", "email": ""}
+
     if isinstance(value, list):
         if not value:
             return {"name": "", "id": "", "email": ""}
@@ -698,23 +727,36 @@ async def _create_hazard_from_bitable(
     session = async_session_factory()
     try:
         # 2.1 检查人员身份解析 — 统一使用 _resolve_person
+        inspector_raw = bitable_fields.get("检查人员")
+        _debug_log(
+            f"CREATE_INSPECTOR_RAW: record_id={record_id} "
+            f"raw={str(inspector_raw)[:200]} mapped_name={mapped.get('discovered_by_name')}"
+        )
         inspector_uuid, inspector_open_id, inspector_name = await _resolve_person(
             session,
-            bitable_fields.get("检查人员"),
+            inspector_raw,
             bt_field_label="检查人员",
             existing_name=mapped.get("discovered_by_name"),
+        )
+        _debug_log(
+            f"CREATE_INSPECTOR_RESOLVED: record_id={record_id} "
+            f"uuid={inspector_uuid} name={inspector_name} open_id={inspector_open_id}"
         )
         if inspector_uuid:
             mapped["discovered_by"] = inspector_uuid
         # 只在解析出非 fallback 名称时才写入；不写入"飞书用户"以保留后续自动判定机会
         if inspector_name and inspector_name != "飞书用户":
             mapped["discovered_by_name"] = inspector_name
+        _debug_log(
+            f"CREATE_INSPECTOR_FINAL: record_id={record_id} "
+            f"discovered_by_name={mapped.get('discovered_by_name')} discovered_by={mapped.get('discovered_by')}"
+        )
 
         # 2.2 责任人身份解析 — 统一使用 _resolve_person
         resp_uuid, resp_open_id, resp_name = await _resolve_person(
             session,
-            bitable_fields.get("责任人"),
-            bt_field_label="责任人",
+            bitable_fields.get("整改责任人"),
+            bt_field_label="整改责任人",
             existing_name=mapped.get("rectification_responsible_person_name"),
         )
         if resp_name and resp_name != "飞书用户":
@@ -750,7 +792,11 @@ async def _create_hazard_from_bitable(
         _resolved_leader_open_id: str | None = None  # identity 侧 open_id（仅作 fallback）
         _resolved_leader_user_id: str | None = None  # employee user_id，用于查 Bitable open_id
         _resp_name = (item.rectification_responsible_person_name or "").strip()
-        if item.department and (not _resp_name or _resp_name == "飞书用户"):
+        if item.department and (
+            not _resp_name
+            or _resp_name == "飞书用户"
+            or item.department in DEPARTMENT_CONFIG
+        ):
             try:
                 from app.modules.safety.feishu.identity_resolver import IdentityResolver
                 resolver = IdentityResolver(session)
@@ -922,7 +968,7 @@ async def _create_hazard_from_bitable(
                     item.rectification_responsible_person_name,
                 )
         if responsible_person_value:
-            writeback["责任人"] = responsible_person_value
+            writeback["整改责任人"] = responsible_person_value
         else:
             logger.warning(
                 "责任人未回写(无 Bitable open_id): hazard_no=%s name=%s user_id=%s identity_open_id=%s",
@@ -961,11 +1007,16 @@ async def _create_hazard_from_bitable(
 
         # 7. 异步通知责任人整改
         import asyncio as _asyncio
+
+        _debug_log(
+            f"CREATE_DISPATCH_RECTIFY: record_id={record_id} hazard_no={item.hazard_no} "
+            f"resp_name={item.rectification_responsible_person_name} dept={item.department}"
+        )
         _asyncio.create_task(_send_rectification_notification(item))
 
-        logger.info(
-            "Bitable→平台同步完成: record_id=%s hazard_no=%s hazard_id=%s status=%s",
-            record_id, item.hazard_no, item.id, item.overall_status,
+        _debug_log(
+            f"CREATE_DONE: record_id={record_id} hazard_no={item.hazard_no} "
+            f"hazard_id={item.id} status={item.overall_status}"
         )
         return item
 
@@ -1152,7 +1203,7 @@ async def _update_hazard_from_bitable(
         mapped.get("discovered_by_name"),
         mapped.get("rectification_responsible_person_name"),
         "检查人员" in bitable_fields,
-        "责任人" in bitable_fields,
+        "整改责任人" in bitable_fields,
     )
 
     # 身份解析：统一使用 _resolve_person（支持 id → email → name 三层回退）
@@ -1175,8 +1226,8 @@ async def _update_hazard_from_bitable(
         # 责任人
         resp_uuid, _, resp_name = await _resolve_person(
             session,
-            bitable_fields.get("责任人"),
-            bt_field_label="责任人",
+            bitable_fields.get("整改责任人"),
+            bt_field_label="整改责任人",
             existing_name=getattr(hazard, "rectification_responsible_person_name", None),
         )
         if resp_uuid:
@@ -1192,17 +1243,37 @@ async def _update_hazard_from_bitable(
     # 根据三级复核状态自动计算整体整改状态（与 SafetyService.verify_level 状态机一致）
     old_rectification_status = getattr(hazard, "rectification_status", None)
 
-    # 检测整改回复提交：有回复内容 + 当前状态为 pending/in_progress/rejected → 转为 replied
+    # 检测整改回复提交：有整改完成时间 + 当前状态为 pending/in_progress/rejected → 转为 replied
+    _debug_log(
+        f"UPDATE_STATUS_CHECK: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
+        f"old_status={old_rectification_status} "
+        f"has_completion_date={'actual_completion_date' in update_data} "
+        f"has_reply={'rectification_reply' in update_data} "
+        f"status_in_update={'rectification_status' in update_data} "
+        f"update_keys={list(update_data.keys())}"
+    )
     if (
-        "rectification_reply" in update_data
-        and update_data.get("rectification_reply")
+        "actual_completion_date" in update_data
+        and update_data.get("actual_completion_date")
         and old_rectification_status in ("pending", "in_progress", "rejected")
         and "rectification_status" not in update_data
     ):
         update_data["rectification_status"] = "replied"
+        _debug_log(
+            f"UPDATE_STATUS_SET: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
+            f"old_status={old_rectification_status} → replied"
+        )
         logger.info(
-            "整改回复已提交，状态自动转换: record_id=%s in_progress → replied",
+            "整改回复已提交，状态自动转换: record_id=%s %s → replied",
+            record_id, old_rectification_status,
             record_id,
+        )
+    else:
+        _debug_log(
+            f"UPDATE_STATUS_SKIP: record_id={record_id} — 不满足 replied 转换条件 "
+            f"(completion_date_in_data={'actual_completion_date' in update_data}, "
+            f"old_in_allowed={old_rectification_status in ('pending', 'in_progress', 'rejected')}, "
+            f"status_explicit={'rectification_status' in update_data})"
         )
 
     if any(k in mapped for k in ("verify_level_1_status", "verify_level_2_status", "verify_level_3_status")):
@@ -1211,13 +1282,28 @@ async def _update_hazard_from_bitable(
         v3 = mapped.get("verify_level_3_status", getattr(hazard, "verify_level_3_status", None))
         hl = mapped.get("hazard_level", getattr(hazard, "hazard_level", None))
         computed_status = _compute_rectification_status(v1, v2, v3, hl)
+        _debug_log(
+            f"UPDATE_COMPUTE_STATUS: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
+            f"v1={v1} v2={v2} v3={v3} level={hl} old={old_rectification_status} computed={computed_status} "
+            f"mapped_verify_keys={[k for k in mapped if 'verify' in k]}"
+        )
         if computed_status and computed_status != old_rectification_status:
             update_data["rectification_status"] = computed_status
+            _debug_log(
+                f"UPDATE_COMPUTE_APPLY: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
+                f"{old_rectification_status} → {computed_status}"
+            )
             if computed_status == "closed":
                 update_data["status"] = "closed"
             logger.info(
                 "复核状态自动计算: record_id=%s v1=%s v2=%s v3=%s level=%s current=%s → %s",
                 record_id, v1, v2, v3, hl, old_rectification_status, computed_status,
+            )
+        else:
+            _debug_log(
+                f"UPDATE_COMPUTE_SKIP: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
+                f"computed={computed_status} old={old_rectification_status} "
+                f"equal={computed_status == old_rectification_status}"
             )
     if not update_data and not photo_updates:
         logger.info("📝 UPDATE 跳过 (无变更): record_id=%s", record_id)
@@ -1257,13 +1343,26 @@ async def _update_hazard_from_bitable(
 
         # ── 状态变更后异步发送飞书复核通知 ──
         new_status = update_data.get("rectification_status")
+        _debug_log(
+            f"UPDATE_NOTIFY_CHECK: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
+            f"new_status={new_status} old_status={old_rectification_status} "
+            f"changed={new_status and new_status != old_rectification_status}"
+        )
         if new_status and new_status != old_rectification_status:
             hl = update_data.get("hazard_level") or getattr(hazard, "hazard_level", None)
+            _debug_log(
+                f"UPDATE_NOTIFY_TRIGGER: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
+                f"{old_rectification_status}→{new_status} level={hl}"
+            )
             logger.info(
                 "📬 状态变更触发通知: record_id=%s %s→%s level=%s hazard_no=%s",
                 record_id, old_rectification_status, new_status, hl, hazard.hazard_no,
             )
             if new_status == "replied":
+                _debug_log(
+                    f"UPDATE_NOTIFY_DISPATCH: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
+                    f"→ _send_verify_notification(hazard, 1)"
+                )
                 asyncio.create_task(_send_verify_notification(hazard, 1))
             elif new_status == "level1_approved":
                 if hl == "general":
@@ -1507,7 +1606,7 @@ async def _get_fields_fallback(bitable: SafetyBitableClient, record_id: str, eve
         record_id,
         list(api_fields.keys())[:20] if api_fields else [],
         str(api_fields.get("检查人员"))[:150] if api_fields.get("检查人员") else "N/A",
-        str(api_fields.get("责任人"))[:150] if api_fields.get("责任人") else "N/A",
+        str(api_fields.get("整改责任人"))[:150] if api_fields.get("整改责任人") else "N/A",
     )
     return api_fields
 
@@ -1544,9 +1643,27 @@ async def _handle_single_record_action(
             logger.info("record_id=%s 已关联 hazard_id=%s，跳过创建", record_id, existing.id)
             return
 
-        fields = await _get_fields_fallback(bitable, record_id, event_fields)
+        # ── CREATE 特殊处理：始终通过 API 拉取全量字段 ──
+        # 原因：event_fields 仅含变更字段，person 类型字段（检查人员、整改责任人）
+        # 可能缺失或格式不完整，导致 discovered_by_name 等关键字段为空。
+        # API 返回完整记录含 person 字段的 id/name，确保身份解析正确。
+        api_fields = await bitable.get_record(record_id)
+        fields: dict[str, Any] = {}
+        if api_fields:
+            fields = api_fields
+            logger.info(
+                "API 返回全量字段: record_id=%s keys=%s",
+                record_id, list(api_fields.keys())[:30],
+            )
+        # 合并 event_fields（事件数据优先级更高，覆盖 API 返回的同名字段）
+        if event_fields:
+            fields.update(event_fields)
+            logger.info(
+                "合并事件字段: record_id=%s event_keys=%s final_keys=%s",
+                record_id, list(event_fields.keys()), list(fields.keys())[:30],
+            )
         if not fields:
-            logger.warning("Bitable 记录为空或获取失败: record_id=%s", record_id)
+            logger.warning("CREATE 无可用字段: record_id=%s", record_id)
             await _set_sync_ignore(record_id, ttl=30)
             return
 
@@ -1743,7 +1860,7 @@ _LEVEL_TO_BITABLE_FIELD = {
 }
 
 # Level → 显示标签
-_LEVEL_LABELS = {1: "一级（部门负责人）", 2: "二级（分管领导）", 3: "三级（隐患发现人）"}
+_LEVEL_LABELS = {1: "一级（部门负责人）", 2: "二级（分管领导）", 3: "三级（检查人员）"}
 
 
 @on_event("card.action.trigger")

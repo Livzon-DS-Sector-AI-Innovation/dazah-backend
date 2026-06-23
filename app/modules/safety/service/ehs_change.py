@@ -3,6 +3,7 @@
 import logging
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,7 @@ from app.modules.safety.schemas import (
     EhsChangeCreate,
     EhsChangeUpdate,
 )
+from app.platform.audit.service import record_audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,30 @@ class EhsChangeService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = SafetyRepository(session)
+
+    async def _audit(
+        self,
+        action: str,
+        resource_type: str,
+        resource_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None,
+        old_value: dict[str, Any] | None = None,
+        new_value: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            await record_audit_log(
+                self.session,
+                action=action,
+                user_id=user_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                old_value=old_value,
+                new_value=new_value,
+                extra=extra,
+            )
+        except Exception:
+            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
 
     # ── CRUD ──
 
@@ -50,18 +76,26 @@ class EhsChangeService:
     async def create_ehs_change(self, data: EhsChangeCreate) -> EhsChange:
         """创建EHS变更"""
         create_data = data.model_dump()
-        return await self.repo.create_ehs_change(create_data)
+        item = await self.repo.create_ehs_change(create_data)
+        await self._audit("create", "ehs_change", resource_id=item.id)
+        return item
 
     async def update_ehs_change(
         self, change_id: uuid.UUID, data: EhsChangeUpdate
     ) -> EhsChange | None:
         """更新EHS变更"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_ehs_change(change_id, update_data)
+        item = await self.repo.update_ehs_change(change_id, update_data)
+        if item:
+            await self._audit("update", "ehs_change", resource_id=change_id)
+        return item
 
     async def delete_ehs_change(self, change_id: uuid.UUID) -> bool:
         """删除EHS变更（软删除）"""
-        return await self.repo.delete_ehs_change(change_id)
+        result = await self.repo.delete_ehs_change(change_id)
+        if result:
+            await self._audit("delete", "ehs_change", resource_id=change_id)
+        return result
 
     # ── 工作流状态机 ──
 

@@ -6,13 +6,12 @@ import logging
 import os
 import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.modules.safety.feishu.notification import send_user_card
-from app.platform.audit.service import record_audit_log
 from app.modules.safety.models import (
     Accident,
     Contractor,
@@ -48,20 +47,6 @@ from app.platform.integrations.ai.prompts import (
 
 logger = logging.getLogger(__name__)
 
-# ── 调试文件日志：追踪通知流程的完整调用链 ──
-_debug_log_path = str(Path(__file__).resolve().parents[3] / "debug_notify.log")
-
-
-def _debug_log(msg: str) -> None:
-    """写调试日志到文件（用于排查通知未发送问题）。"""
-    try:
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        with open(_debug_log_path, "a", encoding="utf-8") as f:
-            f.write(f"[{ts}] {msg}\n")
-    except Exception:
-        pass
-
-
 # ── AI 配置默认值（仅用于自动种子和 temperature fallback）──
 
 
@@ -71,30 +56,6 @@ class SafetyService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = SafetyRepository(session)
-
-    async def _audit(
-        self,
-        action: str,
-        resource_type: str,
-        resource_id: uuid.UUID | None = None,
-        user_id: uuid.UUID | None = None,
-        old_value: dict[str, Any] | None = None,
-        new_value: dict[str, Any] | None = None,
-        extra: dict[str, Any] | None = None,
-    ) -> None:
-        try:
-            await record_audit_log(
-                self.session,
-                action=action,
-                user_id=user_id,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                old_value=old_value,
-                new_value=new_value,
-                extra=extra,
-            )
-        except Exception:
-            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
 
     # ==================== SafetyCheck Operations ====================
 
@@ -116,29 +77,21 @@ class SafetyService:
     async def create_check(self, data: SafetyCheckCreate) -> SafetyCheck:
         """创建安全检查"""
         check_data = data.model_dump()
-        item = await self.repo.create_check(check_data)
-        await self._audit("create", "safety_check", resource_id=item.id)
-        return item
+        return await self.repo.create_check(check_data)
 
     async def update_check(
         self, check_id: uuid.UUID, data: SafetyCheckUpdate
     ) -> SafetyCheck | None:
         """更新安全检查"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        item = await self.repo.update_check(check_id, update_data)
-        if item:
-            await self._audit("update", "safety_check", resource_id=check_id)
-        return item
+        return await self.repo.update_check(check_id, update_data)
 
     async def submit_check(self, check_id: uuid.UUID) -> SafetyCheck | None:
         """提交安全检查（草稿→已提交）"""
         check = await self.repo.get_check_by_id(check_id)
         if not check or check.status != "draft":
             return None
-        item = await self.repo.update_check(check_id, {"status": "submitted"})
-        if item:
-            await self._audit("submit", "safety_check", resource_id=check_id)
-        return item
+        return await self.repo.update_check(check_id, {"status": "submitted"})
 
     async def review_check(
         self, check_id: uuid.UUID, result: str
@@ -156,10 +109,7 @@ class SafetyService:
         check = await self.repo.get_check_by_id(check_id)
         if not check or check.status not in ("reviewed",):
             return None
-        item = await self.repo.update_check(check_id, {"status": "closed"})
-        if item:
-            await self._audit("close", "safety_check", resource_id=check_id)
-        return item
+        return await self.repo.update_check(check_id, {"status": "closed"})
 
     async def confirm_check(
         self, check_id: uuid.UUID, role: str
@@ -180,10 +130,7 @@ class SafetyService:
 
     async def delete_check(self, check_id: uuid.UUID) -> bool:
         """删除安全检查"""
-        result = await self.repo.delete_check(check_id)
-        if result:
-            await self._audit("delete", "safety_check", resource_id=check_id)
-        return result
+        return await self.repo.delete_check(check_id)
 
     # ==================== HazardReport Operations ====================
 
@@ -236,9 +183,6 @@ class SafetyService:
 
         item = await self.repo.create_hazard(hazard_data)
 
-        # 记录审计日志
-        await self._audit("create", "hazard_report", resource_id=item.id)
-
         # ── 自动执行 AI 隐患识别（插件：有照片走视觉模型，无照片走文本模型）──
         if auto_run_ai:
             logger.info("触发 AI 隐患识别: hazard_id=%s hazard_no=%s", item.id, item.hazard_no)
@@ -260,10 +204,7 @@ class SafetyService:
     ) -> HazardReport | None:
         """更新隐患"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        item = await self.repo.update_hazard(hazard_id, update_data)
-        if item:
-            await self._audit("update", "hazard_report", resource_id=hazard_id)
-        return item
+        return await self.repo.update_hazard(hazard_id, update_data)
 
     async def upload_hazard_photo(
         self, hazard_id: uuid.UUID, file_name: str, file_path: str
@@ -335,7 +276,7 @@ class SafetyService:
     ) -> HazardReport | None:
         """整改回复：in_progress → replied（合并了原 complete_rectification 步骤）。"""
         hazard = await self.repo.get_hazard_by_id(hazard_id)
-        if not hazard or hazard.rectification_status not in ("pending", "in_progress"):
+        if not hazard or hazard.rectification_status != "in_progress":
             return None
         update_data: dict[str, Any] = {
             "rectification_status": "replied",
@@ -352,10 +293,6 @@ class SafetyService:
         if rectification_photos is not None:
             update_data["rectification_photos"] = rectification_photos
         updated = await self.repo.update_hazard(hazard_id, update_data)
-
-        # 记录审计日志
-        if updated:
-            await self._audit("reply_rectification", "hazard_report", resource_id=hazard_id)
 
         # 整改回复后，异步通知一级复核人（部门负责人）
         if updated:
@@ -428,14 +365,6 @@ class SafetyService:
             }
         updated = await self.repo.update_hazard(hazard_id, update_data)
 
-        # 记录审计日志
-        if updated:
-            await self._audit(
-                "verify", "hazard_report",
-                resource_id=hazard_id, user_id=user_id,
-                extra={"level": level, "action": action},
-            )
-
         # 审核通过后，异步通知下一级复核人
         if updated and action == "approved":
             if level == 1 and is_general:
@@ -475,12 +404,302 @@ class SafetyService:
 
         return updated
 
+# ═══════════════════════════════════════════════════════════════
+# 测试阶段：通知硬编码目标
+# ═══════════════════════════════════════════════════════════════
+_TEST_NOTIFICATION_OPEN_ID = "ou_495039d6335d347b07ff92ad982b3b4e"  # 许康福
+_TEST_NOTIFICATION_NAME = "许康福"
+
+
+def _bitable_field_for_level(level: int) -> str:
+    """Level → 对应的多维表格审批字段名。"""
+    return {1: "部门负责人复核", 2: "分管领导复核", 3: "检查人员复核"}.get(level, f"{level}级复核")
+
+
+async def _send_verify_notification(hazard: HazardReport, level: int) -> None:
+    """异步发送复核通知到飞书。
+
+    测试阶段：通知目标硬编码为许康福，确保通知可达。
+    正式上线时删除 _TEST_NOTIFICATION_OPEN_ID 常量并恢复动态解析。
+
+    卡片包含审核通过/驳回/查看详情按钮 + 整改照片，点击后直接更新卡片状态。
+    """
+    try:
+        # ── 测试阶段：通知目标硬编码为许康福 ──
+        target_open_id = _TEST_NOTIFICATION_OPEN_ID
+        target_name = _TEST_NOTIFICATION_NAME
+        logger.info(
+            "复核通知(测试模式): 硬编码目标=%s open_id=%s hazard_no=%s level=%s",
+            target_name, target_open_id, hazard.hazard_no, level,
+        )
+
+        settings = get_settings()
+        bitable_file_token = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
+        bitable_table_id = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
+        bitable_url = (
+            f"https://www.feishu.cn/base/{bitable_file_token}"
+            f"?table={bitable_table_id}&record={hazard.feishu_record_id}"
+        ) if hazard.feishu_record_id else ""
+
+        level_labels = {1: "（部门负责人）", 2: "（分管领导）", 3: "（隐患发现人）"}
+        level_text = level_labels.get(level, f"{level}级")
+
+        reply_text = hazard.rectification_reply or "-"
+
+        level_emoji = {"general": "🟢", "serious": "🟠", "major": "🔴"}.get(hazard.hazard_level, "⚪")
+        level_label = {"general": "一般隐患", "serious": "较大隐患", "major": "重大隐患"}.get(
+            hazard.hazard_level, hazard.hazard_level or "-"
+        )
+
+        content = (
+            f"**检查日期：** {hazard.discovered_at.strftime('%Y-%m-%d') if hazard.discovered_at else '-'}\n"
+            f"**隐患描述：** {hazard.description or '-'}\n"
+            f"**判定依据：** {hazard.major_hazard_basis or '-'}\n"
+            f"**隐患级别：** {level_emoji} {level_label}\n"
+            f"**责任部门：** {hazard.department or '-'}\n"
+            f"**整改回复：** {reply_text}\n"
+            f"\n⬇ 请到在下方点击「同意」或「驳回」操作"
+        )
+
+        elements: list[dict] = []
+
+        # ── 照片上传辅助函数 ──
+        async def _upload_photos(photo_field: str | None, label: str) -> list[str]:
+            """解析 JSON 字段 → 上传飞书 → 返回 image_key 列表。"""
+            if not photo_field:
+                return []
+            try:
+                photos = json.loads(photo_field)
+                if not photos or not isinstance(photos, list):
+                    return []
+                clean = [p for p in photos if isinstance(p, str)]
+                if not clean:
+                    return []
+                from app.modules.safety.feishu.notification import upload_images_batch
+                logger.info("复核通知照片上传: hazard_no=%s label=%s count=%d", hazard.hazard_no, label, len(clean))
+                return await upload_images_batch(clean)
+            except Exception:
+                logger.exception("复核通知照片处理异常: hazard_no=%s label=%s", hazard.hazard_no, label)
+                return []
+
+        # ── 缺陷照片 vs 整改照片 并列对比 ──
+        defect_keys = await _upload_photos(hazard.defect_photos, "缺陷照片")
+        rectification_keys = await _upload_photos(hazard.rectification_photos, "整改后照片")
+
+        if defect_keys or rectification_keys:
+            columns: list[dict] = []
+
+            if defect_keys:
+                defect_col: dict = {
+                    "tag": "column",
+                    "width": "weighted",
+                    "weight": 1,
+                    "elements": [
+                        {"tag": "markdown", "content": "📷 **缺陷照片**"}
+                    ],
+                }
+                for key in defect_keys:
+                    defect_col["elements"].append({
+                        "tag": "img",
+                        "img_key": key,
+                        "alt": {"tag": "plain_text", "content": "缺陷照片"},
+                    })
+                columns.append(defect_col)
+
+            if rectification_keys:
+                rect_col: dict = {
+                    "tag": "column",
+                    "width": "weighted",
+                    "weight": 1,
+                    "elements": [
+                        {"tag": "markdown", "content": "✅ **整改后照片**"}
+                    ],
+                }
+                for key in rectification_keys:
+                    rect_col["elements"].append({
+                        "tag": "img",
+                        "img_key": key,
+                        "alt": {"tag": "plain_text", "content": "整改后照片"},
+                    })
+                columns.append(rect_col)
+
+            if columns:
+                elements.append({"tag": "hr"})
+                if len(columns) == 1:
+                    # 只有一种照片 → 直接展示
+                    elements.extend(columns[0]["elements"])
+                else:
+                    elements.append({
+                        "tag": "column_set",
+                        "flex_mode": "bisect",
+                        "background_style": "default",
+                        "columns": columns,
+                    })
+                logger.info(
+                    "复核通知照片已添加: hazard_no=%s defect=%d rect=%d",
+                    hazard.hazard_no, len(defect_keys), len(rectification_keys),
+                )
+
+        # ── 操作按钮（直接同意 / 驳回 → 写入 Bitable 对应审批字段）──
+        elements.append({
+            "tag": "action",
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "✅ 同意"},
+                    "type": "primary",
+                    "value": {
+                        "action": "approve_rectification",
+                        "record_id": hazard.feishu_record_id,
+                        "level": level,
+                    },
+                    "confirm": {
+                        "title": {"tag": "plain_text", "content": f"确认{level_text}审核通过"},
+                        "text": {"tag": "plain_text", "content": f"将在多维表格中将「{_bitable_field_for_level(level)}」设为「已同意」"},
+                    },
+                },
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "❌ 驳回"},
+                    "type": "danger",
+                    "value": {
+                        "action": "reject_rectification",
+                        "record_id": hazard.feishu_record_id,
+                        "level": level,
+                    },
+                    "confirm": {
+                        "title": {"tag": "plain_text", "content": "确认驳回整改"},
+                        "text": {"tag": "plain_text", "content": f"将在多维表格中将「{_bitable_field_for_level(level)}」设为「未同意」，隐患退回整改阶段"},
+                    },
+                },
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "📋 查看飞书表格记录"},
+                    "type": "default",
+                    "url": bitable_url,
+                },
+            ],
+        })
+
+        success = await send_user_card(
+            open_id=target_open_id,
+            title=f"🔔 隐患{level_text}复核通知",
+            content=content,
+            elements=elements,
+        )
+        if success:
+            logger.info(
+                "复核通知已发送（含审核按钮+照片）: hazard_no=%s level=%s to=%s open_id=%s",
+                hazard.hazard_no, level, target_name, target_open_id,
+            )
+        else:
+            logger.warning(
+                "复核通知发送失败: hazard_no=%s level=%s to=%s",
+                hazard.hazard_no, level, target_name,
+            )
+    except Exception as e:
+        logger.warning("复核通知异常: %s", e)
+
+
+async def _send_rectification_notification(hazard: HazardReport) -> None:
+    """隐患登记成功后，异步通知责任人整改。
+
+    测试阶段：通知目标硬编码为许康福。
+
+    卡片包含隐患信息 + 缺陷照片 + 跳转多维表格填写整改回复按钮。
+    """
+    try:
+        target_open_id = _TEST_NOTIFICATION_OPEN_ID
+        target_name = _TEST_NOTIFICATION_NAME
+        logger.info(
+            "整改通知(测试模式): 目标=%s open_id=%s hazard_no=%s",
+            target_name, target_open_id, hazard.hazard_no,
+        )
+
+        bitable_file_token = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
+        bitable_table_id = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
+        bitable_url = (
+            f"https://www.feishu.cn/base/{bitable_file_token}"
+            f"?table={bitable_table_id}&record={hazard.feishu_record_id}"
+        ) if hazard.feishu_record_id else ""
+
+        level_emoji = {"general": "\U0001f7e2", "serious": "\U0001f7e0", "major": "\U0001f534"}.get(hazard.hazard_level, "⚪")
+        level_label = {"general": "一般隐患", "serious": "较大隐患", "major": "重大隐患"}.get(
+            hazard.hazard_level, hazard.hazard_level or "-"
+        )
+        responsible = hazard.rectification_responsible_person_name or "-"
+        deadline = hazard.deadline.strftime("%Y-%m-%d") if hazard.deadline else "待指定"
+
+        content = (
+            f"**检查日期：** {hazard.discovered_at.strftime('%Y-%m-%d') if hazard.discovered_at else '-'}\n"
+            f"**隐患描述：** {hazard.description or '-'}\n"
+            f"**判定依据：** {hazard.major_hazard_basis or '-'}\n"
+            f"**隐患级别：** {level_emoji} {level_label}\n"
+            f"**责任部门：** {hazard.department or '-'}\n"
+            f"**责任人员：** {responsible}\n"
+            f"**整改期限：** {deadline}\n"
+            f"\n⬇ 请在多维表格中填写「纠正预防措施」并上传整改照片，该记录可转发"
+        )
+
+        elements: list[dict] = []
+
+        # ── 缺陷照片 ──
+        if hazard.defect_photos:
+            try:
+                photos = json.loads(hazard.defect_photos)
+                if photos and isinstance(photos, list):
+                    clean = [p for p in photos if isinstance(p, str)]
+                    if clean:
+                        from app.modules.safety.feishu.notification import upload_images_batch
+                        image_keys = await upload_images_batch(clean)
+                        if image_keys:
+                            elements.append({"tag": "hr"})
+                            elements.append({"tag": "markdown", "content": "\U0001f4f7 **缺陷照片**"})
+                            for key in image_keys:
+                                elements.append({
+                                    "tag": "img",
+                                    "img_key": key,
+                                    "alt": {"tag": "plain_text", "content": "缺陷照片"},
+                                })
+            except Exception:
+                logger.exception("整改通知照片处理异常: hazard_no=%s", hazard.hazard_no)
+
+        # ── 操作按钮 ──
+        button_actions: list[dict] = []
+        if bitable_url:
+            button_actions.append({
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": "\U0001f4cb 填写整改回复"},
+                "type": "primary",
+                "url": bitable_url,
+            })
+        elements.append({
+            "tag": "action",
+            "actions": button_actions,
+        })
+
+        success = await send_user_card(
+            open_id=target_open_id,
+            title="\U0001f514 隐患整改通知",
+            content=content,
+            elements=elements,
+        )
+        if success:
+            logger.info(
+                "整改通知已发送: hazard_no=%s to=%s open_id=%s",
+                hazard.hazard_no, target_name, target_open_id,
+            )
+        else:
+            logger.warning(
+                "整改通知发送失败: hazard_no=%s to=%s",
+                hazard.hazard_no, target_name,
+            )
+    except Exception as e:
+        logger.warning("整改通知异常: %s", e)
+
     async def delete_hazard(self, hazard_id: uuid.UUID) -> bool:
         """删除隐患"""
-        result = await self.repo.delete_hazard(hazard_id)
-        if result:
-            await self._audit("delete", "hazard_report", resource_id=hazard_id)
-        return result
+        return await self.repo.delete_hazard(hazard_id)
 
     # ── AI 工作流 ──
 
@@ -620,18 +839,6 @@ class SafetyService:
                     logger.warning("无法读取图片 %s: %s", found_path, exc)
         return urls
 
-    # ── AI 服务工厂 ──
-
-    async def _get_ai_service(self) -> "AIService":
-        """获取文本模型 AIService（硬编码配置）"""
-        from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("text")
-
-    async def _get_vision_ai_service(self) -> "AIService":
-        """获取视觉模型 AIService（硬编码配置）"""
-        from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("vision")
-
     async def run_hazard_ai_script(
         self, hazard_id: uuid.UUID, script_number: int
     ) -> HazardReport | None:
@@ -708,415 +915,6 @@ class SafetyService:
                 if parts:
                     update_data["corrective_preventive_measures"] = "\n\n".join(parts)
         # script 2 已废弃：整改建议由插件在 script 1 中生成
-# ═══════════════════════════════════════════════════════════════
-# 测试阶段：通知硬编码目标
-# ═══════════════════════════════════════════════════════════════
-
-def _bitable_field_for_level(level: int) -> str:
-    """Level → 对应的多维表格审批字段名。"""
-    return {1: "部门负责人复核", 2: "分管领导复核", 3: "检查人员复核"}.get(level, f"{level}级复核")
-
-
-async def _build_verify_card_content(
-    hazard: HazardReport,
-    level: int,
-    button_state: str | None = None,
-    skip_photos: bool = False,
-) -> tuple[str, str, list[dict]]:
-    """构建复核通知卡片内容（header + markdown + 照片 + 操作按钮）。
-
-    Args:
-        hazard: 隐患记录
-        level: 复核级别 (1/2/3)
-        button_state: None=活跃审批按钮, "approved"=已同意(禁用), "rejected"=已驳回(禁用)
-        skip_photos: True=跳过照片上传（卡片按钮就地更新时使用，避免超时）
-
-    Returns:
-        (title, content, elements) 三元组 — 由调用方负责发送或作为卡片更新返回
-    """
-    level_labels = {1: "（部门负责人）", 2: "（分管领导）", 3: "（检查人员）"}
-    level_text = level_labels.get(level, f"{level}级")
-
-    bitable_file_token = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
-    bitable_table_id = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
-    bitable_url = (
-        f"https://www.feishu.cn/base/{bitable_file_token}"
-        f"?table={bitable_table_id}&record={hazard.feishu_record_id}"
-    ) if hazard.feishu_record_id else ""
-
-    reply_text = hazard.rectification_reply or "-"
-    level_emoji = {"general": "🟢", "serious": "🟠", "major": "🔴"}.get(hazard.hazard_level, "⚪")
-    level_label = {"general": "一般隐患", "serious": "较大隐患", "major": "重大隐患"}.get(
-        hazard.hazard_level, hazard.hazard_level or "-"
-    )
-
-    content = (
-        f"**检查日期：** {hazard.discovered_at.strftime('%Y-%m-%d') if hazard.discovered_at else '-'}\n"
-        f"**隐患描述：** {hazard.description or '-'}\n"
-        f"**判定依据：** {hazard.major_hazard_basis or '-'}\n"
-        f"**隐患级别：** {level_emoji} {level_label}\n"
-        f"**责任部门：** {hazard.department or '-'}\n"
-        f"**整改回复：** {reply_text}\n"
-        + (f"\n⬇ 请到在下方点击「同意」或「驳回」操作" if button_state is None else "")
-    )
-
-    elements: list[dict] = []
-
-    # ── 照片（卡片就地更新时跳过上传，避免超时）──
-    if not skip_photos:
-        async def _upload_photos(photo_field: str | None, label: str) -> list[str]:
-            if not photo_field:
-                return []
-            try:
-                photos = json.loads(photo_field)
-                if not photos or not isinstance(photos, list):
-                    return []
-                clean = [p for p in photos if isinstance(p, str)]
-                if not clean:
-                    return []
-                from app.modules.safety.feishu.notification import upload_images_batch
-                logger.info("复核通知照片上传: hazard_no=%s label=%s count=%d", hazard.hazard_no, label, len(clean))
-                return await upload_images_batch(clean)
-            except Exception:
-                logger.exception("复核通知照片处理异常: hazard_no=%s label=%s", hazard.hazard_no, label)
-                return []
-
-        defect_keys = await _upload_photos(hazard.defect_photos, "缺陷照片")
-        rectification_keys = await _upload_photos(hazard.rectification_photos, "整改后照片")
-    else:
-        defect_keys = []
-        rectification_keys = []
-
-    if defect_keys or rectification_keys:
-        columns: list[dict] = []
-        if defect_keys:
-            defect_col: dict = {
-                "tag": "column", "width": "weighted", "weight": 1,
-                "elements": [{"tag": "markdown", "content": "📷 **缺陷照片**"}],
-            }
-            for key in defect_keys:
-                defect_col["elements"].append({
-                    "tag": "img", "img_key": key,
-                    "alt": {"tag": "plain_text", "content": "缺陷照片"},
-                })
-            columns.append(defect_col)
-
-        if rectification_keys:
-            rect_col: dict = {
-                "tag": "column", "width": "weighted", "weight": 1,
-                "elements": [{"tag": "markdown", "content": "✅ **整改后照片**"}],
-            }
-            for key in rectification_keys:
-                rect_col["elements"].append({
-                    "tag": "img", "img_key": key,
-                    "alt": {"tag": "plain_text", "content": "整改后照片"},
-                })
-            columns.append(rect_col)
-
-        if columns:
-            elements.append({"tag": "hr"})
-            if len(columns) == 1:
-                elements.extend(columns[0]["elements"])
-            else:
-                elements.append({
-                    "tag": "column_set", "flex_mode": "bisect",
-                    "background_style": "default", "columns": columns,
-                })
-            logger.info(
-                "复核通知照片已添加: hazard_no=%s defect=%d rect=%d",
-                hazard.hazard_no, len(defect_keys), len(rectification_keys),
-            )
-
-    # ── 操作按钮 ──
-    if button_state is None:
-        # 活跃状态：同意 + 驳回 + 查看表格
-        elements.append({
-            "tag": "action",
-            "actions": [
-                {
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": "✅ 同意"},
-                    "type": "primary",
-                    "value": {
-                        "action": "approve_rectification",
-                        "record_id": hazard.feishu_record_id,
-                        "level": level,
-                    },
-                    "confirm": {
-                        "title": {"tag": "plain_text", "content": f"确认{level_text}审核通过"},
-                        "text": {"tag": "plain_text", "content": f"将在多维表格中将「{_bitable_field_for_level(level)}」设为「已同意」"},
-                    },
-                },
-                {
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": "❌ 驳回"},
-                    "type": "danger",
-                    "value": {
-                        "action": "reject_rectification",
-                        "record_id": hazard.feishu_record_id,
-                        "level": level,
-                    },
-                    "confirm": {
-                        "title": {"tag": "plain_text", "content": "确认驳回整改"},
-                        "text": {"tag": "plain_text", "content": f"将在多维表格中将「{_bitable_field_for_level(level)}」设为「未同意」，隐患退回整改阶段"},
-                    },
-                },
-                {
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": "📋 查看飞书表格记录"},
-                    "type": "default",
-                    "url": bitable_url,
-                },
-            ],
-        })
-    else:
-        # 已处理状态：显示结果 + 查看表格
-        result_text = "✅ 已同意" if button_state == "approved" else "❌ 已驳回"
-        elements.append({
-            "tag": "action",
-            "actions": [
-                {
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": result_text},
-                    "type": "default",
-                    "disabled": True,
-                },
-                {
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": "📋 查看飞书表格记录"},
-                    "type": "default",
-                    "url": bitable_url,
-                },
-            ],
-        })
-
-    title = f"🔔 隐患复核通知{level_text}" if button_state is None else f"🔔 隐患复核通知{level_text} — 已处理"
-    return title, content, elements
-
-
-async def _send_verify_notification(hazard: HazardReport, level: int) -> None:
-    """异步发送复核通知到飞书。
-
-    根据复核级别动态解析通知目标：
-      - Level 1 → 部门负责人 (hazard.department → 部门 leader)
-      - Level 2 → 分管领导   (hazard.department → 父部门 leader)
-      - Level 3 → 检查人员   (hazard.discovered_by_name → open_id)
-
-    解析失败时记录 warning 并跳过，不发送通知。
-    """
-    from app.core.database import async_session_factory
-    from app.modules.safety.feishu.identity_resolver import IdentityResolver
-
-    try:
-        _debug_log(f"VERIFY_START: hazard_no={hazard.hazard_no} level={level} dept={hazard.department}")
-        async with async_session_factory() as session:
-            resolver = IdentityResolver(session)
-
-            if level == 1:
-                person = await resolver.resolve_hazard_department_leader(hazard)
-            elif level == 2:
-                person = await resolver.resolve_hazard_supervising_leader(hazard)
-            elif level == 3:
-                person = await resolver.resolve_discoverer(hazard)
-            else:
-                _debug_log(f"VERIFY_FAIL: hazard_no={hazard.hazard_no} 未知复核级别 level={level}")
-                logger.warning("未知复核级别: level=%s hazard_no=%s", level, hazard.hazard_no)
-                return
-
-            if not person:
-                _debug_log(f"VERIFY_FAIL: hazard_no={hazard.hazard_no} level={level} 身份解析失败 dept={hazard.department}")
-                logger.warning(
-                    "复核通知: 身份解析失败 hazard_no=%s level=%s",
-                    hazard.hazard_no, level,
-                )
-                return
-
-            _debug_log(
-                f"VERIFY_RESOLVED: hazard_no={hazard.hazard_no} level={level} "
-                f"target={person.name} user_id={person.user_id} open_id={person.open_id}"
-            )
-
-            logger.info(
-                "复核通知: hazard_no=%s level=%s target=%s user_id=%s open_id=%s",
-                hazard.hazard_no, level, person.name, person.user_id, person.open_id,
-            )
-
-            title, content, elements = await _build_verify_card_content(
-                hazard, level, button_state=None,
-            )
-
-            # 使用 user_id 而非 open_id（open_id 是应用专属的，跨应用不通用）
-            receive_id = person.user_id or person.open_id
-            id_type = "user_id" if person.user_id else "open_id"
-
-            success = await send_user_card(
-                open_id=receive_id,
-                title=title,
-                content=content,
-                elements=elements,
-                id_type=id_type,
-            )
-            if success:
-                _debug_log(
-                    f"VERIFY_SENT: hazard_no={hazard.hazard_no} level={level} "
-                    f"to={person.name} receive_id={receive_id} id_type={id_type}"
-                )
-                logger.info(
-                    "复核通知已发送: hazard_no=%s level=%s to=%s receive_id=%s id_type=%s",
-                    hazard.hazard_no, level, person.name, receive_id, id_type,
-                )
-            else:
-                _debug_log(
-                    f"VERIFY_SEND_FAIL: hazard_no={hazard.hazard_no} level={level} "
-                    f"to={person.name} receive_id={receive_id} id_type={id_type} — send_user_card returned False"
-                )
-                logger.warning(
-                    "复核通知发送失败: hazard_no=%s level=%s to=%s receive_id=%s id_type=%s",
-                    hazard.hazard_no, level, person.name, receive_id, id_type,
-                )
-    except Exception as e:
-        _debug_log(f"VERIFY_EXCEPTION: hazard_no={hazard.hazard_no} level={level} error={e}")
-        logger.warning("复核通知异常: hazard_no=%s level=%s error=%s", hazard.hazard_no, level, e)
-
-
-async def _send_rectification_notification(hazard: HazardReport) -> None:
-    """隐患登记成功后，异步通知责任人整改。
-
-    动态解析 rectification_responsible_person_name → open_id，
-    解析失败时记录 warning 并跳过。
-
-    卡片包含隐患信息 + 缺陷照片 + 跳转多维表格填写整改回复按钮。
-    """
-    from app.core.database import async_session_factory
-    from app.modules.safety.feishu.identity_resolver import IdentityResolver
-
-    try:
-        _debug_log(
-            f"RECTIFY_START: hazard_no={hazard.hazard_no} "
-            f"resp_name={hazard.rectification_responsible_person_name} dept={hazard.department}"
-        )
-        async with async_session_factory() as session:
-            resolver = IdentityResolver(session)
-            person = await resolver.resolve_responsible_person(hazard)
-
-            if not person:
-                _debug_log(
-                    f"RECTIFY_FAIL: hazard_no={hazard.hazard_no} "
-                    f"无法解析责任人 name={hazard.rectification_responsible_person_name}"
-                )
-                logger.warning(
-                    "整改通知: 无法解析责任人 hazard_no=%s name=%s",
-                    hazard.hazard_no, hazard.rectification_responsible_person_name,
-                )
-                return
-
-            _debug_log(
-                f"RECTIFY_RESOLVED: hazard_no={hazard.hazard_no} "
-                f"target={person.name} user_id={person.user_id} open_id={person.open_id}"
-            )
-
-            logger.info(
-                "整改通知: hazard_no=%s target=%s user_id=%s open_id=%s",
-                hazard.hazard_no, person.name, person.user_id, person.open_id,
-            )
-
-        bitable_file_token = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
-        bitable_table_id = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
-        bitable_url = (
-            f"https://www.feishu.cn/base/{bitable_file_token}"
-            f"?table={bitable_table_id}&record={hazard.feishu_record_id}"
-        ) if hazard.feishu_record_id else ""
-
-        level_emoji = {"general": "\U0001f7e2", "serious": "\U0001f7e0", "major": "\U0001f534"}.get(hazard.hazard_level, "⚪")
-        level_label = {"general": "一般隐患", "serious": "较大隐患", "major": "重大隐患"}.get(
-            hazard.hazard_level, hazard.hazard_level or "-"
-        )
-        responsible = hazard.rectification_responsible_person_name or "-"
-        deadline = hazard.deadline.strftime("%Y-%m-%d") if hazard.deadline else "待指定"
-
-        content = (
-            f"**检查日期：** {hazard.discovered_at.strftime('%Y-%m-%d') if hazard.discovered_at else '-'}\n"
-            f"**隐患描述：** {hazard.description or '-'}\n"
-            f"**判定依据：** {hazard.major_hazard_basis or '-'}\n"
-            f"**隐患级别：** {level_emoji} {level_label}\n"
-            f"**责任部门：** {hazard.department or '-'}\n"
-            f"**责任人员：** {responsible}\n"
-            f"**整改期限：** {deadline}\n"
-            f"\n⬇ 请在多维表格中填写「纠正预防措施」并上传整改照片，该记录可转发"
-        )
-
-        elements: list[dict] = []
-
-        # ── 缺陷照片 ──
-        if hazard.defect_photos:
-            try:
-                photos = json.loads(hazard.defect_photos)
-                if photos and isinstance(photos, list):
-                    clean = [p for p in photos if isinstance(p, str)]
-                    if clean:
-                        from app.modules.safety.feishu.notification import upload_images_batch
-                        image_keys = await upload_images_batch(clean)
-                        if image_keys:
-                            elements.append({"tag": "hr"})
-                            elements.append({"tag": "markdown", "content": "\U0001f4f7 **缺陷照片**"})
-                            for key in image_keys:
-                                elements.append({
-                                    "tag": "img",
-                                    "img_key": key,
-                                    "alt": {"tag": "plain_text", "content": "缺陷照片"},
-                                })
-            except Exception:
-                logger.exception("整改通知照片处理异常: hazard_no=%s", hazard.hazard_no)
-
-        # ── 操作按钮 ──
-        button_actions: list[dict] = []
-        if bitable_url:
-            button_actions.append({
-                "tag": "button",
-                "text": {"tag": "plain_text", "content": "\U0001f4cb 填写整改回复"},
-                "type": "primary",
-                "url": bitable_url,
-            })
-        elements.append({
-            "tag": "action",
-            "actions": button_actions,
-        })
-
-        # 使用 user_id 而非 open_id，因为 open_id 是应用专属的 —
-        # identity.users 的 open_id 来自主应用，而 send_user_card 使用安全应用 token，
-        # 两个应用的 open_id 命名空间不同。user_id 在同一租户内一致。
-        receive_id = person.user_id or person.open_id
-        id_type = "user_id" if person.user_id else "open_id"
-
-        success = await send_user_card(
-            open_id=receive_id,
-            title="\U0001f514 隐患整改通知",
-            content=content,
-            elements=elements,
-            id_type=id_type,
-        )
-        if success:
-            _debug_log(
-                f"RECTIFY_SENT: hazard_no={hazard.hazard_no} "
-                f"to={person.name} receive_id={receive_id} id_type={id_type}"
-            )
-            logger.info(
-                "整改通知已发送: hazard_no=%s to=%s receive_id=%s id_type=%s",
-                hazard.hazard_no, person.name, receive_id, id_type,
-            )
-        else:
-            _debug_log(
-                f"RECTIFY_SEND_FAIL: hazard_no={hazard.hazard_no} "
-                f"to={person.name} receive_id={receive_id} id_type={id_type}"
-            )
-            logger.warning(
-                "整改通知发送失败: hazard_no=%s to=%s receive_id=%s id_type=%s",
-                hazard.hazard_no, person.name, receive_id, id_type,
-            )
-    except Exception as e:
-        _debug_log(f"RECTIFY_EXCEPTION: hazard_no={hazard.hazard_no} error={e}")
-        logger.warning("整改通知异常: error=%s hazard_no=%s", e, hazard.hazard_no)
-
 
     # ==================== Accident Operations ====================
 
@@ -1145,19 +943,14 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
     async def create_accident(self, data: AccidentCreate) -> Accident:
         """创建事故"""
         accident_data = data.model_dump()
-        item = await self.repo.create_accident(accident_data)
-        await self._audit("create", "accident", resource_id=item.id)
-        return item
+        return await self.repo.create_accident(accident_data)
 
     async def update_accident(
         self, accident_id: uuid.UUID, data: AccidentUpdate
     ) -> Accident | None:
         """更新事故"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        item = await self.repo.update_accident(accident_id, update_data)
-        if item:
-            await self._audit("update", "accident", resource_id=accident_id)
-        return item
+        return await self.repo.update_accident(accident_id, update_data)
 
     async def investigate_accident(
         self,
@@ -1256,10 +1049,7 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
 
     async def delete_accident(self, accident_id: uuid.UUID) -> bool:
         """删除事故"""
-        result = await self.repo.delete_accident(accident_id)
-        if result:
-            await self._audit("delete", "accident", resource_id=accident_id)
-        return result
+        return await self.repo.delete_accident(accident_id)
 
     # ==================== Contractor Operations ====================
 
@@ -1284,19 +1074,14 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
     async def create_contractor(self, data: "ContractorCreate") -> Contractor:
         """创建承包商"""
         contractor_data = data.model_dump()
-        item = await self.repo.create_contractor(contractor_data)
-        await self._audit("create", "contractor", resource_id=item.id)
-        return item
+        return await self.repo.create_contractor(contractor_data)
 
     async def update_contractor(
         self, contractor_id: uuid.UUID, data: "ContractorUpdate"
     ) -> Contractor | None:
         """更新承包商"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        item = await self.repo.update_contractor(contractor_id, update_data)
-        if item:
-            await self._audit("update", "contractor", resource_id=contractor_id)
-        return item
+        return await self.repo.update_contractor(contractor_id, update_data)
 
     async def blacklist_contractor(self, contractor_id: uuid.UUID) -> Contractor | None:
         """将承包商加入黑名单"""
@@ -1333,10 +1118,7 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
 
     async def delete_contractor(self, contractor_id: uuid.UUID) -> bool:
         """删除承包商"""
-        result = await self.repo.delete_contractor(contractor_id)
-        if result:
-            await self._audit("delete", "contractor", resource_id=contractor_id)
-        return result
+        return await self.repo.delete_contractor(contractor_id)
 
     # ── 施工记录 ──
 
@@ -1406,19 +1188,14 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
     async def create_training(self, data: SafetyTrainingCreate) -> SafetyTraining:
         """创建安全培训"""
         training_data = data.model_dump()
-        item = await self.repo.create_training(training_data)
-        await self._audit("create", "safety_training", resource_id=item.id)
-        return item
+        return await self.repo.create_training(training_data)
 
     async def update_training(
         self, training_id: uuid.UUID, data: SafetyTrainingUpdate
     ) -> SafetyTraining | None:
         """更新安全培训"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        item = await self.repo.update_training(training_id, update_data)
-        if item:
-            await self._audit("update", "safety_training", resource_id=training_id)
-        return item
+        return await self.repo.update_training(training_id, update_data)
 
     async def start_training(self, training_id: uuid.UUID) -> SafetyTraining | None:
         """开始培训（草稿→进行中）"""
@@ -1443,10 +1220,7 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
 
     async def delete_training(self, training_id: uuid.UUID) -> bool:
         """删除安全培训"""
-        result = await self.repo.delete_training(training_id)
-        if result:
-            await self._audit("delete", "safety_training", resource_id=training_id)
-        return result
+        return await self.repo.delete_training(training_id)
 
     # ==================== TrainingRecord Operations ====================
 
@@ -1548,24 +1322,16 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
         create_data = data.model_dump()
         create_data["ai_node_progress"] = "pending_input"
         create_data["overall_status"] = "draft"
-        item = await self.repo.create_hazard_identification(create_data)
-        await self._audit("create", "hazard_identification", resource_id=item.id)
-        return item
+        return await self.repo.create_hazard_identification(create_data)
 
     async def update_hazard_identification(self, hid: uuid.UUID, data) -> Any | None:
         """更新危险源辨识"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        item = await self.repo.update_hazard_identification(hid, update_data)
-        if item:
-            await self._audit("update", "hazard_identification", resource_id=hid)
-        return item
+        return await self.repo.update_hazard_identification(hid, update_data)
 
     async def delete_hazard_identification(self, hid: uuid.UUID) -> bool:
         """删除危险源辨识"""
-        result = await self.repo.delete_hazard_identification(hid)
-        if result:
-            await self._audit("delete", "hazard_identification", resource_id=hid)
-        return result
+        return await self.repo.delete_hazard_identification(hid)
 
     async def submit_hazard_identification(self, hid: uuid.UUID) -> Any | None:
         """提交基础信息 → 进入脚本1（待AI解析附件）"""

@@ -10,15 +10,20 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
-    UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.base_model import BaseModel
+
+# 业务表均软删除（is_deleted），唯一编号约束使用部分唯一索引
+# (WHERE is_deleted = false)，避免「软删→重建同编号」触发约束冲突。
+# 见 CLAUDE.md「软删除隐形 bug」注意事项。
 
 # ==================== Enums ====================
 
@@ -438,6 +443,24 @@ class AbnormalityStatus(str, PyEnum):
     CLOSED = "closed"  # 已关闭
 
 
+class RegulationStatus(str, PyEnum):
+    """操规标准化生成状态"""
+
+    DRAFT = "draft"          # 初始状态
+    GENERATED = "generated"  # 已生成标准化 Markdown
+    REVIEWED = "reviewed"    # 人工编辑审核完成
+    EXPORTED = "exported"    # 已导出 PDF
+
+
+class ReportStatus(str, PyEnum):
+    """报备状态枚举"""
+
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 # ==================== 安全检查 ====================
 
 
@@ -446,7 +469,7 @@ class SafetyCheck(BaseModel):
 
     __tablename__ = "safety_checks"
     __table_args__ = (
-        UniqueConstraint("check_no", name="uq_safety_checks_check_no"),
+        Index("uq_safety_checks_check_no", "check_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -499,7 +522,7 @@ class HazardReport(BaseModel):
 
     __tablename__ = "hazard_reports"
     __table_args__ = (
-        UniqueConstraint("hazard_no", name="uq_hazard_reports_hazard_no"),
+        Index("uq_hazard_reports_hazard_no", "hazard_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -636,7 +659,7 @@ class Accident(BaseModel):
 
     __tablename__ = "accidents"
     __table_args__ = (
-        UniqueConstraint("accident_no", name="uq_accidents_accident_no"),
+        Index("uq_accidents_accident_no", "accident_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -717,7 +740,7 @@ class SafetyTraining(BaseModel):
 
     __tablename__ = "safety_trainings"
     __table_args__ = (
-        UniqueConstraint("training_no", name="uq_safety_trainings_training_no"),
+        Index("uq_safety_trainings_training_no", "training_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -805,7 +828,7 @@ class HazardIdentification(BaseModel):
 
     __tablename__ = "hazard_identifications"
     __table_args__ = (
-        UniqueConstraint("hazard_id_no", name="uq_hazard_identifications_no"),
+        Index("uq_hazard_identifications_no", "hazard_id_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -949,25 +972,10 @@ class HazardIdentification(BaseModel):
         String(20), default="pending", server_default="pending", comment="脚本7审核状态"
     )
 
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="创建人"
-    )
-    updated_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="更新人"
-    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
 
 
 # ==================== 安全操作规程 ====================
-
-
-class RegulationStatus(str, PyEnum):
-    """操规标准化生成状态"""
-
-    DRAFT = "draft"          # 初始状态
-    GENERATED = "generated"  # 已生成标准化 Markdown
-    REVIEWED = "reviewed"    # 人工编辑审核完成
-    EXPORTED = "exported"    # 已导出 PDF
 
 
 class OperationRegulation(BaseModel):
@@ -975,7 +983,7 @@ class OperationRegulation(BaseModel):
 
     __tablename__ = "operation_regulations"
     __table_args__ = (
-        UniqueConstraint("regulation_no", name="uq_operation_regulations_no"),
+        Index("uq_operation_regulations_no", "regulation_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -1021,7 +1029,7 @@ class RegulationRevision(BaseModel):
 
     __tablename__ = "regulation_revisions"
     __table_args__ = (
-        UniqueConstraint("revision_no", name="uq_regulation_revisions_no"),
+        Index("uq_regulation_revisions_no", "revision_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -1072,7 +1080,7 @@ class AIWorkflowConfig(BaseModel):
 
     __tablename__ = "ai_workflow_configs"
     __table_args__ = (
-        UniqueConstraint("module_code", name="uq_ai_workflow_config_module_code"),
+        Index("uq_ai_workflow_config_module_code", "module_code", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety", "comment": "AI 工作流配置表"},
     )
 
@@ -1108,7 +1116,7 @@ class SpecialOperationPersonnel(BaseModel):
 
     __tablename__ = "special_operation_personnel"
     __table_args__ = (
-        UniqueConstraint("personnel_no", name="uq_special_op_personnel_no"),
+        Index("uq_special_op_personnel_no", "personnel_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -1149,7 +1157,7 @@ class SpecialOperationPermit(BaseModel):
 
     __tablename__ = "special_operation_permits"
     __table_args__ = (
-        UniqueConstraint("permit_no", name="uq_special_op_permits_permit_no"),
+        Index("uq_special_op_permits_permit_no", "permit_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -1248,24 +1256,9 @@ class SafetyKnowledgeArticle(BaseModel):
     attachment_original_name: Mapped[str | None] = mapped_column(
         String(255), nullable=True, comment="附件原始文件名"
     )
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="创建人"
-    )
-    updated_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="更新人"
-    )
 
 
 # ==================== 风险作业报备 ====================
-
-
-class ReportStatus(str, PyEnum):
-    """报备状态枚举"""
-
-    DRAFT = "draft"
-    SUBMITTED = "submitted"
-    APPROVED = "approved"
-    REJECTED = "rejected"
 
 
 class SpecialOperationReport(BaseModel):
@@ -1273,7 +1266,7 @@ class SpecialOperationReport(BaseModel):
 
     __tablename__ = "special_operation_reports"
     __table_args__ = (
-        UniqueConstraint("report_no", name="uq_special_operation_reports_no"),
+        Index("uq_special_operation_reports_no", "report_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -1358,7 +1351,7 @@ class DailyRiskReport(BaseModel):
 
     __tablename__ = "daily_risk_reports"
     __table_args__ = (
-        UniqueConstraint("report_no", name="uq_daily_risk_reports_no"),
+        Index("uq_daily_risk_reports_no", "report_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -1423,7 +1416,7 @@ class EhsChange(BaseModel):
 
     __tablename__ = "ehs_changes"
     __table_args__ = (
-        UniqueConstraint("change_no", name="uq_ehs_changes_change_no"),
+        Index("uq_ehs_changes_change_no", "change_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety", "comment": "EHS变更管理表"},
     )
 
@@ -1529,7 +1522,7 @@ class EhsChange(BaseModel):
 
     # ── 关系 ──
     applicant: Mapped["User | None"] = relationship(
-        "User", foreign_keys=[applicant_id]
+        "app.platform.identity.models.User", foreign_keys=[applicant_id]
     )
     linked_safety_check: Mapped["SafetyCheck | None"] = relationship(
         "SafetyCheck", foreign_keys=[linked_safety_check_id]
@@ -1544,7 +1537,7 @@ class OhHazardMonitor(BaseModel):
 
     __tablename__ = "oh_hazard_monitors"
     __table_args__ = (
-        UniqueConstraint("monitor_no", name="uq_oh_hazard_monitors_monitor_no"),
+        Index("uq_oh_hazard_monitors_monitor_no", "monitor_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety", "comment": "职业危害因素监测表"},
     )
 
@@ -1617,7 +1610,7 @@ class OhHealthExam(BaseModel):
 
     __tablename__ = "oh_health_exams"
     __table_args__ = (
-        UniqueConstraint("exam_no", name="uq_oh_health_exams_exam_no"),
+        Index("uq_oh_health_exams_exam_no", "exam_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety", "comment": "职业健康体检表"},
     )
 
@@ -1630,8 +1623,8 @@ class OhHealthExam(BaseModel):
     employee_name: Mapped[str] = mapped_column(
         String(100), nullable=False, comment="员工姓名"
     )
-    employee_id: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, comment="工号"
+    employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="关联用户ID"
     )
     department: Mapped[str | None] = mapped_column(
         String(100), nullable=True, comment="部门"
@@ -1702,7 +1695,7 @@ class Contractor(BaseModel):
 
     __tablename__ = "contractors"
     __table_args__ = (
-        UniqueConstraint("contractor_no", name="uq_contractors_contractor_no"),
+        Index("uq_contractors_contractor_no", "contractor_no", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 
@@ -1843,7 +1836,7 @@ class ScheduledTask(BaseModel):
 
     __tablename__ = "scheduled_tasks"
     __table_args__ = (
-        UniqueConstraint("name", name="uq_scheduled_tasks_name"),
+        Index("uq_scheduled_tasks_name", "name", unique=True, postgresql_where=text("is_deleted = false")),
         {"schema": "safety"},
     )
 

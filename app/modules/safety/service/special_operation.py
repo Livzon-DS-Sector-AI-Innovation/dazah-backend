@@ -3,6 +3,7 @@
 import logging
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,7 @@ from app.modules.safety.schemas import (
     SpecialOperationPersonnelCreate,
     SpecialOperationPersonnelUpdate,
 )
+from app.platform.audit.service import record_audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,30 @@ class SpecialOperationService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = SafetyRepository(session)
+
+    async def _audit(
+        self,
+        action: str,
+        resource_type: str,
+        resource_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None,
+        old_value: dict[str, Any] | None = None,
+        new_value: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            await record_audit_log(
+                self.session,
+                action=action,
+                user_id=user_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                old_value=old_value,
+                new_value=new_value,
+                extra=extra,
+            )
+        except Exception:
+            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
 
     # ==================== 人员资质 CRUD ====================
 
@@ -60,20 +86,28 @@ class SpecialOperationService:
     ) -> SpecialOperationPersonnel:
         """创建人员资质"""
         create_data = data.model_dump()
-        return await self.repo.create_special_operation_personnel(create_data)
+        item = await self.repo.create_special_operation_personnel(create_data)
+        await self._audit("create", "special_operation_personnel", resource_id=item.id)
+        return item
 
     async def update_personnel(
         self, personnel_id: uuid.UUID, data: SpecialOperationPersonnelUpdate
     ) -> SpecialOperationPersonnel | None:
         """更新人员资质"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_special_operation_personnel(
+        item = await self.repo.update_special_operation_personnel(
             personnel_id, update_data
         )
+        if item:
+            await self._audit("update", "special_operation_personnel", resource_id=personnel_id)
+        return item
 
     async def delete_personnel(self, personnel_id: uuid.UUID) -> bool:
         """删除人员资质"""
-        return await self.repo.delete_special_operation_personnel(personnel_id)
+        result = await self.repo.delete_special_operation_personnel(personnel_id)
+        if result:
+            await self._audit("delete", "special_operation_personnel", resource_id=personnel_id)
+        return result
 
     # ==================== 作业票 CRUD ====================
 
@@ -102,18 +136,26 @@ class SpecialOperationService:
     ) -> SpecialOperationPermit:
         """创建作业票"""
         create_data = data.model_dump()
-        return await self.repo.create_special_operation_permit(create_data)
+        item = await self.repo.create_special_operation_permit(create_data)
+        await self._audit("create", "special_operation_permit", resource_id=item.id)
+        return item
 
     async def update_permit(
         self, permit_id: uuid.UUID, data: SpecialOperationPermitUpdate
     ) -> SpecialOperationPermit | None:
         """更新作业票"""
         update_data = {k: v for k, v in data.model_dump().items() if v is not None}
-        return await self.repo.update_special_operation_permit(permit_id, update_data)
+        item = await self.repo.update_special_operation_permit(permit_id, update_data)
+        if item:
+            await self._audit("update", "special_operation_permit", resource_id=permit_id)
+        return item
 
     async def delete_permit(self, permit_id: uuid.UUID) -> bool:
         """删除作业票"""
-        return await self.repo.delete_special_operation_permit(permit_id)
+        result = await self.repo.delete_special_operation_permit(permit_id)
+        if result:
+            await self._audit("delete", "special_operation_permit", resource_id=permit_id)
+        return result
 
     # ==================== 作业票工作流 ====================
 

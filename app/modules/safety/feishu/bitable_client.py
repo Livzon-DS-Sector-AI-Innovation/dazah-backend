@@ -243,3 +243,81 @@ class SafetyBitableClient:
                 logger.error("Bitable list_fields 失败: %s", data.get("msg"))
                 return []
             return data.get("data", {}).get("items", [])
+
+    async def create_field(
+        self,
+        field_name: str,
+        field_type: int,
+        table_id: str | None = None,
+        *,
+        property_: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """创建表格字段。返回创建的字段信息 dict，失败返回 {}。"""
+        token = await self._token()
+        tid = table_id or self.table_id
+        payload: dict[str, Any] = {
+            "field_name": field_name,
+            "type": field_type,
+        }
+        if property_ is not None:
+            payload["property"] = property_
+        async with httpx.AsyncClient(timeout=15) as http:
+            resp = await http.post(
+                f"{BITABLE_BASE}/apps/{self.app_token}/tables/{tid}/fields",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                json=payload,
+            )
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.error(
+                    "Bitable create_field 失败: field=%s code=%s msg=%s",
+                    field_name, data.get("code"), data.get("msg"),
+                )
+                return {}
+            field = data.get("data", {}).get("field", {})
+            logger.info("Bitable create_field 成功: %s (id=%s)", field_name, field.get("field_id"))
+            return field
+
+    async def update_field(
+        self,
+        field_id: str,
+        table_id: str | None = None,
+        *,
+        field_name: str | None = None,
+        field_type: int | None = None,
+        property_: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """更新表格字段（名称、类型、属性）。返回更新后的字段 dict，失败返回 {}。"""
+        token = await self._token()
+        tid = table_id or self.table_id
+        payload: dict[str, Any] = {}
+        if field_name is not None:
+            payload["field_name"] = field_name
+        if field_type is not None:
+            payload["type"] = field_type
+        if property_ is not None:
+            payload["property"] = property_
+        if not payload:
+            return {}
+        async with httpx.AsyncClient(timeout=15) as http:
+            resp = await http.put(
+                f"{BITABLE_BASE}/apps/{self.app_token}/tables/{tid}/fields/{field_id}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                json=payload,
+            )
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.error(
+                    "Bitable update_field 失败: field_id=%s code=%s msg=%s",
+                    field_id, data.get("code"), data.get("msg"),
+                )
+                return {}
+            field = data.get("data", {}).get("field", {})
+            logger.info("Bitable update_field 成功: field_id=%s", field_id)
+            return field

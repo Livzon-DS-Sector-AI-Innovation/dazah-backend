@@ -85,7 +85,7 @@ async def generate(output_path: str | Path | None = None) -> str:
 
 async def main() -> None:
     output = await generate()
-    print(output)
+    logger.info(output)
 
 
 if __name__ == "__main__":
