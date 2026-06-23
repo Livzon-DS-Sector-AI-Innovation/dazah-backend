@@ -19,7 +19,11 @@ from app.core.redis import redis_client
 from app.modules.safety.feishu.bitable_client import SafetyBitableClient
 from app.modules.safety.feishu.event_client import on_event
 from app.modules.safety.schemas.enums import HazardCategory, HazardLevel, HazardType
-from app.modules.safety.service.safety import _send_verify_notification
+from app.modules.safety.service.safety import (
+    _build_verify_card_content,
+    _send_rectification_notification,
+    _send_verify_notification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +102,18 @@ HAZARD_LEVEL_MAP: dict[str, str] = {
 APPROVAL_STATUS_MAP: dict[str, str] = {
     "已同意": "approved",
     "未同意": "rejected",
+}
+
+# 整改状态 → Bitable 中文标签（平台→Bitable 回写用）
+_STATUS_TO_BITABLE_LABEL: dict[str, str] = {
+    "replied": "已回复",
+    "level1_approved": "一级已审批",
+    "level2_approved": "二级已审批",
+    "level3_approved": "三级已审批",
+    "closed": "已关闭",
+    "rejected": "已驳回",
+    "pending": "待整改",
+    "in_progress": "整改中",
 }
 
 # 反向映射
@@ -192,6 +208,24 @@ async def _resolve_person(
             user = await resolver._find_user_by_user_id(person_id)
         except Exception:
             logger.exception("_resolve_person[%s] 按 id 查询异常", bt_field_label)
+
+    # ── 策略 2.5：安全应用 open_id → user_id 反向映射 → identity.users ──
+    # Bitable person 字段的 open_id 是安全应用命名空间，identity.users 存的是全局应用 open_id，
+    # 两个命名空间不同导致策略 2 的 feishu_open_id 匹配失败。通过 bitable_open_ids.json
+    # 反向查找 user_id，再按 feishu_user_id 查 identity.users。
+    if not user and person_id and _is_open_id_like(person_id):
+        try:
+            from app.modules.safety.feishu.bitable_id_mapper import get_user_id_by_bitable_open_id
+            mapped_user_id = get_user_id_by_bitable_open_id(person_id)
+            if mapped_user_id:
+                user = await resolver._find_user_by_user_id(mapped_user_id)
+                if user:
+                    logger.info(
+                        "_resolve_person[%s] bitable open_id 反向映射成功: bitable_oid=%s → user_id=%s → %s",
+                        bt_field_label, person_id, mapped_user_id, user.name,
+                    )
+        except Exception:
+            logger.exception("_resolve_person[%s] bitable open_id 反向映射异常", bt_field_label)
 
     # ── 策略 3：按 email 查（Bitable open_id 与 identity 表可能不同）──
     if not user and person_email:
@@ -639,81 +673,6 @@ async def _download_and_save_attachments(
     return saved
 
 
-# ═══════════════════════════════════════════════════════════════
-# 测试阶段：通知硬编码目标
-# ═══════════════════════════════════════════════════════════════
-_TEST_NOTIFICATION_OPEN_ID = "on_7686557a838993d36b115a47a1323b50"  # 许康福
-_TEST_NOTIFICATION_NAME = "许康福"
-
-
-async def _send_rectification_notification(hazard: Any) -> None:
-    """隐患登记完成后，异步通知责任人整改。
-
-    测试阶段：通知目标硬编码为许康福，确保通知可达。
-    正式上线时删除 _TEST_NOTIFICATION_OPEN_ID 常量即可恢复动态解析。
-    """
-    try:
-        from app.core.config import get_settings
-        from app.modules.safety.feishu.notification import send_user_card
-
-        settings = get_settings()
-        detail_url = f"{settings.FRONTEND_URL}/safety/hazard/{hazard.id}"
-
-        # ── 测试阶段：通知目标硬编码为许康福 ──
-        target_open_id = _TEST_NOTIFICATION_OPEN_ID
-        target_name = _TEST_NOTIFICATION_NAME
-        logger.info(
-            "整改通知(测试模式): 硬编码目标=%s open_id=%s",
-            target_name, target_open_id,
-        )
-
-        deadline_text = ""
-        if hazard.deadline:
-            from datetime import UTC
-            if hazard.deadline.tzinfo:
-                deadline_text = hazard.deadline.strftime("%Y-%m-%d")
-            else:
-                deadline_text = hazard.deadline.replace(tzinfo=UTC).strftime("%Y-%m-%d")
-
-        content = (
-            f"**隐患编号：** {hazard.hazard_no or '-'}\n"
-            f"**责任部门：** {hazard.department or '-'}\n"
-            f"**隐患描述：** {hazard.description or '-'}\n"
-            f"**整改期限：** {deadline_text or '待定'}\n"
-            f"**责任人：** {hazard.rectification_responsible_person_name or '-'}\n"
-            f"\n请尽快完成整改并在平台上提交整改回复。"
-        )
-
-        success = await send_user_card(
-            open_id=target_open_id,
-            title="🔔 隐患整改通知",
-            content=content,
-            elements=[
-                {"tag": "hr"},
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "📋 查看详情并整改"},
-                            "type": "primary",
-                            "url": detail_url,
-                        },
-                    ],
-                },
-            ],
-        )
-        if success:
-            logger.info(
-                "整改通知已发送: hazard_no=%s to=%s open_id=%s",
-                hazard.hazard_no, target_name, target_open_id,
-            )
-        else:
-            logger.warning("整改通知发送失败: hazard_no=%s", hazard.hazard_no)
-    except Exception:
-        logger.exception("整改通知异常: hazard_no=%s", getattr(hazard, 'hazard_no', '?'))
-
-
 async def _create_hazard_from_bitable(
     record_id: str,
     bitable_fields: dict[str, Any],
@@ -747,10 +706,8 @@ async def _create_hazard_from_bitable(
         )
         if inspector_uuid:
             mapped["discovered_by"] = inspector_uuid
-        # 只在解析出非 fallback 名称时才覆盖；保留 Bitable 已有的有效名称
+        # 只在解析出非 fallback 名称时才写入；不写入"飞书用户"以保留后续自动判定机会
         if inspector_name and inspector_name != "飞书用户":
-            mapped["discovered_by_name"] = inspector_name
-        elif inspector_name and not mapped.get("discovered_by_name"):
             mapped["discovered_by_name"] = inspector_name
 
         # 2.2 责任人身份解析 — 统一使用 _resolve_person
@@ -762,8 +719,7 @@ async def _create_hazard_from_bitable(
         )
         if resp_name and resp_name != "飞书用户":
             mapped["rectification_responsible_person_name"] = resp_name
-        elif resp_name and not mapped.get("rectification_responsible_person_name"):
-            mapped["rectification_responsible_person_name"] = resp_name
+        # 注意：不写 elif fallback —— "飞书用户"无意义，留空让自动判定逻辑运行
         if resp_uuid:
             mapped["rectification_responsible_person"] = resp_uuid
 
@@ -790,9 +746,11 @@ async def _create_hazard_from_bitable(
             record_id, item.id, item.hazard_no, item.ai_node_progress,
         )
 
-        # 2.5 责任部门 → 责任人自动判定（有部门但无责任人时自动查询部门负责人）
-        _resolved_leader_open_id: str | None = None  # 保存 open_id 供后续 Bitable 回写
-        if item.department and not item.rectification_responsible_person_name:
+        # 2.5 责任部门 → 责任人自动判定（有部门但无有效责任人时自动查询部门负责人）
+        _resolved_leader_open_id: str | None = None  # identity 侧 open_id（仅作 fallback）
+        _resolved_leader_user_id: str | None = None  # employee user_id，用于查 Bitable open_id
+        _resp_name = (item.rectification_responsible_person_name or "").strip()
+        if item.department and (not _resp_name or _resp_name == "飞书用户"):
             try:
                 from app.modules.safety.feishu.identity_resolver import IdentityResolver
                 resolver = IdentityResolver(session)
@@ -810,9 +768,10 @@ async def _create_hazard_from_bitable(
                     await session.commit()
                     item.rectification_responsible_person_name = person.name
                     _resolved_leader_open_id = person.open_id
+                    _resolved_leader_user_id = person.user_id
                     logger.info(
-                        "责任人自动判定: dept=%s leader=%s uuid=%s open_id=%s",
-                        item.department, person.name, person.id, person.open_id,
+                        "责任人自动判定: dept=%s leader=%s uuid=%s open_id=%s user_id=%s",
+                        item.department, person.name, person.id, person.open_id, person.user_id,
                     )
             except Exception:
                 logger.exception("责任人自动判定失败: dept=%s", item.department)
@@ -907,17 +866,26 @@ async def _create_hazard_from_bitable(
         writeback: dict[str, Any] = {
             "隐患编号": item.hazard_no,
         }
-        # 责任人 → Bitable person 字段（使用 resolved open_id 或重新查询）
-        # Bitable person 字段写入格式: [{"id": "open_id"}] 或 [{"id": "open_id", "name": "姓名"}]
+        # 责任人 → Bitable person 字段
+        # 使用 BitableIdMapper 将 identity user_id 转换为 Bitable 侧的 open_id，
+        # 解决安全应用与全局应用 open_id 命名空间不一致的问题。
+        from app.modules.safety.feishu.bitable_id_mapper import get_bitable_person_value
+
         responsible_person_value: list[dict] | None = None
-        if _resolved_leader_open_id:
-            responsible_person_value = [{"id": _resolved_leader_open_id}]
-            logger.info(
-                "责任人已加入 Bitable 回写(自动判定): open_id=%s name=%s",
-                _resolved_leader_open_id, getattr(item, 'rectification_responsible_person_name', '?'),
+        if _resolved_leader_user_id or _resolved_leader_open_id:
+            # 自动判定：通过 user_id 查 Bitable open_id，identity open_id 作为 fallback
+            responsible_person_value = get_bitable_person_value(
+                user_id=_resolved_leader_user_id,
+                fallback_to_identity=_resolved_leader_open_id,
             )
+            if responsible_person_value:
+                logger.info(
+                    "责任人已加入 Bitable 回写(自动判定): name=%s user_id=%s bitable_id=%s",
+                    getattr(item, 'rectification_responsible_person_name', '?'),
+                    _resolved_leader_user_id, responsible_person_value[0]["id"],
+                )
         elif item.rectification_responsible_person_name:
-            # 如果责任人是从 Bitable 直接填写的（非自动判定），尝试解析其 open_id
+            # 从 Bitable 直接填写 → 解析 identity 再查 Bitable open_id
             try:
                 from app.modules.safety.feishu.identity_resolver import IdentityResolver
                 resolver2 = IdentityResolver(session)
@@ -925,23 +893,27 @@ async def _create_hazard_from_bitable(
                     item.rectification_responsible_person_name,
                     department_hint=item.department,
                 )
-                if person2 and person2.open_id:
-                    responsible_person_value = [{"id": person2.open_id}]
-                    logger.info(
-                        "责任人 open_id 解析成功: name=%s open_id=%s user_id=%s",
-                        item.rectification_responsible_person_name,
-                        person2.open_id, person2.user_id,
+                if person2:
+                    responsible_person_value = get_bitable_person_value(
+                        user_id=person2.user_id,
+                        name=person2.name,
+                        fallback_to_identity=person2.open_id,
                     )
-                elif person2 and person2.user_id:
-                    # fallback: 使用 user_id 写入 Bitable person 字段
-                    responsible_person_value = [{"id": person2.user_id}]
-                    logger.info(
-                        "责任人 user_id 回退: name=%s user_id=%s (open_id 为空)",
-                        item.rectification_responsible_person_name, person2.user_id,
-                    )
+                    if responsible_person_value:
+                        logger.info(
+                            "责任人 Bitable open_id 解析成功: name=%s user_id=%s bitable_id=%s",
+                            item.rectification_responsible_person_name,
+                            person2.user_id, responsible_person_value[0]["id"],
+                        )
+                    else:
+                        logger.warning(
+                            "责任人 Bitable open_id 未找到: name=%s user_id=%s (identity open_id=%s)",
+                            item.rectification_responsible_person_name,
+                            person2.user_id, person2.open_id,
+                        )
                 else:
                     logger.warning(
-                        "责任人 open_id 解析失败(未在 identity.users 中找到): name=%s dept=%s",
+                        "责任人 identity 解析失败(未在 identity.users 中找到): name=%s dept=%s",
                         item.rectification_responsible_person_name, item.department,
                     )
             except Exception:
@@ -953,9 +925,10 @@ async def _create_hazard_from_bitable(
             writeback["责任人"] = responsible_person_value
         else:
             logger.warning(
-                "责任人未回写(无 open_id): hazard_no=%s name=%s resolved_leader=%s",
+                "责任人未回写(无 Bitable open_id): hazard_no=%s name=%s user_id=%s identity_open_id=%s",
                 item.hazard_no,
                 getattr(item, 'rectification_responsible_person_name', None),
+                _resolved_leader_user_id,
                 _resolved_leader_open_id,
             )
         # 整改期限 → Bitable（毫秒时间戳）
@@ -1093,7 +1066,7 @@ async def _update_hazard_from_bitable(
             )
             import json as _json
 
-            # 缺陷图片：追加到已有列表
+            # 缺陷图片：按文件名去重后合并（防止重复同步导致照片重复）
             if saved.get("defect"):
                 existing_defect: list[str] = []
                 if getattr(hazard, "defect_photos", None):
@@ -1103,13 +1076,30 @@ async def _update_hazard_from_bitable(
                             existing_defect = []
                     except (_json.JSONDecodeError, TypeError):
                         existing_defect = []
-                merged_defect = existing_defect + [
-                    p.replace("\\", "/") for p in saved["defect"]
+                # 按文件名去重：只追加新文件
+                existing_basenames = {
+                    os.path.basename(p.replace("\\", "/")) for p in existing_defect
+                }
+                new_paths = [p.replace("\\", "/") for p in saved["defect"]]
+                unique_new = [
+                    p for p in new_paths
+                    if os.path.basename(p) not in existing_basenames
                 ]
-                photo_updates["defect_photos"] = _json.dumps(merged_defect, ensure_ascii=False)
+                if unique_new:
+                    merged_defect = existing_defect + unique_new
+                    photo_updates["defect_photos"] = _json.dumps(merged_defect, ensure_ascii=False)
+                    logger.info(
+                        "📸 defect 照片去重: record_id=%s existing=%d downloaded=%d new=%d merged=%d",
+                        record_id, len(existing_defect), len(new_paths), len(unique_new), len(merged_defect),
+                    )
+                else:
+                    logger.info(
+                        "📸 defect 照片全部已存在，跳过: record_id=%s count=%d",
+                        record_id, len(existing_defect),
+                    )
                 update_data.pop("defect_photos", None)  # 移除 mapped 中的原始对象
 
-            # 整改图片：追加到已有列表
+            # 整改图片：按文件名去重后合并
             if saved.get("rectification"):
                 existing_rect: list[str] = []
                 if getattr(hazard, "rectification_photos", None):
@@ -1119,10 +1109,26 @@ async def _update_hazard_from_bitable(
                             existing_rect = []
                     except (_json.JSONDecodeError, TypeError):
                         existing_rect = []
-                merged_rect = existing_rect + [
-                    p.replace("\\", "/") for p in saved["rectification"]
+                existing_basenames = {
+                    os.path.basename(p.replace("\\", "/")) for p in existing_rect
+                }
+                new_paths = [p.replace("\\", "/") for p in saved["rectification"]]
+                unique_new = [
+                    p for p in new_paths
+                    if os.path.basename(p) not in existing_basenames
                 ]
-                photo_updates["rectification_photos"] = _json.dumps(merged_rect, ensure_ascii=False)
+                if unique_new:
+                    merged_rect = existing_rect + unique_new
+                    photo_updates["rectification_photos"] = _json.dumps(merged_rect, ensure_ascii=False)
+                    logger.info(
+                        "📸 rectification 照片去重: record_id=%s existing=%d downloaded=%d new=%d merged=%d",
+                        record_id, len(existing_rect), len(new_paths), len(unique_new), len(merged_rect),
+                    )
+                else:
+                    logger.info(
+                        "📸 rectification 照片全部已存在，跳过: record_id=%s count=%d",
+                        record_id, len(existing_rect),
+                    )
                 update_data.pop("rectification_photos", None)  # 移除 mapped 中的原始对象
 
             if photo_updates:
@@ -1186,11 +1192,11 @@ async def _update_hazard_from_bitable(
     # 根据三级复核状态自动计算整体整改状态（与 SafetyService.verify_level 状态机一致）
     old_rectification_status = getattr(hazard, "rectification_status", None)
 
-    # 检测整改回复提交：有回复内容 + 当前状态为 in_progress → 转为 replied
+    # 检测整改回复提交：有回复内容 + 当前状态为 pending/in_progress/rejected → 转为 replied
     if (
         "rectification_reply" in update_data
         and update_data.get("rectification_reply")
-        and old_rectification_status == "in_progress"
+        and old_rectification_status in ("pending", "in_progress", "rejected")
         and "rectification_status" not in update_data
     ):
         update_data["rectification_status"] = "replied"
@@ -1266,6 +1272,19 @@ async def _update_hazard_from_bitable(
                     asyncio.create_task(_send_verify_notification(hazard, 2))
             elif new_status == "level2_approved":
                 asyncio.create_task(_send_verify_notification(hazard, 3))
+
+            # ── 回写整改状态到 Bitable ──
+            try:
+                status_label = _STATUS_TO_BITABLE_LABEL.get(new_status, new_status)
+                _bt = SafetyBitableClient()
+                await _set_sync_ignore(record_id, ttl=30)
+                await _bt.update_record(record_id, {"整改状态": status_label})
+                logger.info(
+                    "整改状态已回写 Bitable: record_id=%s status=%s label=%s",
+                    record_id, new_status, status_label,
+                )
+            except Exception:
+                logger.exception("整改状态回写 Bitable 失败: record_id=%s", record_id)
 
         return hazard
 
@@ -1729,10 +1748,16 @@ _LEVEL_LABELS = {1: "一级（部门负责人）", 2: "二级（分管领导）"
 
 @on_event("card.action.trigger")
 async def handle_card_action(event: dict) -> dict | None:
-    """处理复核通知卡片中的「直接同意 / 驳回」按钮点击。
+    """处理复核通知卡片中的「同意 / 驳回」按钮点击。
 
-    收到按钮点击后直接调用 Bitable API 更新对应审批字段，
-    然后更新卡片内容为「已处理」状态。
+    收到按钮点击后：
+    1. 调用 Bitable API 更新对应审批字段
+    2. 通过飞书 Message PATCH API 就地更新卡片内容（按钮变更为禁用态）
+    3. ACK 返回 toast 提示
+
+    使用 Message Update API 而非 ACK card 字段的原因：
+    ACK 中返回 card 有时会被飞书当作新消息发送，而 PATCH API 明确
+    更新指定 message_id 的卡片，确保在原消息上就地变更。
     """
     action_value = event.get("action", {})
     value_str = action_value.get("value", "{}")
@@ -1772,30 +1797,85 @@ async def handle_card_action(event: dict) -> dict | None:
                 "toast": {"type": "error", "content": "更新失败，请稍后重试或到多维表格中手动操作"}
             }
 
-        # 更新卡片内容为「已处理」
+        # ── 获取隐患记录，构建更新后的卡片 ──
+        hazard = await _get_hazard_by_feishu_id(record_id)
+        if not hazard:
+            logger.error("卡片操作: 未找到对应隐患记录 record_id=%s", record_id)
+            return {"toast": {"type": "error", "content": "未找到对应隐患记录"}}
+
+        button_state = "approved" if action_type == "approve" else "rejected"
+        title, content, elements = await _build_verify_card_content(
+            hazard, level, button_state=button_state, skip_photos=True,
+        )
+
         action_label = "已同意" if action_type == "approve" else "已驳回"
+
+        # ── 构建更新后的卡片 JSON ──
+        updated_card = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": title},
+                "template": "green" if action_type == "approve" else "red",
+            },
+            "elements": [
+                {"tag": "markdown", "content": content},
+                *elements,
+            ],
+        }
+
+        # ── PATCH API 后台异步执行（不阻塞 ACK，避免超时）──
+        open_message_id = event.get("context", {}).get("open_message_id", "")
+        if open_message_id:
+            asyncio.create_task(
+                _patch_card_async(open_message_id, updated_card, hazard.hazard_no, level, button_state)
+            )
+        else:
+            logger.warning("卡片操作缺少 open_message_id，无法就地更新")
+
+        # ── ACK 中返回 card（防止客户端回流）──
+        # 飞书机制：ACK 中无 card → 卡片恢复点击前样式
+        # PATCH API 虽然能更新服务端，但异步执行，ACK 必须带 card 防回流
         return {
             "toast": {"type": "success", "content": f"{level_label} 审核{action_label}"},
-            "card": {
-                "type": "raw",
-                "data": {
-                    "header": {
-                        "title": {"tag": "plain_text", "content": f"🔔 隐患{level_label}复核 — 已处理"},
-                        "template": "green" if action_type == "approve" else "red",
-                    },
-                    "elements": [
-                        {"tag": "markdown", "content": f"✅ {level_label} 已**{action_label}**，Bitable 已同步更新。"},
-                        {
-                            "tag": "note",
-                            "elements": [
-                                {"tag": "plain_text", "content": f"操作人: {event.get('operator', {}).get('open_id', '')}"}
-                            ],
-                        },
-                    ],
-                },
-            },
+            "card": {"type": "raw", "data": updated_card},
         }
 
     except Exception:
         logger.exception("卡片操作异常: record_id=%s", record_id)
         return {"toast": {"type": "error", "content": "操作异常，请稍后重试"}}
+
+
+async def _patch_card_async(
+    open_message_id: str,
+    card: dict,
+    hazard_no: str,
+    level: int,
+    button_state: str,
+) -> None:
+    """后台通过 Message PATCH API 更新卡片（兜底保障）。"""
+    try:
+        import httpx
+        from app.modules.safety.feishu.client import get_safety_tenant_token
+
+        token = await get_safety_tenant_token()
+        async with httpx.AsyncClient(timeout=10) as http:
+            resp = await http.patch(
+                f"https://open.feishu.cn/open-apis/im/v1/messages/{open_message_id}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={"content": json.dumps(card, ensure_ascii=False)},
+            )
+            if resp.status_code == 200 and resp.json().get("code") == 0:
+                logger.info(
+                    "卡片 PATCH 成功: msg=%s hazard=%s level=%s state=%s",
+                    open_message_id, hazard_no, level, button_state,
+                )
+            else:
+                logger.error(
+                    "卡片 PATCH 失败: status=%s body=%s",
+                    resp.status_code, resp.text[:500],
+                )
+    except Exception:
+        logger.exception("卡片 PATCH 异常: msg=%s", open_message_id)

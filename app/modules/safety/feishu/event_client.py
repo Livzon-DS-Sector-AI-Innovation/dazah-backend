@@ -130,15 +130,17 @@ def _build_ping_frame(service_id: int) -> bytes:
 
 
 def _build_ack_frame(frame, biz_rt: int) -> bytes:
-    """构建 DATA 帧的 ACK 回复（飞书协议要求收到事件后必须回复 ACK）。"""
+    """构建 DATA 帧的 ACK 回复（飞书协议要求收到事件后必须回复 ACK）。
+
+    注意：不覆盖 frame.payload —— 调用方（如 card.action.trigger 处理）可能
+    已经将卡片更新内容写入 payload，覆盖会导致按钮状态无法变更。
+    """
     from lark_oapi.ws.const import HEADER_BIZ_RT
 
     header = frame.headers.add()
     header.key = HEADER_BIZ_RT
     header.value = str(biz_rt)
 
-    ack_resp = json.dumps({"code": 200})
-    frame.payload = ack_resp.encode("utf-8")
     return frame.SerializeToString()
 
 
@@ -211,12 +213,33 @@ async def _handle_binary_message(ws, message: bytes) -> None:
                     "📨 安全飞书收到事件(完整): %s",
                     json.dumps(event, ensure_ascii=False)[:800],
                 )
-                # 异步分发事件，不阻塞 ACK（飞书要求 3 秒内回复）
-                # Bitable 同步等耗时业务在后台执行
-                asyncio.create_task(_dispatch_event(event))
-
-                # 立即构建 ACK 响应
-                resp = {"code": 200}
+                # ── card.action.trigger 必须同步返回卡片更新 ──
+                event_type = event.get("header", {}).get("event_type", "")
+                if event_type == "card.action.trigger":
+                    try:
+                        card_resp = await asyncio.wait_for(
+                            _dispatch_event(event), timeout=2.9,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("卡片操作超时，返回通用 ACK")
+                        card_resp = None
+                    # ── 构建飞书 WS 协议要求的 Response 信封 ──
+                    # lark_oapi 格式：{"code": 200, "data": "<base64 编码的卡片更新 JSON>"}
+                    # 卡片内容必须 base64 编码后放在 data 字段，不能直接作为 payload
+                    if card_resp and isinstance(card_resp, dict):
+                        import base64 as _b64
+                        card_json = json.dumps(card_resp, ensure_ascii=False)
+                        resp = {
+                            "code": 200,
+                            "data": _b64.b64encode(card_json.encode("utf-8")).decode("ascii"),
+                        }
+                    else:
+                        resp = {"code": 200}
+                else:
+                    # 异步分发事件，不阻塞 ACK（飞书要求 3 秒内回复）
+                    # Bitable 同步等耗时业务在后台执行
+                    asyncio.create_task(_dispatch_event(event))
+                    resp = {"code": 200}
                 frame.payload = json.dumps(resp, ensure_ascii=False).encode("utf-8")
             else:
                 logger.info("安全飞书 DATA 帧: type=%s (共 %d 帧)", msg_type, _frame_count["received"])
