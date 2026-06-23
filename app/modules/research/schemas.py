@@ -155,3 +155,7 @@ class PilotWorkflowListResponse(BaseModel):
     completed_step_count: int = 0
 
     model_config = {"from_attributes": True}
+
+
+# Alias for backward compatibility
+PilotWorkflowListItem = PilotWorkflowListResponse

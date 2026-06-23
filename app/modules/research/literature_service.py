@@ -2,7 +2,7 @@
 
 import json
 from typing import Any
-from app.modules.research.llm_service import LLMConfig, call_llm
+from app.modules.research.llm_service import call_llm
 
 
 async def parse_literature(text: str) -> dict[str, Any]:
