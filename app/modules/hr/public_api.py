@@ -6,6 +6,47 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.hr.repository import EmployeeRepository
 
+# Valid filter keys accepted by EmployeeRepository.list_employees / _apply_filters
+_VALID_FILTER_KEYS = {
+    "department",
+    "status",
+    "keyword",
+    "team",
+    "position",
+    "job_category",
+    "level",
+    "gender",
+    "education",
+    "political_status",
+    "marital_status",
+    "status_category",
+    "age_min",
+    "age_max",
+    "birth_year_min",
+    "birth_year_max",
+    "hire_date_after",
+    "hire_date_before",
+    "factory_entry_date_after",
+    "factory_entry_date_before",
+    "work_start_date_after",
+    "work_start_date_before",
+}
+
+
+def _normalize_filters(filters: dict[str, Any]) -> dict[str, Any]:
+    """Normalize raw filter dict for EmployeeRepository queries.
+
+    - Maps ``name`` → ``keyword`` (LLM planners often emit ``name``).
+    - Drops any keys not recognised by the repository.
+    """
+    normalized: dict[str, Any] = {}
+    for key, value in filters.items():
+        if key == "name" and value:
+            normalized["keyword"] = value
+        elif key in _VALID_FILTER_KEYS and value is not None:
+            normalized[key] = value
+    return normalized
+
 
 def _employee_to_dict(emp: Any) -> dict[str, str | None]:
     """Convert an Employee ORM object to a lightweight dict for AI context."""
@@ -51,7 +92,10 @@ async def query_employees(
         Tuple of (employee dicts list, total count)
     """
     repo = EmployeeRepository(session)
-    employees, total = await repo.list_employees(**filters, page=page, page_size=page_size)
+    normalized = _normalize_filters(filters)
+    employees, total = await repo.list_employees(
+        **normalized, page=page, page_size=page_size
+    )
     data = [_employee_to_dict(e) for e in employees]
     return data, total
 
@@ -63,7 +107,8 @@ async def count_employees(
 ) -> int:
     """Count employees matching flexible criteria."""
     repo = EmployeeRepository(session)
-    _, total = await repo.list_employees(**filters, page=1, page_size=1)
+    normalized = _normalize_filters(filters)
+    _, total = await repo.list_employees(**normalized, page=1, page_size=1)
     return total
 
 
@@ -114,7 +159,8 @@ async def group_count_employees(
         List of {"value": field_value, "count": int} sorted by count descending.
     """
     repo = EmployeeRepository(session)
-    return await repo.group_count(group_by, **filters)
+    normalized = _normalize_filters(filters)
+    return await repo.group_count(group_by, **normalized)
 
 
 async def get_distinct_employee_values(
@@ -133,4 +179,5 @@ async def get_distinct_employee_values(
         List of distinct values.
     """
     repo = EmployeeRepository(session)
-    return await repo.get_distinct_values(field, **filters)
+    normalized = _normalize_filters(filters)
+    return await repo.get_distinct_values(field, **normalized)

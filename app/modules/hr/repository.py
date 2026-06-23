@@ -1,14 +1,18 @@
 """HR database queries live here."""
 
+import logging
 from datetime import date
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import asc, desc, func, select
+logger = logging.getLogger(__name__)
+from sqlalchemy import asc, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.hr.models import (
+    AnnualTrainingPlan,
+    AnnualTrainingPlanItem,
     Candidate,
     Department,
     DepartureRecord,
@@ -16,11 +20,8 @@ from app.modules.hr.models import (
     OffboardingRecord,
     OnboardingRecord,
     Team,
-    TrainingApproval,
-    TrainingAssessment,
-    TrainingPlan,
-    TrainingPlanSop,
-    TrainingRecord,
+    TrainingLedger,
+    TrainingLedgerPage,
 )
 
 
@@ -293,6 +294,20 @@ class EmployeeRepository:
             select(func.count()).where(
                 Employee.is_deleted.is_(False),
                 Employee.feishu_record_id.isnot(None),
+            )
+        )
+        return result.scalar() or 0
+
+    async def count_conflicts(self) -> int:
+        """Count employees with local changes newer than last Feishu sync."""
+        result = await self.session.execute(
+            select(func.count()).where(
+                Employee.is_deleted.is_(False),
+                Employee.feishu_record_id.isnot(None),
+                or_(
+                    Employee.feishu_synced_at.is_(None),
+                    Employee.updated_at > Employee.feishu_synced_at,
+                ),
             )
         )
         return result.scalar() or 0
@@ -706,6 +721,222 @@ class DepartureRecordRepository:
         await self.session.flush()
 
 
+class TrainingLedgerRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, record_id: UUID) -> TrainingLedger | None:
+        result = await self.session.execute(
+            select(TrainingLedger).where(
+                TrainingLedger.id == record_id,
+                TrainingLedger.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_records(
+        self,
+        *,
+        employee_number: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "training_date",
+        sort_order: str = "desc",
+    ) -> tuple[list[TrainingLedger], int]:
+        stmt = select(TrainingLedger).where(TrainingLedger.is_deleted.is_(False))
+
+        if employee_number:
+            stmt = stmt.where(TrainingLedger.employee_number == employee_number)
+        if date_from:
+            stmt = stmt.where(TrainingLedger.training_date >= date_from)
+        if date_to:
+            stmt = stmt.where(TrainingLedger.training_date <= date_to)
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        sort_column = getattr(TrainingLedger, sort_by, TrainingLedger.training_date)
+        order_func = desc if sort_order == "desc" else asc
+        data_stmt = (
+            stmt.order_by(order_func(sort_column))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        data_result = await self.session.execute(data_stmt)
+        return list(data_result.scalars().all()), total
+
+    async def create(self, record: TrainingLedger) -> TrainingLedger:
+        self.session.add(record)
+        await self.session.flush()
+        await self.session.refresh(record)
+        return record
+
+    async def update(self, record: TrainingLedger) -> TrainingLedger:
+        await self.session.flush()
+        await self.session.refresh(record)
+        return record
+
+    async def soft_delete(self, record: TrainingLedger) -> None:
+        record.is_deleted = True
+        await self.session.flush()
+
+    async def get_by_source(self, source_type: str, source_id: str) -> TrainingLedger | None:
+        result = await self.session.execute(
+            select(TrainingLedger).where(
+                TrainingLedger.source_type == source_type,
+                TrainingLedger.source_id == source_id,
+                TrainingLedger.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+
+class TrainingLedgerPageRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def list_pages(self) -> list[TrainingLedgerPage]:
+        result = await self.session.execute(
+            select(TrainingLedgerPage).where(TrainingLedgerPage.is_deleted.is_(False))
+        )
+        return list(result.scalars().all())
+
+    async def get_by_employee_number(self, employee_number: str) -> TrainingLedgerPage | None:
+        result = await self.session.execute(
+            select(TrainingLedgerPage).where(
+                TrainingLedgerPage.employee_number == employee_number,
+                TrainingLedgerPage.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_pages_with_department(self) -> list[tuple[TrainingLedgerPage, str | None]]:
+        """List all training ledger pages joined with employee department."""
+        result = await self.session.execute(
+            select(TrainingLedgerPage, Employee.department)
+            .outerjoin(Employee, TrainingLedgerPage.employee_number == Employee.employee_number)
+            .where(TrainingLedgerPage.is_deleted.is_(False))
+        )
+        return [(row[0], row[1]) for row in result.all()]
+
+    async def create(self, page: TrainingLedgerPage) -> TrainingLedgerPage:
+        self.session.add(page)
+        await self.session.flush()
+        await self.session.refresh(page)
+        return page
+
+
+class AnnualTrainingPlanRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, plan_id: UUID) -> AnnualTrainingPlan | None:
+        result = await self.session.execute(
+            select(AnnualTrainingPlan)
+            .where(AnnualTrainingPlan.id == plan_id, AnnualTrainingPlan.is_deleted.is_(False))
+            .options(selectinload(AnnualTrainingPlan.items))
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_year_and_department(self, year: int, department: str) -> AnnualTrainingPlan | None:
+        result = await self.session.execute(
+            select(AnnualTrainingPlan).where(
+                AnnualTrainingPlan.year == year,
+                AnnualTrainingPlan.department == department,
+                AnnualTrainingPlan.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_plans(
+        self,
+        *,
+        year: int | None = None,
+        department: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[AnnualTrainingPlan], int]:
+        stmt = select(AnnualTrainingPlan).where(AnnualTrainingPlan.is_deleted.is_(False))
+
+        if year is not None:
+            stmt = stmt.where(AnnualTrainingPlan.year == year)
+        if department:
+            stmt = stmt.where(AnnualTrainingPlan.department.ilike(f"%{department}%"))
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        stmt = stmt.order_by(desc(AnnualTrainingPlan.year), asc(AnnualTrainingPlan.department))
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def create(self, plan: AnnualTrainingPlan) -> AnnualTrainingPlan:
+        self.session.add(plan)
+        await self.session.flush()
+        await self.session.refresh(plan)
+        return plan
+
+    async def update(self, plan: AnnualTrainingPlan) -> AnnualTrainingPlan:
+        await self.session.flush()
+        await self.session.refresh(plan)
+        return plan
+
+    async def soft_delete(self, plan: AnnualTrainingPlan) -> None:
+        plan.is_deleted = True
+        await self.session.flush()
+
+
+class AnnualTrainingPlanItemRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def list_items(self, plan_id: UUID) -> list[AnnualTrainingPlanItem]:
+        result = await self.session.execute(
+            select(AnnualTrainingPlanItem)
+            .where(
+                AnnualTrainingPlanItem.plan_id == plan_id,
+                AnnualTrainingPlanItem.is_deleted.is_(False),
+            )
+            .order_by(asc(AnnualTrainingPlanItem.sort_order), asc(AnnualTrainingPlanItem.created_at))
+        )
+        return list(result.scalars().all())
+
+    async def get_by_id(self, item_id: UUID) -> AnnualTrainingPlanItem | None:
+        result = await self.session.execute(
+            select(AnnualTrainingPlanItem).where(
+                AnnualTrainingPlanItem.id == item_id,
+                AnnualTrainingPlanItem.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def create(self, item: AnnualTrainingPlanItem) -> AnnualTrainingPlanItem:
+        self.session.add(item)
+        await self.session.flush()
+        await self.session.refresh(item)
+        return item
+
+    async def update(self, item: AnnualTrainingPlanItem) -> AnnualTrainingPlanItem:
+        await self.session.flush()
+        await self.session.refresh(item)
+        return item
+
+    async def delete(self, item: AnnualTrainingPlanItem) -> None:
+        await self.session.delete(item)
+        await self.session.flush()
+
+    async def delete_by_plan_id(self, plan_id: UUID) -> None:
+        await self.session.execute(
+            delete(AnnualTrainingPlanItem).where(AnnualTrainingPlanItem.plan_id == plan_id)
+        )
+        await self.session.flush()
 class CandidateRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -737,16 +968,6 @@ class CandidateRepository:
         page_size: int = 20,
         sort_by: str = "created_at",
         sort_order: str = "desc",
-    ) -> tuple[list[TrainingPlanSop], int]:
-        stmt = select(TrainingPlanSop).where(TrainingPlanSop.is_deleted.is_(False))
-
-        if plan_id:
-            stmt = stmt.where(TrainingPlanSop.plan_id == plan_id)
-        if keyword:
-            stmt = stmt.where(TrainingPlanSop.sop_name.ilike(f"%{keyword}%"))
-
-        count_stmt = select(func.count()).select_from(stmt.subquery())
-        sort_column = getattr(TrainingPlanSop, sort_by, TrainingPlanSop.created_at)
     ) -> tuple[list[Candidate], int]:
         stmt = select(Candidate).where(Candidate.is_deleted.is_(False))
 
@@ -761,7 +982,7 @@ class CandidateRepository:
             )
         if recommendation_level:
             levels = [level.strip() for level in recommendation_level.split(",") if level.strip()]
-            print(f"DEBUG REPO: levels={levels}", flush=True)
+            logger.debug("REPO levels=%s", levels)
             if levels:
                 stmt = stmt.where(Candidate.recommendation_level.in_(levels))
         if sync_status:

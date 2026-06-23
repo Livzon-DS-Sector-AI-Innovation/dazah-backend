@@ -6,6 +6,7 @@ from app.modules.environment import router as environment_router
 from app.modules.equipment import router as equipment_router
 from app.modules.hr import router as hr_router
 from app.modules.procurement import router as procurement_router
+from app.modules.product import router as product_router
 from app.modules.production import router as production_router
 from app.modules.quality import router as quality_router
 from app.modules.registration import router as registration_router
@@ -39,3 +40,4 @@ api_router.include_router(
     tags=["注册管理"],
 )
 api_router.include_router(quality_router, prefix="/quality", tags=["质量管理"])
+api_router.include_router(product_router, prefix="/product", tags=["产品信息"])

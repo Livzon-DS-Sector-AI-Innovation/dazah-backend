@@ -143,7 +143,7 @@ def upgrade() -> None:
     op.create_index('ix_training_records_completion_status', 'training_records', ['completion_status'], unique=False, schema='hr')
     op.create_index('ix_training_records_employee_id', 'training_records', ['employee_id'], unique=False, schema='hr')
     op.create_index('ix_training_records_plan_id', 'training_records', ['plan_id'], unique=False, schema='hr')
-    op.drop_constraint(op.f('onboarding_records_employee_number_key'), 'onboarding_records', schema='hr', type_='unique')
+    op.drop_constraint(op.f('onboarding_records_employee_number_key'), 'onboarding_records', schema='hr', type_='unique', if_exists=True)
     # ### end Alembic commands ###
 
 

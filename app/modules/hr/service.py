@@ -3,6 +3,7 @@
 import logging
 import os
 from datetime import date, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.exceptions import DuplicateException, NotFoundException
 from app.modules.hr.models import (
+    AnnualTrainingPlan,
+    AnnualTrainingPlanItem,
     Candidate,
     Department,
     DepartureRecord,
@@ -17,13 +20,12 @@ from app.modules.hr.models import (
     OffboardingRecord,
     OnboardingRecord,
     Team,
-    TrainingApproval,
-    TrainingAssessment,
-    TrainingPlan,
-    TrainingPlanSop,
-    TrainingRecord,
+    TrainingLedger,
+    TrainingLedgerPage,
 )
 from app.modules.hr.repository import (
+    AnnualTrainingPlanItemRepository,
+    AnnualTrainingPlanRepository,
     CandidateRepository,
     DepartureRecordRepository,
     DepartmentRepository,
@@ -31,13 +33,14 @@ from app.modules.hr.repository import (
     OffboardingRecordRepository,
     OnboardingRecordRepository,
     TeamRepository,
-    TrainingApprovalRepository,
-    TrainingAssessmentRepository,
-    TrainingPlanRepository,
-    TrainingPlanSopRepository,
-    TrainingRecordRepository,
+    TrainingLedgerRepository,
+    TrainingLedgerPageRepository,
 )
 from app.modules.hr.schemas import (
+    AnnualTrainingPlanCreate,
+    AnnualTrainingPlanItemBatchUpdate,
+    AnnualTrainingPlanItemCreate,
+    AnnualTrainingPlanUpdate,
     CandidateCreate,
     CandidateUpdate,
     DepartureRecordCreate,
@@ -53,16 +56,8 @@ from app.modules.hr.schemas import (
     SyncStatusResponse,
     TeamCreate,
     TeamUpdate,
-    TrainingApprovalCreate,
-    TrainingApprovalUpdate,
-    TrainingAssessmentCreate,
-    TrainingAssessmentUpdate,
-    TrainingPlanCreate,
-    TrainingPlanUpdate,
-    TrainingPlanSopCreate,
-    TrainingPlanSopUpdate,
-    TrainingRecordCreate,
-    TrainingRecordUpdate,
+    TrainingLedgerCreate,
+    TrainingLedgerUpdate,
 )
 from app.platform.ai.service import AiChatService
 from app.platform.integrations.feishu import FeishuBitableSync
@@ -213,6 +208,12 @@ class EmployeeService:
             raise NotFoundException("员工", str(employee_id))
         return employee
 
+    async def get_employee_by_number(self, employee_number: str) -> Employee:
+        employee = await self.repo.get_by_employee_number(employee_number)
+        if not employee:
+            raise NotFoundException("员工", employee_number)
+        return employee
+
     async def create_employee(self, data: EmployeeCreate) -> Employee:
         existing = await self.repo.get_by_employee_number(data.employee_number)
         if existing:
@@ -220,6 +221,31 @@ class EmployeeService:
 
         employee = Employee(**data.model_dump())
         employee.status = "在职"
+
+        # 根据手机号获取飞书 open_id（非阻塞，失败仅记录日志）
+        if data.phone:
+            try:
+                from app.platform.integrations.feishu.im import FeishuIM
+
+                im = FeishuIM()
+                # 飞书接口要求手机号带 +86 区号
+                mobile = data.phone if data.phone.startswith("+") else f"+86{data.phone}"
+                mapping = await im.batch_get_open_ids_by_mobile([mobile])
+                open_id = mapping.get(mobile) or mapping.get(data.phone)
+                if open_id:
+                    employee.feishu_open_id = open_id
+                    logger.info(
+                        "Fetched feishu_open_id for employee %s: %s",
+                        data.employee_number,
+                        open_id,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to fetch feishu open_id for phone %s: %s",
+                    data.phone,
+                    e,
+                )
+
         result = await self.repo.create(employee)
 
         # Sync to Feishu
@@ -303,6 +329,93 @@ class EmployeeService:
             sort_order=sort_order,
         )
 
+    async def notify_training(self, payload) -> dict:
+        """给受训人员发送飞书单聊消息（直接读取数据库 feishu_open_id）。
+
+        Args:
+            payload: TrainingNotifyInput instance.
+        """
+        from app.platform.integrations.feishu.im import FeishuIM
+
+        im = FeishuIM()
+
+        # 1. 查询所有员工
+        emp_list: list[Employee] = []
+        for emp_no in payload.employee_numbers:
+            emp = await self.repo.get_by_employee_number(emp_no)
+            if emp:
+                emp_list.append(emp)
+
+        # 2. 组装消息内容
+        time_str = ""
+        if payload.training_time_start and payload.training_time_end:
+            time_str = f"{payload.training_time_start} ~ {payload.training_time_end}"
+        content_lines = [
+            "【培训通知】",
+            f"主题：{payload.subject}",
+            f"时间：{payload.training_date} {time_str}",
+            f"地点：{payload.location or '待定'}",
+            f"培训师：{payload.trainer or '待定'}",
+        ]
+        if payload.content:
+            content_lines.append(f"内容：{payload.content}")
+        content_lines.append("请准时参加，自带笔记本笔，不得无故缺席。")
+        content = "\n".join(content_lines)
+
+        # 3. 逐条发送（直接读取数据库 feishu_open_id）
+        sent = 0
+        failed = 0
+        details: list[dict] = []
+        for emp in emp_list:
+            open_id = emp.feishu_open_id
+            if not open_id:
+                failed += 1
+                details.append(
+                    {
+                        "employee_number": emp.employee_number,
+                        "name": emp.name,
+                        "status": "failed",
+                        "reason": "数据库中缺少 feishu_open_id，请先同步",
+                    }
+                )
+                continue
+
+            try:
+                await im.send_text_message(open_id, content)
+                sent += 1
+                details.append(
+                    {
+                        "employee_number": emp.employee_number,
+                        "name": emp.name,
+                        "status": "sent",
+                    }
+                )
+            except Exception as e:
+                failed += 1
+                details.append(
+                    {
+                        "employee_number": emp.employee_number,
+                        "name": emp.name,
+                        "status": "failed",
+                        "reason": str(e),
+                    }
+                )
+
+        # 未找到的员工
+        found_numbers = {emp.employee_number for emp in emp_list}
+        for emp_no in payload.employee_numbers:
+            if emp_no not in found_numbers:
+                failed += 1
+                details.append(
+                    {
+                        "employee_number": emp_no,
+                        "status": "failed",
+                        "reason": "未找到员工",
+                    }
+                )
+
+        return {"sent": sent, "failed": failed, "details": details}
+
     # ─── Bi-directional sync ───
 
     async def sync_from_feishu(self) -> dict:
@@ -356,12 +469,14 @@ class EmployeeService:
         # Data consistency is ensured by the sync process itself.
         feishu_total = synced_count
 
+        conflict_count = await self.repo.count_conflicts()
+
         return SyncStatusResponse(
             local_total=local_total,
             feishu_total=feishu_total,
             synced_count=synced_count,
             unsynced_count=unsynced_count,
-            conflict_count=0,  # TODO: implement conflict detection
+            conflict_count=conflict_count,
             last_sync_at=None,
         )
 
@@ -727,6 +842,11 @@ class OnboardingRecordService:
                     stats["failed"] += 1
                     continue
 
+                # Skip records with empty critical fields (blank rows in Bitable)
+                if not data.get("name") or not data.get("department") or not data.get("hire_date"):
+                    logger.debug("Skipping blank onboarding record: %s", rid)
+                    continue
+
                 await self.repo.upsert_by_feishu_record_id(data)
                 existing = await self.repo.get_by_feishu_record_id(rid)
                 if existing and existing.created_at and (
@@ -860,6 +980,174 @@ class DepartureRecordService:
         )
 
 
+class TrainingLedgerService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = TrainingLedgerRepository(session)
+
+    async def get_record(self, record_id: UUID) -> TrainingLedger:
+        record = await self.repo.get_by_id(record_id)
+        if not record:
+            raise NotFoundException("培训台账记录", str(record_id))
+        return record
+
+    async def create_record(self, data: TrainingLedgerCreate) -> TrainingLedger:
+        record = TrainingLedger(**data.model_dump())
+        return await self.repo.create(record)
+
+    async def update_record(
+        self, record_id: UUID, data: TrainingLedgerUpdate
+    ) -> TrainingLedger:
+        record = await self.get_record(record_id)
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(record, field, value)
+        return await self.repo.update(record)
+
+    async def delete_record(self, record_id: UUID) -> None:
+        record = await self.get_record(record_id)
+        await self.repo.soft_delete(record)
+
+    async def list_records(
+        self,
+        *,
+        employee_number: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "training_date",
+        sort_order: str = "asc",
+    ) -> tuple[list[TrainingLedger], int]:
+        return await self.repo.list_records(
+            employee_number=employee_number,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+    async def create_from_notification(
+        self,
+        *,
+        employee_number: str,
+        training_date: date,
+        training_subject: str,
+        training_method: str | None,
+        trainer: str | None,
+        source_id: str | None = None,
+    ) -> TrainingLedger | None:
+        """当培训通知包含特定员工时，自动创建培训台账记录。"""
+        if source_id:
+            existing = await self.repo.get_by_source("notification", source_id)
+            if existing:
+                return existing
+
+        record = TrainingLedger(
+            employee_number=employee_number,
+            training_date=training_date,
+            training_subject=training_subject,
+            training_method=training_method,
+            trainer=trainer,
+            source_type="notification",
+            source_id=source_id,
+        )
+        return await self.repo.create(record)
+
+
+class TrainingLedgerPageService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = TrainingLedgerPageRepository(session)
+
+    async def list_pages(self) -> list[TrainingLedgerPage]:
+        return await self.repo.list_pages()
+
+    async def list_pages_with_department(self) -> list[tuple[TrainingLedgerPage, str | None]]:
+        return await self.repo.list_pages_with_department()
+
+    async def create_page(self, data) -> TrainingLedgerPage:
+        existing = await self.repo.get_by_employee_number(data.employee_number)
+        if existing:
+            raise DuplicateException("培训台账页面", data.employee_number)
+        page = TrainingLedgerPage(**data.model_dump())
+        return await self.repo.create(page)
+
+
+class AnnualTrainingPlanService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = AnnualTrainingPlanRepository(session)
+        self.item_repo = AnnualTrainingPlanItemRepository(session)
+
+    async def get_plan(self, plan_id: UUID) -> AnnualTrainingPlan:
+        plan = await self.repo.get_by_id(plan_id)
+        if not plan:
+            raise NotFoundException("年度培训计划", str(plan_id))
+        return plan
+
+    async def create_plan(self, data: AnnualTrainingPlanCreate) -> AnnualTrainingPlan:
+        existing = await self.repo.get_by_year_and_department(data.year, data.department)
+        if existing:
+            raise DuplicateException("年度培训计划", f"{data.year}年-{data.department}")
+        plan = AnnualTrainingPlan(**data.model_dump())
+        return await self.repo.create(plan)
+
+    async def update_plan(self, plan_id: UUID, data: AnnualTrainingPlanUpdate) -> AnnualTrainingPlan:
+        plan = await self.get_plan(plan_id)
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(plan, field, value)
+        return await self.repo.update(plan)
+
+    async def delete_plan(self, plan_id: UUID) -> None:
+        plan = await self.get_plan(plan_id)
+        await self.repo.soft_delete(plan)
+
+    async def list_plans(
+        self,
+        *,
+        year: int | None = None,
+        department: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[AnnualTrainingPlan], int]:
+        return await self.repo.list_plans(
+            year=year,
+            department=department,
+            page=page,
+            page_size=page_size,
+        )
+
+
+class AnnualTrainingPlanItemService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.repo = AnnualTrainingPlanItemRepository(session)
+        self.plan_repo = AnnualTrainingPlanRepository(session)
+
+    async def list_items(self, plan_id: UUID) -> list[AnnualTrainingPlanItem]:
+        return await self.repo.list_items(plan_id)
+
+    async def batch_update_items(
+        self, plan_id: UUID, data: AnnualTrainingPlanItemBatchUpdate
+    ) -> list[AnnualTrainingPlanItem]:
+        plan = await self.plan_repo.get_by_id(plan_id)
+        if not plan:
+            raise NotFoundException("年度培训计划", str(plan_id))
+
+        # 删除旧明细
+        await self.repo.delete_by_plan_id(plan_id)
+
+        # 创建新明细
+        results: list[AnnualTrainingPlanItem] = []
+        for idx, item_data in enumerate(data.items):
+            item = AnnualTrainingPlanItem(
+                plan_id=plan_id,
+                sort_order=idx,
+                **item_data.model_dump(exclude={"sort_order"}),
+            )
+            created = await self.repo.create(item)
+            results.append(created)
+        return results
 class CandidateService:
     def __init__(self, session: AsyncSession) -> None:
         self.repo = CandidateRepository(session)

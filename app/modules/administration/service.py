@@ -232,15 +232,28 @@ class VehicleRequestService:
     async def sync_from_feishu(self) -> dict:
         """从飞书多维表格同步用车申请数据到本地数据库.
 
-        需要在 .env 中配置 FEISHU_BITABLE_APP_TOKEN 和 FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID.
+        车辆多维表归 wz 机器人(FEISHU_VEHICLE_APP_*)所有，需要在 .env 中配置
+        FEISHU_BITABLE_VEHICLE_REQUEST_APP_TOKEN 和 FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID.
         """
-        if not _settings.FEISHU_BITABLE_APP_TOKEN or not _settings.FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID:
-            raise RuntimeError("飞书多维表格未配置，请在 .env 中设置 FEISHU_BITABLE_APP_TOKEN 和 FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID")
+        vehicle_app_token = (
+            _settings.FEISHU_BITABLE_VEHICLE_REQUEST_APP_TOKEN
+            or _settings.FEISHU_BITABLE_APP_TOKEN
+        )
+        if not vehicle_app_token or not _settings.FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID:
+            raise RuntimeError(
+                "飞书多维表格未配置，请在 .env 中设置 "
+                "FEISHU_BITABLE_VEHICLE_REQUEST_APP_TOKEN 和 "
+                "FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID"
+            )
 
         try:
+            from app.platform.integrations.feishu.auth import FeishuAuth
             from app.platform.integrations.feishu.bitable import BitableClient
 
-            bitable = BitableClient()
+            bitable = BitableClient(
+                auth=FeishuAuth.vehicle(),
+                app_token=vehicle_app_token,
+            )
             records = await bitable.search_records(
                 _settings.FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID,
                 page_size=500,

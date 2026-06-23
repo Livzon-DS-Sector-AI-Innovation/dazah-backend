@@ -1,16 +1,22 @@
 """AI platform API routes."""
 
 import json
+import logging
+import openai
 import re
 from collections.abc import AsyncGenerator
+from io import BytesIO
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from docx import Document as DocxDocument
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.response import success_response
 from app.modules.administration.models import VehicleRequest
 from app.modules.administration.public_api import (
     count_vehicle_requests,
@@ -24,10 +30,22 @@ from app.modules.hr.public_api import (
     search_employees_fuzzy,
 )
 from app.platform.ai.deps import get_ai_chat_service
-from app.platform.ai.schemas import ChatRequest
+from app.platform.ai.exam_generator import (
+    build_generate_prompt,
+    generate_exam_docx,
+)
+from app.platform.ai.schemas import (
+    ChatRequest,
+    ChoiceOption,
+    ChoiceQuestion,
+    ExamExportRequest,
+    ExamGenerateResponse,
+    TrueFalseQuestion,
+)
 from app.platform.ai.service import AiChatService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _extract_names(text: str) -> list[str]:
@@ -457,4 +475,183 @@ async def chat_stream(
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
+    )
+
+
+# ─── AI 出题相关接口 ───
+
+_SUPPORTED_MIME_TYPES = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "text/plain": "txt",
+}
+
+
+def _extract_text_from_file(file_bytes: bytes, file_type: str) -> str:
+    """从上传文件中提取纯文本内容."""
+    if file_type == "docx":
+        buffer = BytesIO(file_bytes)
+        doc = DocxDocument(buffer)
+        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        return "\n".join(paragraphs)
+    if file_type == "txt":
+        # 尝试多种编码
+        for encoding in ("utf-8", "utf-8-sig", "gbk", "gb2312", "gb18030"):
+            try:
+                return file_bytes.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        raise ValueError("无法识别文本文件编码")
+    raise ValueError(f"不支持的文件类型: {file_type}")
+
+
+async def _call_moonshot_for_exam(
+    client: openai.AsyncOpenAI,
+    file_content: str,
+) -> ExamGenerateResponse:
+    """调用 Moonshot API 根据文件内容生成题目."""
+    prompt = build_generate_prompt(file_content)
+
+    response = await client.chat.completions.create(
+        model="kimi-k2.5",
+        messages=[
+            {"role": "system", "content": "你是一个专业的培训考核出题专家，只输出JSON格式内容。"},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=1,
+        max_tokens=4096,
+    )
+
+    content = response.choices[0].message.content or ""
+    logger.info("Moonshot raw response length: %d", len(content))
+
+    # 尝试从响应中提取 JSON
+    json_str = ""
+
+    # 1. 尝试提取 markdown json 代码块
+    json_match = re.search(r"```json\s*(.*?)\s*```", content, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1)
+    else:
+        # 2. 尝试提取普通代码块
+        json_match = re.search(r"```\s*(.*?)\s*```", content, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # 3. 尝试找第一个 { 到最后一个 }
+            start = content.find("{")
+            end = content.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                json_str = content[start : end + 1]
+            else:
+                json_str = content
+
+    # 清理可能的 BOM 和非法字符
+    json_str = json_str.strip().lstrip("﻿")
+
+    logger.info("Extracted JSON string length: %d", len(json_str))
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as exc:
+        logger.error("JSON parse failed: %s", exc)
+        logger.error("Raw content preview: %s", content[:500])
+        logger.error("Extracted JSON preview: %s", json_str[:500])
+        raise
+
+    choice_questions = [
+        ChoiceQuestion(
+            number=q["number"],
+            question=q["question"],
+            options=[
+                ChoiceOption(label=o["label"], text=o["text"])
+                for o in q.get("options", [])
+            ],
+            answer=q.get("answer"),
+        )
+        for q in data.get("choice_questions", [])
+    ]
+
+    true_false_questions = [
+        TrueFalseQuestion(
+            number=q["number"],
+            question=q["question"],
+            answer=q.get("answer"),
+        )
+        for q in data.get("true_false_questions", [])
+    ]
+
+    return ExamGenerateResponse(
+        choice_questions=choice_questions,
+        true_false_questions=true_false_questions,
+    )
+
+
+@router.post("/exam/generate", summary="AI 出题：上传文件生成试卷题目")
+async def generate_exam_questions(
+    file: UploadFile = File(..., description="上传的文件（支持 .docx, .txt）"),
+    service: AiChatService = Depends(get_ai_chat_service),
+):
+    """上传培训文件，AI 自动识别内容并生成选择题和判断题."""
+    if not file.content_type or file.content_type not in _SUPPORTED_MIME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件类型: {file.content_type}，仅支持 docx 和 txt",
+        )
+
+    file_type = _SUPPORTED_MIME_TYPES[file.content_type]
+    file_bytes = await file.read()
+
+    if len(file_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="文件大小不能超过 10MB")
+
+    try:
+        file_content = _extract_text_from_file(file_bytes, file_type)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"文件解析失败: {exc}") from exc
+
+    if len(file_content.strip()) < 50:
+        raise HTTPException(status_code=400, detail="文件内容过短，无法生成题目")
+
+    try:
+        result = await _call_moonshot_for_exam(service.client, file_content)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"AI 返回格式解析失败: {exc}"
+        ) from exc
+    except Exception as exc:
+        logger.exception("AI 出题失败")
+        raise HTTPException(status_code=500, detail=f"AI 出题失败: {exc}") from exc
+
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="试卷题目生成成功",
+    )
+
+
+@router.post("/exam/export", summary="导出试卷 Word 文档")
+async def export_exam(
+    request: ExamExportRequest,
+):
+    """根据试卷数据生成并下载 Word 文档."""
+    try:
+        buffer = generate_exam_docx(request)
+    except Exception as exc:
+        logger.exception("试卷导出失败")
+        raise HTTPException(status_code=500, detail=f"试卷导出失败: {exc}") from exc
+
+    def _iterfile():
+        buffer.seek(0)
+        yield buffer.read()
+
+    safe_title = re.sub(r'[\\/:*?"<>|]', "_", request.title) or "试卷"
+    filename = f"{safe_title}.docx"
+    # RFC 5987 encoding for non-ASCII filenames in Content-Disposition
+    encoded_filename = quote(filename, safe="")
+
+    return StreamingResponse(
+        _iterfile(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"
+        },
     )

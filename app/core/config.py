@@ -8,6 +8,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # App
@@ -31,7 +32,8 @@ class Settings(BaseSettings):
     # Audit
     AUDIT_RETENTION_DAYS: int = 7
 
-    # Feishu
+    # Feishu primary bot (recruitment / HR ledger)
+    FEISHU_BOT_NAME: str = ""
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
     FEISHU_BITABLE_APP_TOKEN: str = ""
@@ -41,7 +43,24 @@ class Settings(BaseSettings):
     FEISHU_BITABLE_ONBOARDING_TABLE_ID: str = ""
     FEISHU_BITABLE_DEPARTURE_TABLE_ID: str = ""
     FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
+    FEISHU_BITABLE_CANDIDATE_APP_TOKEN: str = ""
+    FEISHU_BITABLE_CANDIDATE_TABLE_ID: str = ""
+
+    # Feishu vehicle bot (administration)
+    FEISHU_VEHICLE_APP_ID: str = ""
+    FEISHU_VEHICLE_APP_SECRET: str = ""
+    FEISHU_BITABLE_VEHICLE_REQUEST_APP_TOKEN: str = ""
     FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID: str = ""
+
+    # Feishu training bot (training notification / product / material BOM)
+    FEISHU_TRAINING_APP_ID: str = ""
+    FEISHU_TRAINING_APP_SECRET: str = ""
+    FEISHU_BITABLE_TRAINING_NOTIFICATION_APP_TOKEN: str = ""
+    FEISHU_BITABLE_TRAINING_NOTIFICATION_TABLE_ID: str = ""
+    FEISHU_BITABLE_PRODUCT_APP_TOKEN: str = ""
+    FEISHU_BITABLE_PRODUCT_TABLE_ID: str = ""
+    FEISHU_BITABLE_MATERIAL_BOM_APP_TOKEN: str = ""
+    FEISHU_BITABLE_MATERIAL_BOM_TABLE_ID: str = ""
 
     # Feishu AI Query
     FEISHU_AI_QUERY_TABLES: str = ""  # JSON: {"别名": {"app_token": "...", "table_id": "...", "filterable_fields": [...]}}
@@ -53,6 +72,12 @@ class Settings(BaseSettings):
     # AI
     MOONSHOT_API_KEY: str = ""
     AI_MODEL: str = "kimi-k2.5"
+    AI_SYSTEM_PROMPT: str = (
+        "你是「小H」，原料药工厂人事管理助手。"
+        "只基于查询结果回答人事问题，禁止编造。"
+        "回答极其简洁，只陈述事实，不分析、不解释、不推理。"
+        "禁止出现'根据规则'、'依据以上信息'等元话语。"
+    )
 
     @property
     def is_production(self) -> bool:

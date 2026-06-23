@@ -19,27 +19,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from app.core.config import get_settings
+from app.platform.integrations.feishu.auth import FeishuAuth
 
 _settings = get_settings()
-APP_ID = _settings.FEISHU_APP_ID
-APP_SECRET = _settings.FEISHU_APP_SECRET
-APP_TOKEN = _settings.FEISHU_BITABLE_APP_TOKEN
+APP_TOKEN = _settings.FEISHU_BITABLE_VEHICLE_REQUEST_APP_TOKEN
 TABLE_ID = _settings.FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID
-BASE_URL = "https://open.feishu.cn/open-apis"
 
 # 同步最近 N 个月的数据
 SYNC_MONTHS = 2
 
 
 async def get_tenant_token(client: httpx.AsyncClient) -> str:
-    resp = await client.post(
-        f"{BASE_URL}/auth/v3/tenant_access_token/internal",
-        json={"app_id": APP_ID, "app_secret": APP_SECRET},
-    )
-    data = resp.json()
-    if data.get("code") != 0:
-        raise RuntimeError(f"Get token failed: {data}")
-    return data["tenant_access_token"]
+    return await FeishuAuth.vehicle().get_token()
 
 
 def get_cutoff_timestamp() -> int:

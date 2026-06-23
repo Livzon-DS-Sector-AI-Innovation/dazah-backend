@@ -12,10 +12,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from app.core.config import get_settings
 from app.platform.integrations.feishu.client import FeishuClient
 
-APP_TOKEN = "KHLsboPBGaah6Vs3EpgcpvzsnuH"
-TABLE_ID = "tblrcSHfS5ivun7e"
+_settings = get_settings()
+APP_TOKEN = _settings.FEISHU_BITABLE_APP_TOKEN
+TABLE_ID = _settings.FEISHU_BITABLE_EMPLOYEE_TABLE_ID
 
 # Fields expected by the current sync logic in service.py + employee_datasource.py
 EXPECTED_FIELDS = {

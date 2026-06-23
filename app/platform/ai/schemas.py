@@ -33,3 +33,45 @@ class ChatRequest(BaseModel):
     page_context: HrPageContext | None = Field(
         None, description="页面上下文"
     )
+
+
+# ─── AI 出题相关 Schema ───
+
+class ChoiceOption(BaseModel):
+    label: str = Field(..., description="选项标签，如 A/B/C/D")
+    text: str = Field(..., description="选项内容")
+
+
+class ChoiceQuestion(BaseModel):
+    number: int = Field(..., description="题号")
+    question: str = Field(..., description="题目内容")
+    options: list[ChoiceOption] = Field(default_factory=list, description="选项列表")
+    answer: str | None = Field(None, description="答案")
+
+
+class TrueFalseQuestion(BaseModel):
+    number: int = Field(..., description="题号")
+    question: str = Field(..., description="题目内容")
+    answer: str | None = Field(None, description="答案")
+
+
+class ExamGenerateResponse(BaseModel):
+    choice_questions: list[ChoiceQuestion] = Field(
+        default_factory=list, description="选择题列表"
+    )
+    true_false_questions: list[TrueFalseQuestion] = Field(
+        default_factory=list, description="判断题列表"
+    )
+
+
+class ExamExportRequest(BaseModel):
+    title: str = Field(..., description="试卷标题")
+    examiner: str = Field(..., description="出卷人")
+    exam_date: str = Field(..., description="出卷时间")
+    assessment_date: str = Field(..., description="考核时间")
+    choice_questions: list[ChoiceQuestion] = Field(
+        default_factory=list, description="选择题列表"
+    )
+    true_false_questions: list[TrueFalseQuestion] = Field(
+        default_factory=list, description="判断题列表"
+    )

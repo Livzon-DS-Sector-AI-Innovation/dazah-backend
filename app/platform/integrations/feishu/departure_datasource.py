@@ -62,8 +62,8 @@ class DepartureBitableDataSource:
 
     def __init__(self) -> None:
         self.client = BitableClient()
-        self.client.app_token = _settings.FEISHU_BITABLE_APP_TOKEN or "KHLsboPBGaah6Vs3EpgcpvzsnuH"
-        self.table_id = _settings.FEISHU_BITABLE_DEPARTURE_TABLE_ID or "tblvHabV24ccEqcu"
+        self.client.app_token = _settings.FEISHU_BITABLE_APP_TOKEN
+        self.table_id = _settings.FEISHU_BITABLE_DEPARTURE_TABLE_ID
 
     def _is_enabled(self) -> bool:
         return bool(self.client.app_token and self.table_id)

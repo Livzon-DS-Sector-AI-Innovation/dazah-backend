@@ -1,5 +1,6 @@
 """Feishu SSO, approval, IM and Bitable integration."""
 
+from app.platform.integrations.feishu import fields, sync
 from app.platform.integrations.feishu.bitable import FeishuBitableSync
 from app.platform.integrations.feishu.candidate_datasource import (
     CandidateBitableDataSource,
@@ -17,4 +18,6 @@ __all__ = [
     "BitableDataSource",
     "EmployeeBitableDataSource",
     "EmployeeRecord",
+    "fields",
+    "sync",
 ]

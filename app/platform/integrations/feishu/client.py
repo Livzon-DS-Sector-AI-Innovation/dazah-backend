@@ -14,8 +14,9 @@ class FeishuClient(IntegrationClient):
     system_name = "feishu"
     base_url = "https://open.feishu.cn/open-apis"
 
-    def __init__(self) -> None:
+    def __init__(self, auth: FeishuAuth | None = None) -> None:
         self._client: httpx.AsyncClient | None = None
+        self._auth = auth or FeishuAuth.default()
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -49,7 +50,7 @@ class FeishuClient(IntegrationClient):
         """
         import io
 
-        token = await FeishuAuth.get_tenant_access_token()
+        token = await self._auth.get_token()
         headers = {"Authorization": f"Bearer {token}"}
 
         files = {"file": (filename, io.BytesIO(file_bytes))}
@@ -95,7 +96,7 @@ class FeishuClient(IntegrationClient):
 
     async def health_check(self) -> dict:
         try:
-            token = await FeishuAuth.get_tenant_access_token()
+            token = await self._auth.get_token()
             return {"status": "ok", "token_prefix": token[:10] + "..."}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -110,7 +111,7 @@ class FeishuClient(IntegrationClient):
         headers: dict | None = None,
         timeout: float = 15.0,
     ) -> dict:
-        token = await FeishuAuth.get_tenant_access_token()
+        token = await self._auth.get_token()
         default_headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json; charset=utf-8",
