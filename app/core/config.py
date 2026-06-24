@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Upload
+    UPLOAD_DIR: str = "./uploads"
+    # AI
+    AI_API_KEY: str = ""
+    AI_BASE_URL: str = "https://api.openai.com/v1"
+    AI_VISION_MODEL: str = "gpt-4o"
+
+
     # Audit
     AUDIT_RETENTION_DAYS: int = 7
 
