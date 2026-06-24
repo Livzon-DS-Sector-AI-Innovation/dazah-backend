@@ -224,3 +224,52 @@ alembic heads
 - 后端服务运行在 Docker 网络内部，地址为 `http://dazah-backend-app-1:8000`
 - 前端通过 `API_BASE_URL` 环境变量访问后端（服务器端代码）
 - 前端客户端通过相对路径 `/api/v1/...` 访问（由 proxy/nginx 转发）
+
+## OpenAPI 规范与前端同步
+
+后端 API 是前端的唯一数据源。每次修改 API 后，必须更新 OpenAPI spec 并提交，确保前端类型与后端保持同步。
+
+### 工作流程
+
+1. **修改 API 后**：运行导出脚本更新 `openapi.json`
+   ```bash
+   uv run python scripts/export_openapi.py
+   ```
+
+2. **提交变更**：将 `openapi.json` 一起提交到 git
+   ```bash
+   git add openapi.json
+   git commit -m "update: API changes and openapi spec"
+   ```
+
+3. **前端同步**：前端开发者运行生成脚本
+   ```bash
+   pnpm generate:api
+   ```
+
+### CI 检查
+
+GitHub Actions 会自动检查 `openapi.json` 是否与后端代码同步。如果检测到 drift，CI 会失败并提示：
+
+```
+❌ OpenAPI spec is out of date!
+Run 'uv run python scripts/export_openapi.py' and commit the changes.
+```
+
+### 注意事项
+
+- **禁止手动编辑** `openapi.json`，它由 FastAPI 自动生成
+- **每次 API 变更**（新增/修改/删除端点、修改参数或响应结构）都必须重新生成 spec
+- **CI 会阻止** openapi.json 与代码不同步的 PR 合并
+- 导出脚本位置：`scripts/export_openapi.py`
+- 生成的 spec 文件：`openapi.json`（项目根目录）
+
+### 前端类型生成
+
+前端使用 `openapi-typescript` 从 `openapi.json` 生成 TypeScript 类型定义：
+
+- 生成文件：`src/types/generated/schema.ts`
+- 生成命令：`pnpm generate:api`
+- 所有 API 相关的类型必须从生成文件导入，**禁止手写 API 类型**
+
+这样可以确保前后端类型始终一致，避免手动同步导致的错误。
