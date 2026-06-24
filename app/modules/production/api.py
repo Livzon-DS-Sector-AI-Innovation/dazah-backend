@@ -640,9 +640,6 @@ async def update_material_balance(
         return ApiResponse(code=404, message="物料平衡不存在")
     await db.commit()
     return ApiResponse(data=MaterialBalanceResponse.model_validate(balance))
-=======
-    await service.delete_verification(verification_id)
-    return success_response(message="标签复核记录删除成功")
 
 # ============ 压差统计路由 ============
 from app.modules.production.pressure_api import router as pressure_router
