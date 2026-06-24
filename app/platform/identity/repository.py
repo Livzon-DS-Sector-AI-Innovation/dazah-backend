@@ -32,7 +32,7 @@ class UserRepository:
         session: AsyncSession,
         *,
         name: str,
-        feishu_user_id: str,
+        feishu_user_id: str | None,
         feishu_open_id: str,
         feishu_union_id: str | None = None,
         en_name: str | None = None,

@@ -1,0 +1,36 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, dev/livzon-syntpharm]
+  pull_request:
+    branches: [main, dev/livzon-syntpharm]
+
+jobs:
+  openapi-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          uv sync
+      
+      - name: Export OpenAPI spec
+        run: uv run python scripts/export_openapi.py
+      
+      - name: Check for drift
+        run: |
+          if ! git diff --exit-code openapi.json; then
+            echo "❌ OpenAPI spec is out of date!"
+            echo "Run 'uv run python scripts/export_openapi.py' and commit the changes."
+            exit 1
+          fi
+          echo "✓ OpenAPI spec is up to date"

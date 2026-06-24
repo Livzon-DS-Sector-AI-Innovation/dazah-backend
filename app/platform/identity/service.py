@@ -39,8 +39,8 @@ async def handle_oauth_callback(
     info = await oauth.get_user_info(user_access_token)
 
     open_id = info.get("open_id", "")
-    user_id = info.get("user_id", "")
-    union_id = info.get("union_id", "")
+    user_id = info.get("user_id") or None  # Convert empty to None
+    union_id = info.get("union_id") or None  # Convert empty to None
     name = info.get("name", "")
     en_name = info.get("en_name")
     avatar_url = info.get("avatar_url") or info.get("avatar_middle")
