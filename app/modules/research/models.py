@@ -214,20 +214,14 @@ class ProcessOptimization(BaseModel):
         String(50), primary_key=True, comment="主键ID"
     )
 
-    project_id: Mapped[str] = mapped_column(
-        String(50), comment="所属研发项目ID"
+    project_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, comment="所属研发项目ID"
     )
-    optimization_no: Mapped[str] = mapped_column(
-        String(50), comment="优化编号"
+    route_id: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="来源路线ID"
     )
     name: Mapped[str] = mapped_column(
         String(200), comment="优化任务名称"
-    )
-    source_route_id: Mapped[str | None] = mapped_column(
-        String(50), nullable=True, comment="来源路线ID"
-    )
-    source_route_name: Mapped[str | None] = mapped_column(
-        String(200), nullable=True, comment="来源路线名称"
     )
     description: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="描述"
@@ -240,8 +234,11 @@ class ProcessOptimization(BaseModel):
         String(20), default="doe",
         comment="当前工作流阶段: doe/impurity/crystal/quality/scaleup/report"
     )
-    doe_experiment: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="DOE实验设计与分析数据"
+    doe_design: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="DOE实验设计数据"
+    )
+    doe_results: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="DOE实验结果数据"
     )
     impurity_study: Mapped[dict | None] = mapped_column(
         JSON, nullable=True, comment="杂质研究数据"
@@ -249,11 +246,14 @@ class ProcessOptimization(BaseModel):
     crystal_form_study: Mapped[dict | None] = mapped_column(
         JSON, nullable=True, comment="晶型研究数据"
     )
-    quality_standard_set: Mapped[dict | None] = mapped_column(
+    quality_standards: Mapped[dict | None] = mapped_column(
         JSON, nullable=True, comment="质量标准数据"
     )
     scale_up_study: Mapped[dict | None] = mapped_column(
         JSON, nullable=True, comment="公斤级放大数据"
+    )
+    final_report: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="最终报告数据"
     )
     start_date: Mapped[date | None] = mapped_column(
         Date, nullable=True, comment="开始日期"

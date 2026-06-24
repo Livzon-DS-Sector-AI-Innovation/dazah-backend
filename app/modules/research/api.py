@@ -1105,12 +1105,10 @@ async def get_optimizations(
         count_query = count_query.where(ProcessOptimization.status == status)
     if keyword:
         query = query.where(
-            (ProcessOptimization.name.ilike(f"%{keyword}%")) |
-            (ProcessOptimization.optimization_no.ilike(f"%{keyword}%"))
+            ProcessOptimization.name.ilike(f"%{keyword}%")
         )
         count_query = count_query.where(
-            (ProcessOptimization.name.ilike(f"%{keyword}%")) |
-            (ProcessOptimization.optimization_no.ilike(f"%{keyword}%"))
+            ProcessOptimization.name.ilike(f"%{keyword}%")
         )
 
     query = query.order_by(ProcessOptimization.created_at.desc())
@@ -1125,18 +1123,18 @@ async def get_optimizations(
         data=[{
             "id": str(opt.id),
             "project_id": opt.project_id,
-            "optimization_no": opt.optimization_no,
+            "route_id": opt.route_id,
             "name": opt.name,
-            "source_route_id": opt.source_route_id,
-            "source_route_name": opt.source_route_name,
             "description": opt.description,
             "status": opt.status,
             "current_module": opt.current_module,
-            "doe_experiment": opt.doe_experiment,
+            "doe_design": opt.doe_design,
+            "doe_results": opt.doe_results,
             "impurity_study": opt.impurity_study,
             "crystal_form_study": opt.crystal_form_study,
-            "quality_standard_set": opt.quality_standard_set,
+            "quality_standards": opt.quality_standards,
             "scale_up_study": opt.scale_up_study,
+            "final_report": opt.final_report,
             "start_date": str(opt.start_date) if opt.start_date else None,
             "end_date": str(opt.end_date) if opt.end_date else None,
             "created_at": opt.created_at.isoformat() if opt.created_at else None,
@@ -1166,18 +1164,18 @@ async def get_optimization(
     return success_response(data={
         "id": str(opt.id),
         "project_id": opt.project_id,
-        "optimization_no": opt.optimization_no,
+        "route_id": opt.route_id,
         "name": opt.name,
-        "source_route_id": opt.source_route_id,
-        "source_route_name": opt.source_route_name,
         "description": opt.description,
         "status": opt.status,
         "current_module": opt.current_module,
-        "doe_experiment": opt.doe_experiment,
+        "doe_design": opt.doe_design,
+        "doe_results": opt.doe_results,
         "impurity_study": opt.impurity_study,
         "crystal_form_study": opt.crystal_form_study,
-        "quality_standard_set": opt.quality_standard_set,
+        "quality_standards": opt.quality_standards,
         "scale_up_study": opt.scale_up_study,
+        "final_report": opt.final_report,
         "start_date": str(opt.start_date) if opt.start_date else None,
         "end_date": str(opt.end_date) if opt.end_date else None,
         "created_at": opt.created_at.isoformat() if opt.created_at else None,
@@ -1195,15 +1193,11 @@ async def create_optimization(
     from datetime import date
     from app.modules.research.models import ProcessOptimization
 
-    optimization_no = f"OPT-{date.today().year}-{str(uuid.uuid4())[:8].upper()}"
-
     opt = ProcessOptimization(
         id=str(uuid.uuid4()),
-        project_id=data.get("project_id", "project-1"),
-        optimization_no=optimization_no,
+        project_id=data.get("project_id"),
+        route_id=data.get("route_id"),
         name=data.get("name", "新工艺优化"),
-        source_route_id=data.get("source_route_id"),
-        source_route_name=data.get("source_route_name"),
         description=data.get("description", ""),
         status="in_progress",
         current_module="doe",
@@ -1215,7 +1209,7 @@ async def create_optimization(
 
     return success_response(data={
         "id": str(opt.id),
-        "optimization_no": opt.optimization_no,
+        "route_id": opt.route_id,
         "name": opt.name,
         "status": opt.status,
         "current_module": opt.current_module,
@@ -1249,7 +1243,7 @@ async def update_optimization(
 
     return success_response(data={
         "id": str(opt.id),
-        "optimization_no": opt.optimization_no,
+        "route_id": opt.route_id,
         "name": opt.name,
         "status": opt.status,
         "current_module": opt.current_module,
