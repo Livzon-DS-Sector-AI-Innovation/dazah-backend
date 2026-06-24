@@ -160,7 +160,7 @@ class RouteExperiment(BaseModel):
         String(50), primary_key=True, comment="主键ID"
     )
 
-    route_id: Mapped[str] = mapped_column(
+    route_id: Mapped[str | None] = mapped_column(
         String(50), comment="所属路线ID"
     )
     experiment_no: Mapped[str] = mapped_column(
@@ -217,8 +217,8 @@ class ProcessOptimization(BaseModel):
     project_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, comment="所属研发项目ID"
     )
-    route_id: Mapped[str] = mapped_column(
-        String(50), nullable=False, comment="来源路线ID"
+    route_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, comment="来源路线ID"
     )
     name: Mapped[str] = mapped_column(
         String(200), comment="优化任务名称"
