@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
 
+    # Logging
+    LOG_LEVEL: str = "INFO"
+    LOG_ENABLED_MODULES: str = ""  # 逗号分隔，如 "safety,equipment"，空 = 全部启用
+    LOG_DISABLED_MODULES: str = ""  # 逗号分隔，如 "energy,hr"，空 = 不禁用任何模块
+    LOG_THIRD_PARTY_LEVEL: str = "WARNING"  # 三方库统一日志级别
+    LOG_THIRD_PARTY_HANDLER_LEVEL: str = "WARNING"  # 三方库 handler 级过滤阈值
+    LOG_ROOT_LEVEL: str = "WARNING"  # root logger 兜底级别
+    LOG_DIR: str = "logs"  # 生产环境日志文件目录
+
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"

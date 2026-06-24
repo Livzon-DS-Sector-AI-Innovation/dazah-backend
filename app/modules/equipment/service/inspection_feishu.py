@@ -253,8 +253,16 @@ async def process_feishu_text(
                 await _cmd_modify(open_id, session, text)
             elif text in _PROGRESS_COMMANDS:
                 await _cmd_progress(open_id, session)
-            elif text in _HELP_COMMANDS:
-                await _cmd_help(open_id)
+            elif text in _CONTINUE_COMMANDS | _SKIP_COMMANDS:
+                # "继续""跳过"等在确认状态下无效 → 明确提示
+                cur_eq = get_current_equipment(session)
+                eq_name = cur_eq["equipment_name"] if cur_eq else "当前设备"
+                await _reply_text(
+                    open_id,
+                    f"当前有待确认的 **{eq_name}** 检查结果，"
+                    f"请先「**提交**」或「**取消**」。\n"
+                    f"也可以发送文字描述修改检查结果。",
+                )
             else:
                 # 确认状态下的自然语言视为修改
                 await _cmd_modify(open_id, session, text)
@@ -269,7 +277,24 @@ async def process_feishu_text(
             elif text in _CONTINUE_COMMANDS:
                 await _cmd_continue(open_id, session)
             elif text in _SUBMIT_COMMANDS:
-                await _reply_text(open_id, "当前没有待确认的检查结果。\n请先发送照片或文字描述检查结果。")
+                # 引导状态下没有待确认结果 → 重发引导卡
+                await _send_guide_card(open_id, session)
+            elif text in _CANCEL_COMMANDS:
+                task_no = session.get("task_no", "")
+                await clear_session(open_id)
+                await _reply_text(
+                    open_id,
+                    f"已退出巡检任务 **{task_no}**。\n回复「**开始**」重新进入。",
+                )
+            elif len(text) <= 2 or text.endswith("?") or text.endswith("？"):
+                # 短文本/问句 → 可能是误操作，重发引导卡
+                await _send_guide_card(open_id, session)
+                await _reply_text(
+                    open_id,
+                    "如需手动文字描述检查结果，请详细描述各项检查数据。\n"
+                    "例如：「温度 66.5℃ 正常，压力 0.5MPa 正常」\n"
+                    "也可以直接发送设备照片进行 AI 分析。",
+                )
             else:
                 # 尝试作为手动提交解析
                 await _handle_manual_submit(open_id, session, text)
@@ -609,9 +634,8 @@ async def _cmd_submit(open_id: str, session: dict) -> None:
                 + (f"（{progress.get('skipped', 0)} 跳过）" if progress.get('skipped', 0) > 0 else ""),
             ]
             if next_eq:
-                lines.append(f"⏭️ 下一台：**{next_name}**")
                 lines.append("")
-                lines.append("回复「**继续**」开始检查下一台设备。")
+                lines.append(f"⏭️ 下一台：**{next_name}**")
 
             await send_user_card(
                 open_id=open_id,
@@ -621,9 +645,18 @@ async def _cmd_submit(open_id: str, session: dict) -> None:
             )
     except AppException as e:
         await _reply_text(open_id, f"提交失败：{e.message}")
+        return
     except Exception:
         logger.exception("提交异常: open_id=%s, task=%s", open_id, task_no)
         await _reply_text(open_id, "提交时发生异常，请稍后重试。")
+        return
+
+    # 引导卡在 try 外发送——提交已 commit 成功，引导卡失败不应提示"提交失败"
+    if not all_done and session_after:
+        try:
+            await _send_guide_card(open_id, session_after)
+        except Exception:
+            logger.exception("引导卡发送失败: open_id=%s, task=%s", open_id, task_no)
 
 
 async def _cmd_skip(open_id: str, session: dict) -> None:
@@ -706,9 +739,8 @@ async def _cmd_skip(open_id: str, session: dict) -> None:
                 + (f"（{progress.get('skipped', 0)} 跳过）" if progress.get('skipped', 0) > 0 else ""),
             ]
             if next_eq:
-                lines.append(f"⏭️ 下一台：**{next_eq['equipment_name']}**")
                 lines.append("")
-                lines.append("回复「**继续**」开始检查下一台设备。")
+                lines.append(f"⏭️ 下一台：**{next_eq['equipment_name']}**")
             await send_user_card(
                 open_id=open_id,
                 title=f"⏭️ 跳过 - {equipment_name}",
@@ -717,9 +749,18 @@ async def _cmd_skip(open_id: str, session: dict) -> None:
             )
     except AppException as e:
         await _reply_text(open_id, f"跳过失败：{e.message}")
+        return
     except Exception:
         logger.exception("跳过异常: open_id=%s", open_id)
         await _reply_text(open_id, "跳过时发生异常，请稍后重试。")
+        return
+
+    # 引导卡在 try 外发送——跳过已 commit 成功，引导卡失败不应提示"跳过失败"
+    if not all_done and session_after:
+        try:
+            await _send_guide_card(open_id, session_after)
+        except Exception:
+            logger.exception("引导卡发送失败: open_id=%s", open_id)
 
 
 async def _cmd_progress(open_id: str, session: dict) -> None:
