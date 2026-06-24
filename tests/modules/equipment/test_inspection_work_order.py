@@ -143,14 +143,16 @@ async def inspection_task(
     equipment_with_dept: Equipment,
     template_with_items: InspectionTemplate,
 ):
+    from datetime import datetime, UTC
+
     task = await create_task(
         db_session,
         {
             "plan_type": "设备巡检",
             "equipment_id": equipment_with_dept.id,
-            "template_id": template_with_items.id,
+            "template_ids": [template_with_items.id],
             "assigned_to": inspector.id,
-            "planned_date": date.today(),
+            "planned_time": datetime.now(UTC),
         },
     )
     task = await start_task(db_session, task.id)
@@ -355,15 +357,17 @@ async def test_work_order_no_responsible_person(
     db_session.add(eq_no_dept)
     await db_session.flush()
 
+    from datetime import datetime, UTC
+
     # 创建任务并启动
     task = await create_task(
         db_session,
         {
             "plan_type": "设备巡检",
             "equipment_id": eq_no_dept.id,
-            "template_id": template_with_items.id,
+            "template_ids": [template_with_items.id],
             "assigned_to": inspector.id,
-            "planned_date": date.today(),
+            "planned_time": datetime.now(UTC),
         },
     )
     task = await start_task(db_session, task.id)

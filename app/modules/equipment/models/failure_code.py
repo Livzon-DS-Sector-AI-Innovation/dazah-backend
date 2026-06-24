@@ -1,6 +1,6 @@
 """Failure code ORM models."""
 
-from sqlalchemy import Boolean, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel
@@ -11,8 +11,11 @@ class FailureSymptom(BaseModel):
 
     __tablename__ = "failure_symptoms"
     __table_args__ = (
-        UniqueConstraint(
-            "code", "is_deleted", name="uq_failure_symptoms_code"
+        Index(
+            "uq_failure_symptoms_code",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
         ),
         {"schema": "equipment"},
     )
@@ -42,8 +45,11 @@ class FailureCause(BaseModel):
 
     __tablename__ = "failure_causes"
     __table_args__ = (
-        UniqueConstraint(
-            "code", "is_deleted", name="uq_failure_causes_code"
+        Index(
+            "uq_failure_causes_code",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
         ),
         {"schema": "equipment"},
     )
@@ -73,8 +79,11 @@ class FailureAction(BaseModel):
 
     __tablename__ = "failure_actions"
     __table_args__ = (
-        UniqueConstraint(
-            "code", "is_deleted", name="uq_failure_actions_code"
+        Index(
+            "uq_failure_actions_code",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
         ),
         {"schema": "equipment"},
     )

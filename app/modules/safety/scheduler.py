@@ -31,7 +31,6 @@ async def execute_single_task(task, safety_repo) -> None:
     from app.modules.safety.card_builder import (
         build_card_json,
         fetch_data_sources,
-        get_data_source_label,
         render_template,
     )
 
@@ -69,7 +68,7 @@ async def execute_single_task(task, safety_repo) -> None:
         rendered = render_template(template, variables)
 
         # Build and send card
-        card_json = build_card_json(
+        card_json = await build_card_json(
             title=task.name,
             rendered_markdown=rendered,
             header_color=task.header_color or "blue",
@@ -95,7 +94,7 @@ async def execute_single_task(task, safety_repo) -> None:
                 "completed_at": completed_at,
                 "data_snapshot": aggregated,
                 "card_content": card_json,
-                "feishu_msg_id": result.get("message_id") if isinstance(result, dict) else None,
+                "feishu_msg_id": result,
                 "duration_ms": duration_ms,
             },
         )

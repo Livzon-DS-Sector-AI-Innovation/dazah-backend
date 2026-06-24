@@ -15,6 +15,16 @@ from app.modules.equipment.models.personnel import (
 # ── 角色 Repository ──
 
 async def create_role(db: AsyncSession, role: EquipmentRole) -> EquipmentRole:
+    # 清理同 code 的已软删除记录，避免软删除后无法创建同编码角色
+    deleted_result = await db.execute(
+        select(EquipmentRole).where(
+            EquipmentRole.code == role.code,
+            EquipmentRole.is_deleted == True,  # noqa: E712
+        )
+    )
+    for old in deleted_result.scalars().all():
+        await db.delete(old)
+
     db.add(role)
     await db.flush()
     return role

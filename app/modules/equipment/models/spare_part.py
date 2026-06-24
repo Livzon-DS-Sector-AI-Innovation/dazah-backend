@@ -9,11 +9,12 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
-    UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,8 +30,11 @@ class SparePart(BaseModel):
 
     __tablename__ = "spare_parts"
     __table_args__ = (
-        UniqueConstraint(
-            "code", "is_deleted", name="uq_spare_parts_code"
+        Index(
+            "uq_spare_parts_code",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
         ),
         {"schema": "equipment"},
     )
@@ -69,11 +73,12 @@ class EquipmentSparePart(BaseModel):
 
     __tablename__ = "equipment_spare_parts"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_equipment_spare_parts_eq_sp",
             "equipment_id",
             "spare_part_id",
-            "is_deleted",
-            name="uq_equipment_spare_parts_eq_sp",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
         ),
         {"schema": "equipment"},
     )

@@ -234,10 +234,10 @@ async def _handle_binary_message(ws, message: bytes) -> None:
             ack_data = _build_ack_frame(frame, end_ms - start_ms)
             await ws.send(ack_data)
 
-    except Exception as e:
-        logger.warning(
-            "设备机器人帧处理失败 (%d bytes): %s",
-            len(message), e,
+    except Exception:
+        logger.exception(
+            "设备机器人帧处理失败 (%d bytes) — 完整调用栈:",
+            len(message),
         )
 
 
@@ -341,92 +341,168 @@ async def _handle_text_command(
     if text.startswith("@") and " " in text:
         text = text.split(" ", 1)[-1].strip()
 
-    from app.modules.equipment.service.inspection_session import get_session
+    # ── 0. 选择状态检查（数字输入匹配任务/工单列表）──
+    from app.modules.equipment.service.inspection_session import (
+        clear_selection,
+        get_selection,
+        get_session,
+    )
+
+    selection = await get_selection(open_id)
+    if selection:
+        if text in ("取消", "放弃", "cancel"):
+            await clear_selection(open_id)
+            from app.modules.equipment.feishu.notification import send_user_card
+            await send_user_card(
+                open_id=open_id, title="💡 提示",
+                receive_id_type="open_id",
+                content="已取消选择。",
+            )
+            return
+        try:
+            num = int(text)
+            options = selection.get("options", [])
+            opt = next((o for o in options if o.get("index") == num), None)
+            if opt:
+                select_type = selection.get("select_type", "")
+                if select_type == "inspection":
+                    # 不在这里 clear_selection — 让 process_feishu_text 自行处理
+                    from app.modules.equipment.service.inspection_feishu import (
+                        process_feishu_text,
+                    )
+                    await process_feishu_text(open_id, str(num), user_id=user_id)
+                elif select_type == "work_order":
+                    wo_no = opt.get("work_order_no", "")
+                    wo_status = opt.get("status", "")
+                    from app.modules.equipment.feishu.notification import send_user_card
+                    if wo_status == "执行中":
+                        await send_user_card(
+                            open_id=open_id,
+                            title=f"📋 工单 {wo_no}",
+                            receive_id_type="open_id",
+                            content=(
+                                f"**{wo_no}** · {opt.get('order_type', '')}\n"
+                                f"设备：{opt.get('equipment_name', '')}\n"
+                                f"状态：{wo_status}\n\n"
+                                f"发送「完成 {opt['index']} 描述」提交完成。"
+                            ),
+                        )
+                    else:
+                        await send_user_card(
+                            open_id=open_id,
+                            title=f"📋 工单 {wo_no}",
+                            receive_id_type="open_id",
+                            content=(
+                                f"**{wo_no}** · {opt.get('order_type', '')}\n"
+                                f"设备：{opt.get('equipment_name', '')}\n"
+                                f"状态：{wo_status}"
+                            ),
+                        )
+                return
+        except ValueError:
+            pass
+        await send_user_card(
+            open_id=open_id, title="💡 提示",
+            receive_id_type="open_id",
+            content="请输入有效数字选择，或回复「取消」放弃。",
+        )
+        return
+
+    # ── 1. 巡检路由 ──
+    _INSPECTION_COMMANDS = {
+        "开始", "开始巡检", "start",
+        "提交", "确认", "确认提交", "submit", "ok", "好的",
+        "跳过", "skip", "pass",
+        "进度", "状态", "progress", "status",
+        "继续", "下一台", "下一个", "next", "continue",
+        "取消", "放弃", "取消提交", "cancel", "abort",
+        "退出", "返回", "exit", "quit", "back",
+        "帮助", "help", "?", "？",
+        "修改", "修正",
+    }
 
     session = await get_session(open_id)
+    is_inspection_cmd = text in _INSPECTION_COMMANDS or text.startswith("修改") or text.startswith("修正")
 
-    if session:
-        if text in ("提交", "确认", "确认提交"):
-            from app.modules.equipment.service.inspection_feishu import (
-                submit_pending_results,
+    if session or is_inspection_cmd:
+        from app.modules.equipment.service.inspection_feishu import (
+            process_feishu_text,
+        )
+        await process_feishu_text(open_id, text, user_id=user_id)
+        return
+
+    # ── 2. 工单等功能 ──
+    from app.modules.equipment.feishu.notification import send_user_card
+
+    if text in ("帮助", "help", "?", "？"):
+        await send_user_card(
+            open_id=open_id,
+            title="🤖 设备助手使用说明",
+            receive_id_type="open_id",
+            content=(
+                "**巡检功能**\n"
+                "发送巡检照片可直接 AI 分析。\n"
+                "发送「开始」进入逐台引导巡检。\n\n"
+                "**工单功能**\n"
+                "发送「工单」或「我的工单」查看工单列表\n"
+                "发送「完成 工单号」提交完成执行中的工单\n"
+                "发送「完成 序号 描述」也可按序号完成\n\n"
+                "**示例**\n"
+                "`完成 WO-20260615-0001`\n"
+                "`完成 1 更换了密封圈`"
+            ),
+        )
+    elif text in ("工单", "我的工单"):
+        from app.modules.equipment.service.work_order_feishu import (
+            list_user_work_orders,
+        )
+        await list_user_work_orders(user_id=user_id, open_id=open_id)
+    elif text.startswith("完成"):
+        rest = text[2:].strip()
+        if not rest:
+            await send_user_card(
+                open_id=open_id, title="💡 提示",
+                receive_id_type="open_id",
+                content="请输入工单号或序号，例如：`完成 WO-20260615-0001` 或 `完成 1`",
             )
+            return
 
-            await submit_pending_results(open_id)
-        elif text in ("取消", "放弃", "取消提交"):
-            from app.modules.equipment.service.inspection_feishu import (
-                cancel_pending_session,
-            )
+        parts = rest.split(" ", 1)
+        first_arg = parts[0]
+        detail = parts[1] if len(parts) > 1 else None
 
-            await cancel_pending_session(open_id)
-        else:
-            from app.modules.equipment.service.inspection_feishu import (
-                process_correction,
-            )
+        # 尝试解析为数字索引（需要从 selection 缓存获取）
+        try:
+            idx = int(first_arg)
+            # 查找缓存的工单列表
+            wo_selection = await get_selection(open_id)
+            if wo_selection and wo_selection.get("select_type") == "work_order":
+                opts = wo_selection.get("options", [])
+                match = next((o for o in opts if o.get("index") == idx), None)
+                if match:
+                    first_arg = match.get("work_order_no", first_arg)
+        except ValueError:
+            pass
 
-            await process_correction(open_id, text)
+        from app.modules.equipment.service.work_order_feishu import (
+            complete_work_order_by_no,
+        )
+        await complete_work_order_by_no(
+            user_id=user_id, open_id=open_id,
+            work_order_no=first_arg, repair_detail=detail,
+        )
     else:
-        from app.modules.equipment.feishu.notification import send_user_card
-
-        if text in ("帮助", "help", "?", "？"):
-            await send_user_card(
-                open_id=open_id,
-                title="🤖 设备助手使用说明",
-                receive_id_type="open_id",
-                content=(
-                    "**巡检功能**\n"
-                    "直接发送巡检照片，系统自动 AI 分析。\n"
-                    "分析完成后回复「提交」保存结果。\n\n"
-                    "**工单功能**\n"
-                    "发送「工单」或「我的工单」查看您的工单列表\n"
-                    "发送「完成 工单号」提交完成执行中的工单\n"
-                    "发送「完成 工单号 描述」可同时填写维修过程\n\n"
-                    "**示例**\n"
-                    "`完成 WO-20260615-0001`\n"
-                    "`完成 WO-20260615-0001 更换了密封圈`"
-                ),
-            )
-        elif text in ("工单", "我的工单"):
-            from app.modules.equipment.service.work_order_feishu import (
-                list_user_work_orders,
-            )
-
-            await list_user_work_orders(user_id=user_id, open_id=open_id)
-        elif text.startswith("完成"):
-            rest = text[2:].strip()
-            if not rest:
-                await send_user_card(
-                    open_id=open_id,
-                    title="💡 提示",
-                    receive_id_type="open_id",
-                    content="请输入工单号，例如：`完成 WO-20260615-0001`",
-                )
-                return
-
-            parts = rest.split(" ", 1)
-            wo_no = parts[0]
-            detail = parts[1] if len(parts) > 1 else None
-
-            from app.modules.equipment.service.work_order_feishu import (
-                complete_work_order_by_no,
-            )
-
-            await complete_work_order_by_no(
-                user_id=user_id,
-                open_id=open_id,
-                work_order_no=wo_no,
-                repair_detail=detail,
-            )
-        else:
-            await send_user_card(
-                open_id=open_id,
-                title="💡 提示",
-                receive_id_type="open_id",
-                content=(
-                    "发送巡检照片可直接 AI 分析。\n"
-                    "发送「工单」查看您的工单。\n"
-                    "发送「帮助」查看完整使用说明。"
-                ),
-            )
+        await send_user_card(
+            open_id=open_id,
+            title="💡 提示",
+            receive_id_type="open_id",
+            content=(
+                "发送巡检照片可直接 AI 分析。\n"
+                "发送「开始」进入逐台引导巡检。\n"
+                "发送「工单」查看您的工单。\n"
+                "发送「帮助」查看完整使用说明。"
+            ),
+        )
 
 
 async def stop_equipment_ws() -> None:
