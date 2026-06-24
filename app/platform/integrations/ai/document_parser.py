@@ -1,9 +1,13 @@
 """Document text extraction for uploaded attachments.
 
 Supports PDF, DOCX, XLSX, TXT, and Markdown files.
+For scanned PDFs (image-only), uses OCR to extract text.
 """
 
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentParser:
@@ -32,15 +36,60 @@ class DocumentParser:
 
     @staticmethod
     def _extract_pdf(path: str) -> str:
+        """Extract text from PDF. Falls back to OCR for scanned PDFs."""
         from pypdf import PdfReader
 
         reader = PdfReader(path)
         parts: list[str] = []
+        
+        # First pass: try to extract text directly
         for page in reader.pages:
             t = page.extract_text()
             if t:
                 parts.append(t)
-        return "\n".join(parts)
+        
+        text = "\n".join(parts)
+        
+        # If no text extracted, this is likely a scanned PDF - use OCR
+        if len(text.strip()) < 100:  # Less than 100 chars means probably empty
+            logger.info(f"PDF appears to be scanned (extracted {len(text)} chars), attempting OCR...")
+            text = DocumentParser._extract_pdf_ocr(path, max_pages=10)
+        
+        return text
+
+    @staticmethod
+    def _extract_pdf_ocr(path: str, max_pages: int = 10) -> str:
+        """Extract text from scanned PDF using OCR.
+        
+        Args:
+            path: PDF file path
+            max_pages: Maximum pages to process (to avoid timeout)
+        """
+        try:
+            from pdf2image import convert_from_path
+            import pytesseract
+            
+            # Convert PDF to images with lower DPI for speed
+            # 150 DPI is a good balance between speed and accuracy
+            images = convert_from_path(path, dpi=150, first_page=1, last_page=max_pages)
+            parts: list[str] = []
+            
+            logger.info(f"OCR processing {len(images)} pages...")
+            
+            for i, image in enumerate(images):
+                # Use Chinese + English for OCR
+                text = pytesseract.image_to_string(image, lang='chi_sim+eng')
+                if text.strip():
+                    parts.append(f"--- Page {i+1} ---\n{text.strip()}")
+            
+            if not parts:
+                return "[OCR未能提取到文本内容]"
+            
+            return "\n\n".join(parts)
+            
+        except Exception as e:
+            logger.error(f"OCR extraction failed: {e}")
+            return f"[OCR提取失败: {str(e)}]"
 
     @staticmethod
     def _extract_docx(path: str) -> str:

@@ -20,11 +20,15 @@ from app.modules.registration.service.holiday import (
     get_holidays,
     update_holiday,
 )
+from app.modules.registration.service.validation_audit import (
+    ValidationAuditService,
+)
 
 __all__ = [
     "AuthorizationLetterService",
     "ReferenceStandardService",
     "SupplementaryReplyService",
+    "ValidationAuditService",
     "create_drug",
     "create_holiday",
     "delete_drug",

@@ -87,8 +87,11 @@ class DossierService:
         await self.init_chapter_ai_config("3.2.S.6")
         
         await self.db.commit()
-        await self.db.refresh(dossier)
-        return dossier
+        dossier_id = dossier.id
+        result = await self.db.execute(
+            select(ProductDossier).where(ProductDossier.id == dossier_id)
+        )
+        return result.scalar_one()
 
     async def get_product_dossier(self, dossier_id: UUID) -> Optional[ProductDossier]:
         """获取品种资料详情"""
