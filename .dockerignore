@@ -8,8 +8,6 @@ __pycache__
 .ruff_cache
 storage/
 uploads/
-edboplus-main/
-edbo_service/
 .git
 .gitignore
 *.md
