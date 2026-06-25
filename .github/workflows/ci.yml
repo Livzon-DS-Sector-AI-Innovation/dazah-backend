@@ -52,6 +52,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dazah_ci
+      FEISHU_APP_ID: ci_dummy_app_id
+      FEISHU_APP_SECRET: ci_dummy_app_secret
+      FEISHU_REDIRECT_URI: http://localhost:3000/callback
+      FRONTEND_URL: http://localhost:3000
+
     steps:
       - uses: actions/checkout@v4
 
@@ -67,13 +74,9 @@ jobs:
           uv sync
 
       - name: Apply all migrations to empty database
-        env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dazah_ci
         run: uv run alembic upgrade head
 
       - name: Check for model/migration drift
-        env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dazah_ci
         run: |
           if ! uv run alembic check 2>&1 | tee /tmp/alembic-check.log; then
             echo ""
