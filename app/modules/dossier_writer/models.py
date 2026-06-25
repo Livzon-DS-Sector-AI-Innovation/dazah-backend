@@ -2,7 +2,8 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Boolean, Integer, Text, DateTime, ForeignKey
+from sqlalchemy import String, Boolean, Integer, Text, DateTime, ForeignKey, text
+import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.base_model import BaseModel
@@ -86,7 +87,7 @@ class DossierTemplate(BaseModel):
         Integer, nullable=True, comment="文件大小(字节)"
     )
     uploaded_at = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()", comment="上传时间"
+        DateTime(timezone=True), nullable=False, server_default=text("now()"), comment="上传时间"
     )
     uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True, comment="上传人"
@@ -182,7 +183,7 @@ class ChapterAsset(BaseModel):
         Integer, nullable=True, comment="文件大小(字节)"
     )
     uploaded_at = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()", comment="上传时间"
+        DateTime(timezone=True), nullable=False, server_default=text("now()"), comment="上传时间"
     )
     uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True, comment="上传人"

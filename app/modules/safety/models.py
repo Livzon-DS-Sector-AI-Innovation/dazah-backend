@@ -1922,3 +1922,117 @@ class ScheduledTaskLog(BaseModel):
     duration_ms: Mapped[int | None] = mapped_column(
         Integer, nullable=True, comment="执行耗时（毫秒）"
     )
+
+
+class ApiCallConfig(BaseModel):
+    """API调用配置表"""
+
+    __tablename__ = "api_call_configs"
+    __table_args__ = {"schema": "safety"}
+
+    config_name: Mapped[str] = mapped_column(
+        String(128), nullable=False, comment="配置名称"
+    )
+    api_base_url: Mapped[str] = mapped_column(
+        String(500), nullable=False, comment="API基础URL"
+    )
+    api_key: Mapped[str] = mapped_column(
+        String(500), nullable=False, comment="API密钥"
+    )
+    model_name: Mapped[str] = mapped_column(
+        String(128), nullable=False, comment="模型名称"
+    )
+    temperature: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default="0.1", comment="温度参数"
+    )
+    timeout_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="120", comment="超时秒数"
+    )
+    max_tokens: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="最大Token数"
+    )
+    extra_config: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="额外配置JSON"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", comment="是否激活"
+    )
+    notes: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="备注"
+    )
+
+
+class HazardRevisionArchive(BaseModel):
+    """危害修订归档表"""
+
+    __tablename__ = "hazard_revision_archives"
+    __table_args__ = {"schema": "safety"}
+
+    regulation_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, comment="法规名称"
+    )
+    hazard_document_path: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="危害文档路径"
+    )
+    hazard_document_original_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="危害文档原始名称"
+    )
+    identification_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, comment="识别日期"
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="active", comment="状态"
+    )
+    notes: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="备注"
+    )
+
+
+class HazardRevisionRecord(BaseModel):
+    """危害修订记录表"""
+
+    __tablename__ = "hazard_revision_records"
+    __table_args__ = {"schema": "safety"}
+
+    hazard_revision_no: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="危害修订编号"
+    )
+    regulation_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, comment="法规修订ID"
+    )
+    regulation_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, comment="法规名称"
+    )
+    identifier_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, comment="识别器ID"
+    )
+    identifier_name: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="识别器名称"
+    )
+    identification_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, comment="识别时间"
+    )
+    identification_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="auto_trigger", comment="识别类型"
+    )
+    process_change_content: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="工艺变更内容"
+    )
+    identification_scope: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, comment="识别范围"
+    )
+    review_opinion: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="pending", comment="审查意见"
+    )
+    hazard_document_path: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="危害文档路径"
+    )
+    hazard_document_original_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="危害文档原始名称"
+    )
+    linked_hazard_archive_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, comment="关联的危害归档ID"
+    )
+    notes: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="备注"
+    )
