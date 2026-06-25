@@ -676,9 +676,9 @@ async def analyze_literature(
             elif filename.endswith('.pdf'):
                 # 进度 20%: 解析 PDF
                 yield f"data: {json.dumps({'progress': 20, 'status': 'extracting', 'message': '正在提取 PDF 文本...'})}\n\n"
-                import PyPDF2
+                from pypdf import PdfReader
                 import io
-                reader = PyPDF2.PdfReader(io.BytesIO(content))
+                reader = PdfReader(io.BytesIO(content))
                 for page in reader.pages:
                     text += page.extract_text() + "\n"
             elif filename.endswith('.docx'):
