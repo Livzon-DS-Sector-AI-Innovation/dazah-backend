@@ -3,8 +3,11 @@ from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
+from app.shared.module_registry import BUSINESS_SCHEMAS
 
 settings = get_settings()
+
+_search_path = "public,identity,core," + ",".join(BUSINESS_SCHEMAS)
 
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -12,6 +15,7 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    connect_args={"server_settings": {"search_path": _search_path}},
 )
 
 async_session_factory = async_sessionmaker(

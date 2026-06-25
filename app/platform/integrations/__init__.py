@@ -1,1 +1,1 @@
-"""External integration adapters for Feishu, ERP, LIMS and future systems."""
+"""External integration adapters for Feishu and future systems."""

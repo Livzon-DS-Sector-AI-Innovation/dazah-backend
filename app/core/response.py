@@ -17,7 +17,7 @@ def success_response(
 
 def error_response(
     message: str = "请求错误",
-    detail: str | None = None,
+    detail: Any = None,
     status_code: int = 400,
 ) -> JSONResponse:
     body: dict[str, Any] = {

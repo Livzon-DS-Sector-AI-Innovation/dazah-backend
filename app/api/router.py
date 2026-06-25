@@ -6,16 +6,19 @@ from app.modules.environment import router as environment_router
 from app.modules.equipment import router as equipment_router
 from app.modules.hr import router as hr_router
 from app.modules.procurement import router as procurement_router
+from app.modules.product import router as product_router
 from app.modules.production import router as production_router
 from app.modules.quality import router as quality_router
 from app.modules.registration import router as registration_router
 from app.modules.research import router as research_router
 from app.modules.safety import router as safety_router
 from app.modules.warehouse import router as warehouse_router
+from app.platform.ai import router as ai_router
 from app.platform.system import router as system_router
 
 api_router = APIRouter()
 
+api_router.include_router(ai_router, prefix="/ai", tags=["AI助手"])
 api_router.include_router(system_router, prefix="/system", tags=["系统"])
 api_router.include_router(production_router, prefix="/production", tags=["生产管理"])
 api_router.include_router(equipment_router, prefix="/equipment", tags=["设备管理"])
@@ -37,3 +40,4 @@ api_router.include_router(
     tags=["注册管理"],
 )
 api_router.include_router(quality_router, prefix="/quality", tags=["质量管理"])
+api_router.include_router(product_router, prefix="/product", tags=["产品信息"])

@@ -1,7 +1,10 @@
 """Work order service: state machine, business logic."""
 
+import asyncio
+import logging
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,16 +15,18 @@ from app.modules.equipment.models import WorkOrder
 from app.modules.equipment.schemas import (
     WorkOrderComplete,
     WorkOrderCreate,
+    WorkOrderUpdate,
     WorkOrderVerify,
 )
 
+logger = logging.getLogger(__name__)
+
 _MAX_RETRIES = 3
 
-VALID_TRANSITIONS: dict[str, list[str]] = {
-    "待处理": ["已指派"],
-    "已指派": ["维修中"],
-    "维修中": ["待验收"],
-    "待验收": ["已完成", "维修中"],
+_VALID_TRANSITIONS: dict[str, list[str]] = {
+    "待处理": ["执行中", "已关闭"],
+    "执行中": ["待验收", "已完成", "已关闭"],
+    "待验收": ["已完成", "执行中", "已关闭"],
     "已完成": ["已关闭"],
     "已关闭": [],
 }
@@ -41,7 +46,7 @@ async def generate_work_order_no(db: AsyncSession) -> str:
 
 def _validate_transition(current: str, target: str) -> None:
     """校验状态转换是否合法"""
-    allowed = VALID_TRANSITIONS.get(current, [])
+    allowed = _VALID_TRANSITIONS.get(current, [])
     if target not in allowed:
         raise AppException(
             message=f"状态不允许从 '{current}' 转换到 '{target}'"
@@ -101,7 +106,8 @@ async def create_work_order(
             work_order = await repo.create_work_order(db, wo_data)
             # 设备状态改为维修中
             await _update_equipment_status(db, data.equipment_id, "维修中")
-            return work_order
+            # eager re-fetch，避免返回对象触发懒加载 MissingGreenlet
+            return await repo.get_work_order_by_id(db, work_order.id)
         except IntegrityError:
             if attempt < _MAX_RETRIES - 1:
                 await db.rollback()
@@ -111,18 +117,36 @@ async def create_work_order(
     raise AppException(message="工单号生成失败，请重试")
 
 
+async def update_work_order(
+    db: AsyncSession,
+    work_order_id: uuid.UUID,
+    data: WorkOrderUpdate,
+) -> WorkOrder:
+    """更新工单信息"""
+    wo = await _get_work_order(db, work_order_id)
+
+    update_data = data.model_dump(exclude_unset=True)
+    if not update_data:
+        raise AppException(message="没有需要更新的字段")
+
+    for field, value in update_data.items():
+        setattr(wo, field, value)
+
+    await db.flush()
+    await db.refresh(wo)
+    return wo
+
+
 async def assign_work_order(
     db: AsyncSession,
     work_order_id: uuid.UUID,
     assignee_id: uuid.UUID,
 ) -> WorkOrder:
-    """指派维修人"""
+    """指派维修人（不改变工单状态，仅记录指派人）"""
     wo = await _get_work_order(db, work_order_id)
-    _validate_transition(wo.status, "已指派")
 
     wo.assignee_id = assignee_id
     wo.assigned_at = datetime.now(UTC)
-    wo.status = "已指派"
     await db.flush()
     await db.refresh(wo)
     return wo
@@ -132,11 +156,11 @@ async def start_work_order(
     db: AsyncSession,
     work_order_id: uuid.UUID,
 ) -> WorkOrder:
-    """开始维修"""
+    """开始执行"""
     wo = await _get_work_order(db, work_order_id)
-    _validate_transition(wo.status, "维修中")
+    _validate_transition(wo.status, "执行中")
 
-    wo.status = "维修中"
+    wo.status = "执行中"
     wo.started_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(wo)
@@ -150,10 +174,13 @@ async def complete_work_order(
 ) -> WorkOrder:
     """提交完成"""
     wo = await _get_work_order(db, work_order_id)
-    _validate_transition(wo.status, "待验收")
+
+    is_repair = wo.order_type in ("故障维修", "校准", "异常处理")
+    target = "待验收" if is_repair else "已完成"
+    _validate_transition(wo.status, target)
 
     now = datetime.now(UTC)
-    wo.status = "待验收"
+    wo.status = target
     wo.completed_at = now
     wo.repair_detail = data.repair_detail
 
@@ -163,8 +190,102 @@ async def complete_work_order(
         wo.actual_duration = int(delta.total_seconds() / 60)
 
     await db.flush()
-    await db.refresh(wo)
-    return wo
+
+    # 计划维护工单完成时，联动更新维护计划日期
+    if wo.order_type == "计划维护" and wo.maintenance_plan_id:
+        await _update_maintenance_plan_on_completion(
+            db, wo.maintenance_plan_id
+        )
+
+    # 待验收时，飞书通知责任人确认验收
+    if target == "待验收":
+        responsible = wo.responsible_person
+        equipment = wo.equipment
+        feishu_uid = (
+            getattr(responsible, "feishu_user_id", None)
+            if responsible else None
+        )
+        if feishu_uid:
+            asyncio.ensure_future(_notify_verification(
+                feishu_user_id=feishu_uid,
+                work_order_no=wo.work_order_no,
+                equipment_name=equipment.name if equipment else "",
+                assignee_name=wo.assignee.name if wo.assignee else "",
+                priority=wo.priority,
+            ))
+
+    return await repo.get_work_order_by_id(db, wo.id)
+
+
+async def _update_maintenance_plan_on_completion(
+    db: AsyncSession,
+    maintenance_plan_id: uuid.UUID,
+) -> None:
+    """计划维护工单完成时，自动推进维护计划的日期。"""
+    from datetime import date as date_type
+
+    from app.modules.equipment.service.maintenance_plan import (
+        _calculate_next_maintenance_date,
+    )
+
+    plan = await repo.get_maintenance_plan_by_id(db, maintenance_plan_id)
+    if not plan:
+        return
+
+    today = date_type.today()
+    plan.last_maintenance_date = today
+    plan.next_maintenance_date = _calculate_next_maintenance_date(
+        today, plan.frequency, plan.frequency_unit
+    )
+    # last_generated_date 保持旧值，让 scheduler 下个周期自然触发
+    await db.flush()
+
+
+async def _notify_verification(
+    feishu_user_id: str,
+    work_order_no: str,
+    equipment_name: str,
+    assignee_name: str,
+    priority: str,
+) -> None:
+    """工单进入待验收时，飞书通知责任人确认验收。
+
+    非关键路径：发送失败只记日志，不影响主流程。
+    """
+    try:
+        from app.modules.equipment.feishu.notification import send_user_card
+
+        title = f"🔔 工单待验收 - {work_order_no}"
+        lines = [
+            f"**工单编号：**{work_order_no}",
+            f"**关联设备：**{equipment_name}",
+            f"**优先级：**{priority}",
+        ]
+        if assignee_name:
+            lines.append(f"**维修人员：**{assignee_name}")
+        lines.extend([
+            "",
+            "维修已完成，请及时确认验收。",
+        ])
+        content = "\n".join(lines)
+
+        ok = await send_user_card(
+            open_id=feishu_user_id,
+            title=title,
+            content=content,
+        )
+        if ok:
+            logger.info(
+                "验收通知已发送: %s -> %s", work_order_no, feishu_user_id,
+            )
+        else:
+            logger.warning(
+                "验收通知发送失败: %s -> %s", work_order_no, feishu_user_id,
+            )
+    except Exception:
+        logger.exception(
+            "验收通知异常: %s -> %s", work_order_no, feishu_user_id,
+        )
 
 
 async def verify_work_order(
@@ -175,6 +296,8 @@ async def verify_work_order(
 ) -> WorkOrder:
     """验收工单"""
     wo = await _get_work_order(db, work_order_id)
+    if wo.order_type not in ("故障维修", "校准", "异常处理"):
+        raise AppException(message=f"工单类型 '{wo.order_type}' 不支持验收")
 
     wo.verified_by = verifier_id
     wo.verified_at = datetime.now(UTC)
@@ -186,8 +309,8 @@ async def verify_work_order(
         wo.status = "已完成"
     else:
         # 打回重修
-        _validate_transition(wo.status, "维修中")
-        wo.status = "维修中"
+        _validate_transition(wo.status, "执行中")
+        wo.status = "执行中"
         wo.started_at = None
         wo.completed_at = None
         wo.actual_duration = None
@@ -248,3 +371,80 @@ async def get_work_order_by_id(
 ) -> WorkOrder:
     """获取工单"""
     return await _get_work_order(db, work_order_id)
+
+
+async def claim_work_order(
+    db: AsyncSession,
+    work_order_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> WorkOrder:
+    """维修人员自主抢单（不改变工单状态，仅记录指派人）"""
+    wo = await _get_work_order(db, work_order_id)
+
+    if wo.status != "待处理":
+        raise AppException(message="该工单已不可抢单")
+    if wo.assignee_id is not None:
+        raise AppException(message="该工单已被其他人接单")
+
+    wo.assignee_id = user_id
+    wo.assigned_at = datetime.now(UTC)
+    await db.flush()
+    await db.refresh(wo)
+    return wo
+
+
+async def consume_materials(
+    db: AsyncSession,
+    work_order_id: uuid.UUID,
+    items: list[dict[str, Any]],
+) -> list[Any]:
+    """工单领料"""
+    wo = await _get_work_order(db, work_order_id)
+
+    if wo.status in ("已完成", "已关闭"):
+        raise AppException(message="工单已完成或已关闭，不能领料")
+
+    from app.modules.equipment.service.spare_part import (
+        get_spare_part_by_id,
+        get_stock_by_spare_part_id,
+        outbound_stock,
+    )
+
+    total_cost = 0.0
+    transactions = []
+
+    for item in items:
+        spare_part = await get_spare_part_by_id(db, item["spare_part_id"])
+        stock = await get_stock_by_spare_part_id(db, item["spare_part_id"])
+
+        if not stock or stock.current_qty < item["quantity"]:
+            raise AppException(
+                message=f"备件 '{spare_part.name}' 库存不足"
+            )
+
+        # 扣减库存
+        await outbound_stock(db, item["spare_part_id"], item["quantity"])
+
+        # 创建流水记录
+        transaction = await repo.create_material_consumption(
+            db,
+            {
+                "spare_part_id": item["spare_part_id"],
+                "work_order_id": work_order_id,
+                "transaction_type": "出库",
+                "quantity": -item["quantity"],
+                "remark": f"工单 {wo.work_order_no} 领料",
+            },
+        )
+        transactions.append(transaction)
+
+        # 累加费用
+        if spare_part.unit_price:
+            total_cost += spare_part.unit_price * item["quantity"]
+
+    # 更新工单备件费用
+    current_cost = wo.spare_parts_cost or 0.0
+    wo.spare_parts_cost = current_cost + total_cost
+    await db.flush()
+
+    return transactions

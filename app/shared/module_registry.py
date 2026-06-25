@@ -92,7 +92,7 @@ BUSINESS_MODULES: tuple[ModuleDefinition, ...] = (
         path="/hr",
         db_schema="hr",
         owner_hint="人事负责人",
-        description="人员、岗位、培训、考勤等人事业务数据入口。",
+        description="人员、岗位、培训等人事业务数据入口。",
     ),
     ModuleDefinition(
         code="research",
@@ -117,6 +117,14 @@ BUSINESS_MODULES: tuple[ModuleDefinition, ...] = (
         db_schema="quality",
         owner_hint="QA/QC 负责人",
         description="偏差、CAPA、检验、放行、变更和质量体系数据入口。",
+    ),
+    ModuleDefinition(
+        code="product",
+        name="产品信息",
+        path="/product",
+        db_schema="product",
+        owner_hint="生产/研发负责人",
+        description="产品台账、规格、工艺路线、BOM 和状态数据入口。",
     ),
 )
 

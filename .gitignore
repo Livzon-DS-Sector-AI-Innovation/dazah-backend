@@ -28,3 +28,9 @@ Thumbs.db
 *.swo
 
 docs/superpowers
+
+# runtime / uploads
+.backend.pid
+.frontend.pid
+uploads/
+backups/

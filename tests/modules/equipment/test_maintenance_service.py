@@ -243,12 +243,12 @@ async def test_work_order_lifecycle(
 
     # 指派
     wo = await assign_work_order(db_session, wo.id, assignee.id)
-    assert wo.status == "已指派"
+    assert wo.status == "待处理"
     assert wo.assignee_id == assignee.id
 
     # 开始
     wo = await start_work_order(db_session, wo.id)
-    assert wo.status == "维修中"
+    assert wo.status == "执行中"
     assert wo.started_at is not None
 
     # 完成
@@ -297,7 +297,7 @@ async def test_work_order_verify_reject(
         verifier.id,
         WorkOrderVerify(result="不合格", remark="问题未解决"),
     )
-    assert wo.status == "维修中"
+    assert wo.status == "执行中"
     assert wo.verification_result == "不合格"
 
 
@@ -428,3 +428,89 @@ async def test_get_calibration_record_not_found(
     """测试获取不存在的校准记录抛出异常"""
     with pytest.raises(NotFoundException):
         await get_calibration_record_by_id(db_session, uuid.uuid4())
+
+
+async def test_maintenance_work_order_lifecycle(
+    db_session: AsyncSession,
+    sample_equipment: Equipment,
+    sample_user: User,
+) -> None:
+    """测试计划维护工单生命周期：创建 → 指派 → 执行 → 完成 → 关闭"""
+    assignee = User(name="维护员", employee_no="EMP-MAINT-001")
+    db_session.add(assignee)
+    await db_session.flush()
+
+    # 创建
+    data = WorkOrderCreate(
+        equipment_id=sample_equipment.id,
+        order_type="计划维护",
+        planned_start_date=date(2026, 6, 10),
+    )
+    wo = await create_work_order(db_session, data, sample_user.id)
+    assert wo.status == "待处理"
+
+    # 指派
+    wo = await assign_work_order(db_session, wo.id, assignee.id)
+    assert wo.status == "待处理"
+
+    # 开始执行
+    wo = await start_work_order(db_session, wo.id)
+    assert wo.status == "执行中"
+
+    # 完成（跳过验收）
+    wo = await complete_work_order(
+        db_session, wo.id, WorkOrderComplete(repair_detail="更换润滑油，检查密封")
+    )
+    assert wo.status == "已完成"
+
+    # 关闭
+    wo = await close_work_order(db_session, wo.id)
+    assert wo.status == "已关闭"
+
+
+async def test_inspection_work_order_lifecycle(
+    db_session: AsyncSession,
+    sample_equipment: Equipment,
+    sample_user: User,
+) -> None:
+    """测试巡检工单生命周期"""
+    data = WorkOrderCreate(
+        equipment_id=sample_equipment.id,
+        order_type="巡检",
+    )
+    wo = await create_work_order(db_session, data, sample_user.id)
+    assert wo.status == "待处理"
+
+    wo = await start_work_order(db_session, wo.id)
+    assert wo.status == "执行中"
+
+    wo = await complete_work_order(
+        db_session, wo.id, WorkOrderComplete(repair_detail="巡检完成")
+    )
+    assert wo.status == "已完成"
+
+
+async def test_verify_not_allowed_for_maintenance(
+    db_session: AsyncSession,
+    sample_equipment: Equipment,
+    sample_user: User,
+) -> None:
+    """测试计划维护工单不能验收"""
+    verifier = User(name="验收员", employee_no="EMP-VERIFY-001")
+    db_session.add(verifier)
+    await db_session.flush()
+
+    data = WorkOrderCreate(
+        equipment_id=sample_equipment.id,
+        order_type="计划维护",
+    )
+    wo = await create_work_order(db_session, data, sample_user.id)
+    wo = await start_work_order(db_session, wo.id)
+    wo = await complete_work_order(
+        db_session, wo.id, WorkOrderComplete(repair_detail="维护完成")
+    )
+
+    with pytest.raises(AppException):
+        await verify_work_order(
+            db_session, wo.id, verifier.id, WorkOrderVerify(result="合格")
+        )

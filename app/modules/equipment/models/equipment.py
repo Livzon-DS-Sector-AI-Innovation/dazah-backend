@@ -3,7 +3,15 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.base_model import BaseModel
@@ -85,6 +93,34 @@ class Location(BaseModel):
     )
 
 
+class EquipmentCategoryLink(BaseModel):
+    """设备-分类多对多关联表"""
+
+    __tablename__ = "equipment_category_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "equipment_id", "category_id",
+            name="uq_equipment_category_links",
+        ),
+        {"schema": "equipment"},
+    )
+
+    equipment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("equipment.equipments.id"),
+        comment="设备ID",
+    )
+    category_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("equipment.equipment_categories.id"),
+        comment="分类ID",
+    )
+
+    # 关系
+    equipment: Mapped["Equipment"] = relationship(
+        "Equipment", back_populates="category_links"
+    )
+    category: Mapped["EquipmentCategory"] = relationship("EquipmentCategory")
+
+
 class Equipment(BaseModel):
     """设备主表"""
 
@@ -97,6 +133,10 @@ class Equipment(BaseModel):
             "status IN ('在用', '备用', '维修中', '停用', '报废')",
             name="ck_equipments_status",
         ),
+        CheckConstraint(
+            "importance IN ('高', '中', '低')",
+            name="ck_equipments_importance",
+        ),
         {"schema": "equipment"},
     )
 
@@ -105,10 +145,6 @@ class Equipment(BaseModel):
     )
     name: Mapped[str] = mapped_column(
         String(200), comment="设备名称"
-    )
-    category_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("equipment.equipment_categories.id"),
-        comment="设备分类",
     )
     location_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("equipment.locations.id"),
@@ -140,9 +176,34 @@ class Equipment(BaseModel):
     description: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="设备描述"
     )
+    importance: Mapped[str] = mapped_column(
+        String(10),
+        default="低",
+        comment="设备重要性：高/中/低",
+    )
+    warranty_expire_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="保修到期日"
+    )
+    asset_value: Mapped[float | None] = mapped_column(
+        nullable=True, comment="资产原值（元）"
+    )
+    depreciation_years: Mapped[int | None] = mapped_column(
+        nullable=True, comment="折旧年限"
+    )
+    technical_params: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="技术参数（JSON）"
+    )
+    department_id: Mapped[uuid.UUID | None] = mapped_column(
+        nullable=True, comment="归属部门ID，逻辑引用 identity.departments.id"
+    )
+    responsible_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        nullable=True, comment="负责人ID，逻辑引用 identity.users.id；未设置时由部门负责人推导"
+    )
 
     # 关系
-    category: Mapped["EquipmentCategory"] = relationship(
-        "EquipmentCategory"
+    category_links: Mapped[list["EquipmentCategoryLink"]] = relationship(
+        "EquipmentCategoryLink",
+        back_populates="equipment",
+        lazy="selectin",
     )
     location: Mapped["Location"] = relationship("Location")

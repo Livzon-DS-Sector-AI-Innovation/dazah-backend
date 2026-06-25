@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import HTTPException, status
 
 
@@ -6,7 +8,7 @@ class AppException(HTTPException):
         self,
         status_code: int = status.HTTP_400_BAD_REQUEST,
         message: str = "请求错误",
-        detail: str | None = None,
+        detail: Any = None,
     ) -> None:
         self.message = message
         self.detail_msg = detail
