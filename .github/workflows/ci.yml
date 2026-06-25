@@ -5,6 +5,7 @@ on:
     branches: [main, dev/livzon-syntpharm]
   pull_request:
     branches: [main, dev/livzon-syntpharm]
+  workflow_dispatch:
 
 jobs:
   openapi-check:
