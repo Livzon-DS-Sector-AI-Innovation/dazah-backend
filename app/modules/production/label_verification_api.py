@@ -182,7 +182,7 @@ async def analyze_label_verification_video(
     import os
     from app.core.config import get_settings
     from app.modules.production.label_verification_video_service import LabelVerificationVideoService
-    from app.platform.integrations.ai.client import AIService, AIOutputError
+    from app.core.llm import llm_client, LLMOutputError
 
     settings = get_settings()
     video_path = os.path.join(settings.UPLOAD_DIR, file_key)
@@ -199,34 +199,10 @@ async def analyze_label_verification_video(
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="无法从视频中提取帧")
 
-    # 获取 AI 视觉服务
-    try:
-        config = await service.session.execute(
-            __import__('sqlalchemy', fromlist=['select']).select(
-                __import__('app.modules.safety.models', fromlist=['ApiCallConfig']).ApiCallConfig
-            ).where(
-                __import__('app.modules.safety.models', fromlist=['ApiCallConfig']).ApiCallConfig.config_type == "vision",
-                __import__('app.modules.safety.models', fromlist=['ApiCallConfig']).ApiCallConfig.is_active == True,
-            ).limit(1)
-        )
-        ai_config = config.scalar_one_or_none()
+    # 使用统一的 LLM 客户端（视觉模型）
 
-        if not ai_config:
-            # 使用默认配置
-            ai_service = AIService(
-                api_key=os.getenv("AI_API_KEY", ""),
-                base_url=os.getenv("AI_BASE_URL", "https://api.openai.com/v1"),
-                model=os.getenv("AI_VISION_MODEL", "gpt-4o"),
-            )
-        else:
-            ai_service = AIService(
-                api_key=ai_config.api_key,
-                base_url=ai_config.api_base_url,
-                model=ai_config.model_name,
-            )
-
-        # 构建提示词
-        prompt = """请仔细分析这张图片中的标签信息，提取以下内容并以 JSON 格式返回：
+    # 构建提示词
+    prompt = """请仔细分析这张图片中的标签信息，提取以下内容并以 JSON 格式返回：
 {
   "batch_number": "批号",
   "product_name": "产品名称",
@@ -244,27 +220,27 @@ async def analyze_label_verification_video(
 
 如果某些信息无法识别，请将其设为 null。请确保返回有效的 JSON。"""
 
-        # 使用第一帧和最后一帧进行分析
-        images_to_analyze = [frames[0]]
-        if len(frames) > 1:
-            images_to_analyze.append(frames[-1])
+    # 使用第一帧和最后一帧进行分析
+    images_to_analyze = [frames[0]]
+    if len(frames) > 1:
+        images_to_analyze.append(frames[-1])
 
-        result = await ai_service.chat_vision(prompt, images_to_analyze)
+    result = await llm_client.chat_vision(prompt, images_to_analyze)
 
-        # 解析 JSON 结果
-        import json
-        try:
-            # 清理可能的 markdown 格式
-            cleaned = result.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            cleaned = cleaned.strip()
+    # 解析 JSON 结果
+    import json
+    try:
+        # 清理可能的 markdown 格式
+        cleaned = result.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
 
-            ai_result = json.loads(cleaned)
-        except json.JSONDecodeError:
-            ai_result = {"raw_response": result, "error": "JSON 解析失败"}
+        ai_result = json.loads(cleaned)
+    except json.JSONDecodeError:
+        ai_result = {"raw_response": result, "error": "JSON 解析失败"}
 
         return {
             "code": 200,
@@ -320,7 +296,7 @@ async def auto_compare_video(
     from app.modules.production.label_verification_video_service import (
         LabelVerificationVideoService,
     )
-    from app.platform.integrations.ai.client import AIService
+    from app.core.llm import llm_client
 
     settings = get_settings()
 
@@ -355,19 +331,7 @@ async def auto_compare_video(
     ai_base_url = os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
     ai_vision_model = os.getenv("AI_VISION_MODEL", "gpt-4o")
 
-    if not ai_api_key:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=500,
-            detail="未配置 AI_API_KEY，无法进行视频分析",
-        )
-
-    ai_service = AIService(
-        api_key=ai_api_key,
-        base_url=ai_base_url,
-        model=ai_vision_model,
-        timeout=180,  # 视频分析可能较慢
-    )
+    # 使用统一的 LLM 客户端（视觉模型）
 
     # 执行自动对比
     video_service = LabelVerificationVideoService(settings.UPLOAD_DIR)
@@ -377,13 +341,11 @@ async def auto_compare_video(
             video_path=video_path,
             form_data=form_data,
             ai_service=ai_service,
-        )
+    )
     except Exception as e:
         logger.error(f"自动对比失败: {e}")
         from fastapi import HTTPException
         raise HTTPException(status_code=500, detail=f"视频分析失败: {str(e)}")
-    finally:
-        await ai_service.close()
 
     return success_response(
         data=result,

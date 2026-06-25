@@ -27,6 +27,8 @@
 
 from __future__ import annotations
 
+from app.core.llm import llm_client
+
 import json as _json
 import logging
 import time
@@ -68,12 +70,10 @@ class AIHazardIdentifier:
     - 完整的日志记录用于审计
 
     Args:
-        ai_service: AI 服务实例（已配置 API key / base_url / model）
         config: 插件运行时配置（可选，使用默认值）
 
     Example:
-        >>> ai_service = AIService(api_key="sk-xxx", model="deepseek-v4-flash")
-        >>> plugin = AIHazardIdentifier(ai_service)
+        >>> plugin = AIHazardIdentifier()
         >>> output = await plugin.identify(HazardIdentificationInput(
         ...     description="防爆电箱堵头缺失",
         ...     department="生产部",
@@ -82,10 +82,8 @@ class AIHazardIdentifier:
 
     def __init__(
         self,
-        ai_service: Any,  # AIService from app.platform.integrations.ai.client
         config: PluginConfig | None = None,
     ):
-        self.ai_service = ai_service
         self.config = config or PluginConfig()
         self.rule_engine = RuleEngine()
 
@@ -200,7 +198,7 @@ class AIHazardIdentifier:
         ]
 
         try:
-            return await self.ai_service.chat_parsed(
+            return await llm_client.chat_json(
                 messages=messages,
                 expected_keys=expected_keys,
                 temperature=self.config.temperature,
@@ -223,7 +221,7 @@ class AIHazardIdentifier:
         try:
             # 检查 AI 服务是否支持 vision
             if hasattr(self.ai_service, "chat_vision_parsed"):
-                return await self.ai_service.chat_vision_parsed(
+                return await llm_client.chat_vision_json(
                     text_prompt=build_full_prompt(
                         context, vision_mode=True, include_fewshot=True
                     ),

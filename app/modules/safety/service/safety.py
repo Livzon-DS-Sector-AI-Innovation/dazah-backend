@@ -39,7 +39,7 @@ from app.modules.safety.schemas import (
     TrainingRecordCreate,
     TrainingRecordUpdate,
 )
-from app.platform.integrations.ai.client import AIOutputError, AIService
+from app.core.llm import llm_client, LLMOutputError, LLMProviderError
 from app.platform.integrations.ai.document_parser import DocumentParser
 from app.platform.integrations.ai.prompts import (
     SCRIPT_CONFIG,
@@ -532,11 +532,6 @@ class SafetyService:
             defect_photos=image_urls,
         )
 
-        # 根据是否有图片选择 AI 服务
-        if image_urls:
-            ai_service = await self._get_vision_ai_service()
-        else:
-            ai_service = await self._get_ai_service()
 
         try:
             config = PluginConfig(
@@ -544,7 +539,7 @@ class SafetyService:
                 strict_mode=False,   # 非严格模式：验证警告不阻塞流程
                 enable_vision=bool(image_urls),
             )
-            plugin = AIHazardIdentifier(ai_service, config)
+            plugin = AIHazardIdentifier(config)
             output = await plugin.identify(input_data)
 
             # 转换为 dict 供 _map_hazard_ai_output() 使用
@@ -563,9 +558,7 @@ class SafetyService:
             }
         except Exception as e:
             logger.error("AI 隐患识别插件执行失败: %s", e)
-            raise AIOutputError(f"AI 隐患识别失败: {e}") from e
-        finally:
-            await ai_service.close()
+            raise LLMOutputError(f"AI 隐患识别失败: {e}") from e
 
     def _parse_defect_photo_urls(self, defect_photos: str) -> list[str]:
         """从 defect_photos JSON 字段提取图片，本地路径转 base64 data URI。"""
@@ -622,16 +615,6 @@ class SafetyService:
 
     # ── AI 服务工厂 ──
 
-    async def _get_ai_service(self) -> "AIService":
-        """获取文本模型 AIService（硬编码配置）"""
-        from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("text")
-
-    async def _get_vision_ai_service(self) -> "AIService":
-        """获取视觉模型 AIService（硬编码配置）"""
-        from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("vision")
-
     async def run_hazard_ai_script(
         self, hazard_id: uuid.UUID, script_number: int
     ) -> HazardReport | None:
@@ -652,7 +635,7 @@ class SafetyService:
             update_data["ai_node_progress"] = "completed"
             update_data["ai_error_message"] = None
             update_data["ai_generated"] = True
-        except AIOutputError as e:
+        except LLMOutputError as e:
             logger.error(f"Hazard script {script_number} AI 输出错误: {e}")
             update_data["ai_error_message"] = str(e)
         except Exception as e:
@@ -1590,16 +1573,6 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
 
     # ── AI 集成 ──
 
-    async def _get_ai_service(self) -> AIService:
-        """获取文本模型 AIService（硬编码配置）"""
-        from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("text")
-
-    async def _get_vision_ai_service(self) -> AIService:
-        """获取视觉模型 AIService（硬编码配置）"""
-        from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("vision")
-
     def _build_context(self, script_number: int, item: Any) -> str:
         """从当前记录构建供 AI 使用的上下文字符串"""
         parts: list[str] = [
@@ -1748,16 +1721,15 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
             {"role": "system", "content": "你是一个专业的危险源辨识与风险评价专家助手，服务于原料药生产企业。"},
             {"role": "user", "content": prompt},
         ]
-
-        ai_service = await self._get_ai_service()
         try:
-            result = await ai_service.chat_parsed(
+            result = await llm_client.chat_json(
                 messages=messages,
                 expected_keys=expected_keys,
             )
             return result
-        finally:
-            await ai_service.close()
+        except Exception as e:
+            logger.error(f"AI 调用失败: {e}")
+            raise
 
     async def run_script(
         self, hid: uuid.UUID, script_number: int, ai_output: dict | None = None
@@ -1800,7 +1772,7 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
                 self._calculate_risk_levels(script_number, update_data)
                 update_data["ai_node_progress"] = next_node
                 update_data["ai_error_message"] = None
-            except AIOutputError as e:
+            except LLMOutputError as e:
                 logger.error(f"Script {script_number} AI 输出错误: {e}")
                 update_data[f"script{script_number}_review_status"] = "rejected"
                 update_data["ai_error_message"] = str(e)
@@ -2018,12 +1990,11 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
             '示例输出: {"department":"原料药车间","risk_level":"level_1"}'
         )
         try:
-            ai = await self._get_ai_service()
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": natural_query},
             ]
-            response_text = await ai.chat(messages, response_format="json_object")
+            response_text = await llm_client.chat(messages, response_format="json_object")
             import json
 
             result = json.loads(response_text)

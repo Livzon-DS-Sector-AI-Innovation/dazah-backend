@@ -18,7 +18,7 @@ from app.modules.safety.schemas import (
     SpecialOperationReportUpdate,
 )
 from app.platform.audit.service import record_audit_log
-from app.platform.integrations.ai.client import AIService
+from app.core.llm import llm_client
 from app.platform.integrations.ai.prompts import (
     STANDALONE_WORKFLOW_CONFIG,
     build_prompt,
@@ -189,24 +189,19 @@ class SpecialOperationReportService:
             logger.debug("使用硬编码工作流配置: %s — %s", module_code, config.get("name"))
         return config
 
-    async def _get_ai_service(self) -> "AIService":
-        """获取文本模型 AIService（硬编码配置）"""
-        from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("text")
-
     async def _identify_critical(
         self, report: "SpecialOperationReport"
     ) -> tuple[bool, str | None]:
         """判定报备是否为关键作业（AI 优先，失败时基于规则 fallback）"""
         try:
-            ai = await self._get_ai_service()
+            
             return await self._ai_identify_critical(ai, report)
         except Exception as e:
             logger.warning("AI 关键作业判定失败，使用规则 fallback: %s", e)
             return self._rule_based_identify_critical(report)
 
     async def _ai_identify_critical(
-        self, ai: "AIService", report: "SpecialOperationReport"
+        self, report: "SpecialOperationReport"
     ) -> tuple[bool, str | None]:
         """使用 AI 判定关键作业（提示词由工作流配置提供）"""
         OP_TYPE_LABELS = {
@@ -241,7 +236,7 @@ class SpecialOperationReportService:
             {"role": "user", "content": prompt},
         ]
 
-        response_text = await ai.chat(messages, response_format="json_object")
+        response_text = await llm_client.chat(messages, response_format="json_object")
         result = json.loads(response_text)
         return result.get("is_critical", False), result.get("reason")
 
@@ -329,12 +324,12 @@ class SpecialOperationReportService:
             prompt = natural_query
 
         try:
-            ai = await self._get_ai_service()
+            
             messages = [
                 {"role": "system", "content": "你是一个数据库查询助手。只返回 JSON。"},
                 {"role": "user", "content": prompt},
             ]
-            response_text = await ai.chat(messages, response_format="json_object")
+            response_text = await llm_client.chat(messages, response_format="json_object")
             import json
             result = json.loads(response_text)
             # 验证 operation_type 值

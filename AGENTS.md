@@ -203,3 +203,111 @@ git commit -m "feat(<module>): add xxx table with migration"
 **注意：** 禁止手动编辑 `openapi.json`，它由 FastAPI 自动生成。每次 API 变更（新增/修改/删除端点、修改参数或响应结构）都必须重新生成 spec。
 
 前端使用 `openapi-typescript` 从 `openapi.json` 生成 TypeScript 类型定义（`src/types/generated/schema.ts`），所有 API 相关的类型必须从生成文件导入，禁止手写 API 类型。
+
+## LLM 调用规范
+
+所有需要调用 LLM 的业务模块必须使用 `app.core.llm` 提供的统一客户端，禁止直接使用 `AIService` 或其他自定义方式。
+
+### 正确用法
+
+```python
+from app.core.llm import llm_client
+
+# 文本对话（返回字符串）
+response = await llm_client.chat(
+    messages=[
+        {"role": "system", "content": "你是一个助手"},
+        {"role": "user", "content": "你好"}
+    ],
+    temperature=0.1,
+    max_tokens=4096
+)
+
+# 文本对话（返回 JSON dict）
+result = await llm_client.chat_json(
+    messages=[
+        {"role": "system", "content": "你是一个分析助手"},
+        {"role": "user", "content": "分析这段文本..."}
+    ],
+    expected_keys=["conclusion", "reasoning"]
+)
+
+# 视觉模型（图片分析）
+response = await llm_client.chat_vision(
+    text_prompt="分析这张图片",
+    image_urls=["https://example.com/image.jpg"]
+)
+
+# 视觉模型（返回 JSON）
+result = await llm_client.chat_vision_json(
+    text_prompt="识别图片中的缺陷",
+    image_urls=[base64_data_uri],
+    expected_keys=["defect_type", "severity"]
+)
+
+# 流式输出
+async for chunk in llm_client.stream_chat(messages=messages):
+    if chunk["type"] == "content":
+        yield chunk["text"]
+```
+
+### 配置来源
+
+`llm_client` 按以下优先级读取配置：
+
+1. **数据库配置**（`core.llm_configs` 表）：管理员通过后台界面配置的模型，支持加密存储 API key
+2. **环境变量**（仅开发环境）：`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`
+
+生产环境必须在数据库中配置 LLM，否则会抛出 `LLMConfigError`。
+
+### 禁止用法
+
+以下写法是错误的，会导致运行时错误或安全问题：
+
+```python
+# ❌ 错误：直接使用 AIService
+from app.platform.integrations.ai.client import AIService
+ai = AIService(api_key="...", base_url="...", model="...")
+
+# ❌ 错误：使用 get_ai_service()（读取空的环境变量）
+from app.platform.integrations.ai import get_ai_service
+ai = get_ai_service()
+
+# ❌ 错误：使用 create_ai_service()（硬编码的 API key）
+from app.modules.safety.service.config import create_ai_service
+ai = create_ai_service("text")
+
+# ❌ 错误：手动读取环境变量构造客户端
+api_key = os.getenv("AI_API_KEY", "")
+ai = AIService(api_key=api_key, ...)
+```
+
+### 异常处理
+
+```python
+from app.core.llm import llm_client, LLMOutputError, LLMProviderError, LLMRateLimitError
+
+try:
+    result = await llm_client.chat_json(messages=messages)
+except LLMOutputError:
+    # LLM 返回的内容不是有效的 JSON，或缺少必要的字段
+    logger.error("LLM 输出格式错误")
+except LLMProviderError:
+    # LLM API 返回错误（如 401、500）
+    logger.error("LLM 服务调用失败")
+except LLMRateLimitError:
+    # 触发速率限制
+    logger.warning("LLM 速率限制")
+```
+
+### 迁移指南
+
+如果现有代码使用了错误的调用方式，按以下步骤迁移：
+
+1. 替换导入：`from app.core.llm import llm_client`
+2. 删除所有 `AIService` 实例化代码
+3. 删除所有 `_get_ai_service()` 或类似工厂方法
+4. 将 `ai.chat()` 替换为 `llm_client.chat()` 或 `llm_client.chat_json()`
+5. 将 `ai.chat_vision()` 替换为 `llm_client.chat_vision()` 或 `llm_client.chat_vision_json()`
+6. 删除所有 `await ai.close()` 调用（`llm_client` 自动管理连接）
+7. 更新异常处理：`AIOutputError` → `LLMOutputError`
