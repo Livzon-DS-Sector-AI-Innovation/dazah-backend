@@ -681,10 +681,12 @@ class SafetyService:
             try:
                 photos = _json.loads(defect_photos.replace("\\", "/"))
             except (_json.JSONDecodeError, TypeError):
+                logger.warning("defect_photos JSON 解析失败，返回空列表: raw=%s", defect_photos[:200])
                 return []
         if isinstance(photos, str):
             photos = [photos] if photos else []
         elif not isinstance(photos, list):
+            logger.warning("defect_photos 格式异常(非 list/str)，返回空列表: type=%s", type(photos).__name__)
             return []
 
         urls: list[str] = []
@@ -719,6 +721,17 @@ class SafetyService:
                     logger.debug("转换本地图片为 data URI: %s (%s)", found_path, mime)
                 except Exception as exc:
                     logger.warning("无法读取图片 %s: %s", found_path, exc)
+            else:
+                # 文件不存在，记录警告以便排查（AI 审查缺少图片时可根据此日志定位）
+                logger.warning(
+                    "defect_photos 本地文件不存在: path=%s (checked: %s)",
+                    p_str, check_paths,
+                )
+
+        logger.info(
+            "_parse_defect_photo_urls: input_count=%d output_count=%d",
+            len(photos) if isinstance(photos, list) else 0, len(urls),
+        )
         return urls
 
     async def _generate_rectification_review(self, item: HazardReport) -> dict:
