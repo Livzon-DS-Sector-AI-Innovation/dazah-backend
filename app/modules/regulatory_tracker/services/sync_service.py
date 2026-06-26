@@ -9,10 +9,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.regulatory_tracker import repository as repo
 from app.modules.regulatory_tracker.crawler.cde_crawler import CdeDomesticGuidelineAdapter
+from app.modules.regulatory_tracker.crawler.nmpa_crawler import NmpaRecordAdapter
 from app.modules.regulatory_tracker.models import DataChannel, DataSource
 from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_and_update
 
 logger = logging.getLogger(__name__)
+
+# 适配器工厂：根据 source code + channel code 返回对应适配器
+ADAPTER_REGISTRY = {
+    ("CDE", "cde_domestic_guideline"): CdeDomesticGuidelineAdapter,
+    ("NMPA", "nmpa_baxx"): NmpaRecordAdapter,
+}
+
+
+def _get_adapter(source: DataSource, channel: DataChannel, headless: bool = True):
+    """根据数据源和栏目获取对应的爬虫适配器"""
+    key = (source.code, channel.code)
+    adapter_cls = ADAPTER_REGISTRY.get(key)
+    if adapter_cls is None:
+        raise ValueError(f"未找到适配器: source={source.code}, channel={channel.code}")
+    return adapter_cls(headless=headless)
 
 
 async def upsert_document(
@@ -65,7 +81,7 @@ async def upsert_document(
 
 async def sync_page_to_db(
     db: AsyncSession,
-    adapter: CdeDomesticGuidelineAdapter,
+    adapter,  # CdeDomesticGuidelineAdapter | NmpaRecordAdapter
     source: DataSource,
     channel: DataChannel,
     job_id: uuid.UUID,
@@ -182,10 +198,11 @@ async def run_sync_job(
     error_message = None
 
     try:
-        async with CdeDomesticGuidelineAdapter(headless=headless) as adapter:
+        adapter = _get_adapter(source, channel, headless=headless)
+        async with adapter as adapter_ctx:
             # 如果 end_page 为 None，先获取总页数
             if end_page is None:
-                total_pages = await adapter.get_total_pages()
+                total_pages = await adapter_ctx.get_total_pages()
                 if total_pages is None:
                     raise RuntimeError("无法获取总页数")
                 end_page = total_pages
@@ -195,7 +212,7 @@ async def run_sync_job(
             for page_num in range(start_page, end_page + 1):
                 logger.info(f"同步第 {page_num}/{end_page} 页...")
                 stats = await sync_page_to_db(
-                    db, adapter, source, channel, job.id, page_num
+                    db, adapter_ctx, source, channel, job.id, page_num
                 )
                 total_stats["checked"] += stats["checked"]
                 total_stats["new"] += stats["new"]

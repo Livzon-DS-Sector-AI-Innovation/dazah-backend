@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +46,7 @@ async def login(
 
 @auth_router.get("/callback", summary="飞书 SSO 回调")
 async def auth_callback(
+    request: Request,
     code: str = Query(...),
     state: str = Query(""),
     db: AsyncSession = Depends(get_db),
@@ -56,13 +57,24 @@ async def auth_callback(
     Exchanges code for tokens, upserts user, generates JWT, then redirects
     to the frontend with the token as a query parameter.
     """
+    from app.platform.identity.repository import LoginLogRepository
     from app.platform.identity.service import (
         handle_oauth_callback,
         validate_state_token,
     )
 
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    log_repo = LoginLogRepository()
+
     # Validate state for CSRF protection
     if state and not validate_state_token(state):
+        await log_repo.create(
+            db, status="failed", login_type="feishu_sso",
+            ip_address=ip_address, user_agent=user_agent,
+            error_message="invalid_state: 登录状态已过期",
+        )
+        await db.commit()
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/login?error=invalid_state",
             status_code=302,
@@ -72,10 +84,33 @@ async def auth_callback(
         user, token = await handle_oauth_callback(db, code)
     except Exception as exc:
         logger.exception("OAuth callback failed")
+        # Rollback any pending transaction before logging the failure
+        await db.rollback()
+        try:
+            await log_repo.create(
+                db, status="failed", login_type="feishu_sso",
+                ip_address=ip_address, user_agent=user_agent,
+                error_message=f"OAuth回调失败: {exc}",
+            )
+            await db.commit()
+        except Exception as log_exc:
+            logger.error("Failed to record login failure: %s", log_exc)
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/login?error=callback_failed",
             status_code=302,
         )
+
+    # Record successful login
+    await log_repo.create(
+        db,
+        user_id=user.id,
+        user_name=user.name,
+        status="success",
+        login_type="feishu_sso",
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    await db.commit()
 
     # Redirect to frontend with token
     return RedirectResponse(
@@ -245,3 +280,40 @@ async def trigger_sync_members(
     return success_response(
         data={"message": "成员同步已触发", "target_dept_id": target_id},
     )
+
+
+# ── Login Logs ─────────────────────────────────────────────────────
+
+login_log_router = APIRouter(prefix="/login-logs", tags=["登录记录"])
+
+
+@login_log_router.get("", summary="查询登录记录")
+async def list_login_logs(
+    status: str | None = Query(None, description="筛选状态：success / failed"),
+    keyword: str | None = Query(None, description="按用户名搜索"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+) -> JSONResponse:
+    """分页查询登录记录，支持按状态和用户名筛选。"""
+    from app.platform.identity.repository import LoginLogRepository
+    from app.platform.identity.schemas import LoginLogListResponse, LoginLogResponse
+
+    repo = LoginLogRepository()
+    logs, total = await repo.list_logs(
+        db,
+        status=status,
+        keyword=keyword,
+        page=page,
+        page_size=page_size,
+    )
+
+    items = [LoginLogResponse.model_validate(log).model_dump() for log in logs]
+    resp = LoginLogListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+    return success_response(data=resp.model_dump())

@@ -21,7 +21,7 @@ scheduler = AsyncIOScheduler()
 
 async def daily_sync_job():
     """每日定时同步任务：同步 CDE 国内药品技术指导原则前 1-3 页。"""
-    logger.info("⏰ 开始每日同步任务 (daily_sync, pages 1-3)")
+    logger.info("⏰ 开始每日同步任务 (daily_sync, CDE pages 1-3)")
 
     try:
         async with async_session_factory() as db:
@@ -51,7 +51,7 @@ async def daily_sync_job():
             )
 
             logger.info(
-                "✅ 每日同步完成: status=%s checked=%d new=%d updated=%d failed=%d error=%s",
+                "✅ 每日同步完成(CDE): status=%s checked=%d new=%d updated=%d failed=%d error=%s",
                 result["status"],
                 result["checked"],
                 result["new"],
@@ -61,7 +61,52 @@ async def daily_sync_job():
             )
 
     except Exception:
-        logger.exception("❌ 每日同步任务异常")
+        logger.exception("❌ 每日同步任务(CDE)异常")
+
+
+async def daily_sync_nmpa_job():
+    """每日 NMPA 备案信息同步任务：前 1-3 页。"""
+    logger.info("⏰ 开始 NMPA 每日同步任务 (daily_sync, pages 1-3)")
+
+    try:
+        async with async_session_factory() as db:
+            source = await repo.get_data_source_by_code(db, "NMPA")
+            if not source:
+                logger.error("NMPA 数据源不存在，跳过同步")
+                return
+
+            channel = await repo.get_channel_by_code(db, source.id, "nmpa_baxx")
+            if not channel:
+                logger.error("nmpa_baxx 栏目不存在，跳过同步")
+                return
+
+            if not source.enabled or not channel.enabled:
+                logger.info("NMPA 数据源或栏目已禁用，跳过同步")
+                return
+
+            # NMPA 使用有头浏览器（瑞数反爬）
+            result = await run_sync_job(
+                db=db,
+                source=source,
+                channel=channel,
+                job_type="daily_sync",
+                start_page=1,
+                end_page=3,
+                headless=False,  # NMPA 需要有头浏览器
+            )
+
+            logger.info(
+                "✅ NMPA 每日同步完成: status=%s checked=%d new=%d updated=%d failed=%d error=%s",
+                result["status"],
+                result["checked"],
+                result["new"],
+                result["updated"],
+                result["failed"],
+                result.get("error"),
+            )
+
+    except Exception:
+        logger.exception("❌ NMPA 每日同步任务异常")
 
 
 
@@ -109,7 +154,25 @@ def start_scheduler():
         replace_existing=True,
     )
     
-    # AI 分析任务：在同步后 1 小时运行
+    # NMPA 同步：在 CDE 同步后 2 小时运行（给服务器缓冲时间）
+    nmpa_hour = str((int(parts[1]) + 2) % 24)
+    nmpa_trigger = CronTrigger(
+        minute=parts[0],
+        hour=nmpa_hour,
+        day=parts[2],
+        month=parts[3],
+        day_of_week=parts[4],
+        timezone="Asia/Shanghai",
+    )
+    scheduler.add_job(
+        daily_sync_nmpa_job,
+        trigger=nmpa_trigger,
+        id="daily_nmpa_sync",
+        name="NMPA 备案信息每日同步",
+        replace_existing=True,
+    )
+    
+    # AI 分析任务：在 CDE 同步后 1 小时运行
     ai_trigger = CronTrigger(
         minute=parts[0],
         hour=str((int(parts[1]) + 1) % 24),

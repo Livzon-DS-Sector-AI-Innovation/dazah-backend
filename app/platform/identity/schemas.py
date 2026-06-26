@@ -124,3 +124,34 @@ class PersonnelListResponse(BaseModel):
     total: int
     offset: int
     limit: int
+
+
+# ── Login Log ──────────────────────────────────────────────────────
+
+
+class LoginLogResponse(BaseModel):
+    id: UUID
+    user_id: UUID | None = None
+    user_name: str | None = None
+    login_type: str
+    status: str
+    ip_address: str | None = None
+    user_agent: str | None = None
+    error_message: str | None = None
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def format_created_at(cls, v: object) -> str:
+        if hasattr(v, "strftime"):
+            return v.strftime("%Y-%m-%d %H:%M:%S")
+        return str(v)
+
+
+class LoginLogListResponse(BaseModel):
+    items: list[LoginLogResponse]
+    total: int
+    page: int
+    page_size: int

@@ -1,4 +1,6 @@
-from sqlalchemy import Integer, String, Text, UniqueConstraint
+import uuid
+
+from sqlalchemy import JSON, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel
@@ -69,4 +71,44 @@ class Department(BaseModel):
     )
     order: Mapped[int | None] = mapped_column(
         Integer, nullable=True, comment="同级排序"
+    )
+
+
+class LoginLog(BaseModel):
+    """登录记录"""
+
+    __tablename__ = "login_logs"
+    __table_args__ = (
+        Index("idx_login_logs_user_id", "user_id"),
+        Index("idx_login_logs_created_at", "created_at"),
+        Index("idx_login_logs_status", "status"),
+        {"schema": "identity"},
+    )
+
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("identity.users.id"),
+        nullable=True,
+        comment="登录用户ID，失败时可能为None",
+    )
+    user_name: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="用户姓名（冗余，便于查询）"
+    )
+    login_type: Mapped[str] = mapped_column(
+        String(32), default="feishu_sso", comment="登录方式：feishu_sso"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), comment="登录结果：success / failed"
+    )
+    ip_address: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="登录IP"
+    )
+    user_agent: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="浏览器UA"
+    )
+    error_message: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="失败原因"
+    )
+    extra: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="额外信息"
     )
