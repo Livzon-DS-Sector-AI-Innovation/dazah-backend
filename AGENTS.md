@@ -35,7 +35,9 @@
 
 ## API 规范
 
-路由统一挂在 `/api/v1` 下，常用形式：
+路由统一挂在 `/api/v1` 下，按模块组织：`/api/v1/<模块>/<资源>`。
+
+常用形式：
 
 ```text
 GET    /api/v1/{module}/
@@ -51,6 +53,14 @@ DELETE /api/v1/{module}/{resource}/{id}
 - 业务异常优先使用 `app/core/exceptions.py`。
 - 删除业务数据默认软删除，例如 `is_deleted`；除非需求明确要求，不做物理删除。
 
+### 前端访问方式
+
+前端通过统一的反向代理访问后端 API，开发和生产环境配置完全一致：
+
+- **开发环境**：浏览器 → Next.js (3000) → `src/proxy.ts` → 后端 (8000)
+- **生产环境**：浏览器 → nginx → Next.js (3000) 或 后端 (8000)
+- **前端服务器端**：直接通过 `API_BASE_URL` 环境变量访问后端（Docker 内部网络，地址为 `http://dazah-backend-app-1:8000`）
+
 ## 数据库与迁移
 
 数据库使用 PostgreSQL schema 做边界隔离：
@@ -58,21 +68,46 @@ DELETE /api/v1/{module}/{resource}/{id}
 - `identity`：本地轻量用户档案，后续关联飞书 SSO。
 - `audit`：审计日志和操作追踪。
 - 每个业务模块一个 schema，例如 `production`、`quality`、`equipment`。
+- `core`：平台级配置（如 LLM 配置）。
 
-ORM 和 migration 规则：
+### ORM 规则
 
 - 业务模型继承 `app/shared/base_model.py` 中的 `BaseModel`。
 - 每张业务表必须有清晰的 `__tablename__` 和 `__table_args__ = {"schema": "<module_schema>"}`。
 - 字段命名使用英文 `snake_case`。
 - 唯一约束、外键、常用查询索引要显式声明。
-- 修改 ORM 模型后必须新增 Alembic migration。
 - 不要修改已经合并或执行过的历史 migration，除非用户明确要求。
 - 新增 schema 时同步更新 `app/shared/module_registry.py` 和 migration。
 - **autogenerate 不会自动生成 `CREATE SCHEMA` 语句**。每次新增 schema 或生成包含新 schema 建表语句的迁移时，必须在 `upgrade()` 开头手动添加 `op.execute("CREATE SCHEMA IF NOT EXISTS <schema_name>")`，否则空库部署会报错。
+- 设计数据库表时，不要用外键约束。
+- 如果新增/修改了本地 env 文件，需要同步修改到 env example 中。
 
 常用命令见 [examples/commands.md](examples/commands.md)。
 
-多人协作迁移规范：
+### ⚠️ 迁移铁律（CI 会自动检查，违反会导致 PR 无法合并）
+
+**1. 模型变更必须伴随迁移**
+- 新增、删除、重命名 SQLAlchemy 模型时，**必须同时创建并审查 Alembic migration**
+- 禁止只改模型不写迁移，禁止手动执行 SQL 改表结构
+- CI 会运行 `alembic check`，检测到 drift 会阻止合并
+
+**2. 禁止盲目执行 autogenerate**
+- **永远不要**直接 `alembic revision --autogenerate` 后立即 `upgrade`
+- 必须先审查生成的迁移文件，确认只包含本次需求的变更
+- 如果 autogenerate 包含无关变更（其他模块的表、删除表等），**立即停止**
+
+**3. 只创建针对性迁移**
+- 如果 autogenerate 检测到大量无关变更，说明数据库与模型已不同步
+- **不要**尝试用一个大迁移修复所有问题
+- **应该**手动编写只包含当前需求表的迁移（使用 `CREATE TABLE IF NOT EXISTS`）
+- 或者先解决根本原因（恢复 baseline、清理孤儿表等）
+
+**违反后果示例：**
+- 删除模型不写迁移 → 数据库残留孤儿表 → autogenerate 试图 DROP 其他表
+- 盲目执行 autogenerate → 误删生产数据（DROP TABLE）
+- 手动改表不写迁移 → 其他开发者环境不一致 → 部署失败
+
+### 多人协作迁移规范
 
 Alembic 的 revision ID 是随机哈希，多人同时创建 migration 会产生多个 head（分支），导致 `alembic upgrade head` 失败或生产环境 ORM 与数据库不一致。必须遵守以下流程：
 
@@ -88,25 +123,26 @@ uv run alembic revision --autogenerate -m "xxx"  # 5. 再创建自己的 migrati
 
 **禁止事项：**
 
-- 禁止提交包含 git 冲突标记（`<<<<<<<`）的 migration 文件，这会让整个 alembic 崩溃。
-- 禁止手动写 revision ID（如 `20260615_0001`），使用 alembic 自动生成的随机哈希，避免 ID 重复。
-- 禁止在生产环境出现多个 head。合并代码后、部署前，必须确认 `alembic heads` 只有一个。
-- 禁止跳过 `alembic upgrade head` 直接创建 migration，否则 `down_revision` 会指向过时的节点。
+- 禁止提交包含 git 冲突标记（`<<<<<<<`）的 migration 文件
+- 禁止手动写 revision ID（如 `20260615_0001`），使用 alembic 自动生成的随机哈希
+- 禁止在生产环境出现多个 head。合并代码后、部署前，必须确认 `alembic heads` 只有一个
+- 禁止跳过 `alembic upgrade head` 直接创建 migration，否则 `down_revision` 会指向过时的节点
+- 禁止在迁移文件中包含未经确认的 DROP TABLE 操作
 
 **部署前检查清单：**
 
 ```bash
-uv run alembic heads     # 必须只有一个 head
-uv run alembic current   # 确认数据库版本
-uv run alembic upgrade head  # 确保能顺利升级
+uv run alembic heads          # 必须只有一个 head
+uv run alembic current        # 确认数据库版本
+uv run alembic upgrade head   # 确保能顺利升级
+uv run alembic check          # 确认无 drift
 ```
 
 如果 `autogenerate` 混入了其他模块的无关变更，手动清理 migration 文件，只保留自己模块的 DDL。
 
+### 迁移工作流
 
-### 迁移工作流（重要）
-
-当前状态：数据库已整合到单一 baseline 迁移 (`68024feea3d7`)，所有历史中间迁移已删除。
+当前状态：数据库已整合到单一 baseline 迁移 (`bf9ec662358f`，2026-06-25 重建)，所有历史中间迁移已删除。
 
 **创建新迁移的标准流程：**
 
@@ -122,57 +158,24 @@ alembic revision --autogenerate -m "add_xxx_table"
 # 4. 检查生成的迁移文件
 # - 确认 upgrade() 和 downgrade() 都正确
 # - 确认只包含你模块的变更
-# - 如果有新 schema，确保 upgrade() 开头有 CREATE SCHEMA IF NOT EXISTS
+# - 确认没有 DROP TABLE（除非你明确要删除）
+# - 如果包含其他模块的变更，手动删除那些部分
 
-# 5. 测试迁移
-alembic upgrade head      # 升级
-alembic downgrade -1      # 降级
-alembic upgrade head      # 再升级
+# 5. 应用迁移
+alembic upgrade head
 
-# 6. 提交前检查
-alembic heads             # 必须只有一个 head
-alembic current           # 确认数据库版本
+# 6. 提交代码（模型 + 迁移文件一起提交）
+git add app/modules/<module>/models.py alembic/versions/<hash>_add_xxx_table.py
+git commit -m "feat(<module>): add xxx table with migration"
 ```
 
-**团队协作规则：**
-
-- 创建迁移前必须 `git pull` 并运行 `alembic upgrade head`
-- 如果有多个 head，先合并：`alembic merge heads -m "merge heads"`
-- 不要修改已推送的迁移文件，如需变更，创建新的迁移
-- 部署前必须确认 `alembic heads` 只有一个
-
-**何时需要整合迁移（consolidate）：**
-
-- 迁移文件过多（>20个）且难以追踪
-- 迁移链出现严重冲突或断裂
-- 重大版本发布后，清理历史
-
-整合步骤：
-```bash
-# 1. 生成完整的 baseline 迁移
-alembic revision -m "baseline"
-# 手动编辑迁移文件，包含完整的 CREATE TABLE 语句
-
-# 2. 删除所有旧的迁移文件（保留新的 baseline）
-
-# 3. 更新数据库版本
-psql -c "UPDATE alembic_version SET version_num = '<new_baseline_id>'"
-
-# 4. 验证
-alembic current
-alembic heads
-```
-## 审计、身份与外部集成
-
-- 新增、修改、删除、审批、导入、同步等关键业务操作，应考虑通过 `app/platform/audit/service.py` 记录审计信息。
-- 需要当前用户时，通过 `app/platform/identity/deps.py` 的依赖注入获取，不要在业务模块里直接解析 header、cookie 或飞书 token。
-- 飞书、ERP、LIMS 等外部系统统一放在 `app/platform/integrations/`，业务模块通过 integration service 或 adapter 调用，不直接散落 HTTP 请求。
-- 外部调用要考虑超时、重试、幂等和失败记录。
+**关键点：**
+- 模型文件和迁移文件必须在同一个 commit 中
+- CI 会检查 `alembic check`，如果有 drift 会阻止合并
+- 迁移文件命名由 alembic 自动生成，不要手动修改
 
 ## 编码风格
 
-- 使用 Python 3.12 类型标注。
-- Pydantic 使用 v2 写法。
 - SQLAlchemy 使用 2.0 typed ORM：`Mapped[...]` 和 `mapped_column(...)`。
 - 异步数据库访问使用 `AsyncSession`。
 - 函数保持短小，业务逻辑放 `service.py`，查询放 `repository.py`。
@@ -184,92 +187,127 @@ alembic heads
   - **为什么 INSERT 后 `flush()` 就够了？** PostgreSQL 方言对 INSERT 使用 `RETURNING` 子句，SQLAlchemy 会自动回填 `id`、`created_at`、`updated_at` 等 server default 值到内存对象。所以 `create` 类操作可以 flush 后直接返回，无需 re-fetch。
   - **为什么 UPDATE 后必须 re-fetch？** `flush()` 对 UPDATE 不使用 RETURNING，`onupdate` 的 `updated_at` 不会回填到内存对象。若后续 Pydantic `model_validate` 或上层代码访问该属性，SQLAlchemy 会触发懒加载——此时若已脱离 async session 上下文（如 FastAPI 响应序列化阶段），即报 MissingGreenlet。
   - **简单记忆：INSERT → flush 返回即可；UPDATE/DELETE → flush 后必须 select re-fetch。**
-- 设计数据库表时，不要用外键约束。
-- 如果新增/修改了本地env文件，需要同步修改到env example中。
-
-## AI 工作流程
-
-1. 先阅读 `AGENTS.md` 和必要的架构/代码文件，判断需求属于哪个模块或平台能力。
-2. 明确自己负责的模块边界，默认只修改该模块目录内的代码；不要编辑其他人负责的模块或项目架构。
-3. 只有当前需求确实需要平台能力时，才最小范围修改 `core`、`shared` 或 `platform`，并说明原因。
-4. 字段、流程、权限规则不明确时，先按现有架构做保守实现；不能合理推断时再提出待确认点。
-5. 涉及数据库变更时，同步 ORM、migration、模块注册和测试。
-6. 完成后说明修改文件、验证结果、跨模块或架构影响，以及未完成事项。
-
-## API 路由架构
-
-前端通过统一的反向代理访问后端 API，开发和生产环境配置完全一致。
-
-### 路由转发机制
-
-- **开发环境**：浏览器 → Next.js (3000) → `src/proxy.ts` → 后端 (8000)
-- **生产环境**：浏览器 → nginx → Next.js (3000) 或 后端 (8000)
-- **前端服务器端**：直接通过 `API_BASE_URL` 环境变量访问后端（Docker内部网络）
-
-### API 路径规范
-
-- 所有 API 路径以 `/api/v1/` 开头
-- 按模块组织：`/api/v1/<模块>/<资源>`
-- 示例：`/api/v1/production/batches`、`/api/v1/quality/cpv/products`
-
-### 环境变量
-
-- `API_BASE_URL`：前端服务器端访问后端的地址（Docker 内部网络）
-- 前端客户端代码使用相对路径 `/api/v1/...`，无需关心后端真实地址
-- 开发环境通过 Next.js proxy 自动转发
-- 生产环境由 nginx 反向代理处理
-
-### 注意事项
-
-- 后端服务运行在 Docker 网络内部，地址为 `http://dazah-backend-app-1:8000`
-- 前端通过 `API_BASE_URL` 环境变量访问后端（服务器端代码）
-- 前端客户端通过相对路径 `/api/v1/...` 访问（由 proxy/nginx 转发）
 
 ## OpenAPI 规范与前端同步
 
 后端 API 是前端的唯一数据源。每次修改 API 后，必须更新 OpenAPI spec 并提交，确保前端类型与后端保持同步。
 
-### 工作流程
+**工作流程：**
 
-1. **修改 API 后**：运行导出脚本更新 `openapi.json`
-   ```bash
-   uv run python scripts/export_openapi.py
-   ```
+1. 修改 API 后运行 `uv run python scripts/export_openapi.py` 更新 `openapi.json`
+2. 将 `openapi.json` 一起提交到 git
+3. 前端开发者运行 `pnpm generate:api` 重新生成类型
 
-2. **提交变更**：将 `openapi.json` 一起提交到 git
-   ```bash
-   git add openapi.json
-   git commit -m "update: API changes and openapi spec"
-   ```
+**CI 检查：** GitHub Actions 会自动检查 `openapi.json` 是否与后端代码同步，检测到 drift 会阻止合并。
 
-3. **前端同步**：前端开发者运行生成脚本
-   ```bash
-   pnpm generate:api
-   ```
+**注意：** 禁止手动编辑 `openapi.json`，它由 FastAPI 自动生成。每次 API 变更（新增/修改/删除端点、修改参数或响应结构）都必须重新生成 spec。
 
-### CI 检查
+前端使用 `openapi-typescript` 从 `openapi.json` 生成 TypeScript 类型定义（`src/types/generated/schema.ts`），所有 API 相关的类型必须从生成文件导入，禁止手写 API 类型。
 
-GitHub Actions 会自动检查 `openapi.json` 是否与后端代码同步。如果检测到 drift，CI 会失败并提示：
+## LLM 调用规范
 
+所有需要调用 LLM 的业务模块必须使用 `app.core.llm` 提供的统一客户端，禁止直接使用 `AIService` 或其他自定义方式。
+
+### 正确用法
+
+```python
+from app.core.llm import llm_client
+
+# 文本对话（返回字符串）
+response = await llm_client.chat(
+    messages=[
+        {"role": "system", "content": "你是一个助手"},
+        {"role": "user", "content": "你好"}
+    ],
+    temperature=0.1,
+    max_tokens=4096
+)
+
+# 文本对话（返回 JSON dict）
+result = await llm_client.chat_json(
+    messages=[
+        {"role": "system", "content": "你是一个分析助手"},
+        {"role": "user", "content": "分析这段文本..."}
+    ],
+    expected_keys=["conclusion", "reasoning"]
+)
+
+# 视觉模型（图片分析）
+response = await llm_client.chat_vision(
+    text_prompt="分析这张图片",
+    image_urls=["https://example.com/image.jpg"]
+)
+
+# 视觉模型（返回 JSON）
+result = await llm_client.chat_vision_json(
+    text_prompt="识别图片中的缺陷",
+    image_urls=[base64_data_uri],
+    expected_keys=["defect_type", "severity"]
+)
+
+# 流式输出
+async for chunk in llm_client.stream_chat(messages=messages):
+    if chunk["type"] == "content":
+        yield chunk["text"]
 ```
-❌ OpenAPI spec is out of date!
-Run 'uv run python scripts/export_openapi.py' and commit the changes.
+
+### 配置来源
+
+`llm_client` 按以下优先级读取配置：
+
+1. **数据库配置**（`core.llm_configs` 表）：管理员通过后台界面配置的模型，支持加密存储 API key
+2. **环境变量**（仅开发环境）：`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`
+
+生产环境必须在数据库中配置 LLM，否则会抛出 `LLMConfigError`。
+
+### 禁止用法
+
+以下写法是错误的，会导致运行时错误或安全问题：
+
+```python
+# ❌ 错误：直接使用 AIService
+from app.platform.integrations.ai.client import AIService
+ai = AIService(api_key="...", base_url="...", model="...")
+
+# ❌ 错误：使用 get_ai_service()（读取空的环境变量）
+from app.platform.integrations.ai import get_ai_service
+ai = get_ai_service()
+
+# ❌ 错误：使用 create_ai_service()（硬编码的 API key）
+from app.modules.safety.service.config import create_ai_service
+ai = create_ai_service("text")
+
+# ❌ 错误：手动读取环境变量构造客户端
+api_key = os.getenv("AI_API_KEY", "")
+ai = AIService(api_key=api_key, ...)
 ```
 
-### 注意事项
+### 异常处理
 
-- **禁止手动编辑** `openapi.json`，它由 FastAPI 自动生成
-- **每次 API 变更**（新增/修改/删除端点、修改参数或响应结构）都必须重新生成 spec
-- **CI 会阻止** openapi.json 与代码不同步的 PR 合并
-- 导出脚本位置：`scripts/export_openapi.py`
-- 生成的 spec 文件：`openapi.json`（项目根目录）
+```python
+from app.core.llm import llm_client, LLMOutputError, LLMProviderError, LLMRateLimitError
 
-### 前端类型生成
+try:
+    result = await llm_client.chat_json(messages=messages)
+except LLMOutputError:
+    # LLM 返回的内容不是有效的 JSON，或缺少必要的字段
+    logger.error("LLM 输出格式错误")
+except LLMProviderError:
+    # LLM API 返回错误（如 401、500）
+    logger.error("LLM 服务调用失败")
+except LLMRateLimitError:
+    # 触发速率限制
+    logger.warning("LLM 速率限制")
+```
 
-前端使用 `openapi-typescript` 从 `openapi.json` 生成 TypeScript 类型定义：
+### 迁移指南
 
-- 生成文件：`src/types/generated/schema.ts`
-- 生成命令：`pnpm generate:api`
-- 所有 API 相关的类型必须从生成文件导入，**禁止手写 API 类型**
+如果现有代码使用了错误的调用方式，按以下步骤迁移：
 
-这样可以确保前后端类型始终一致，避免手动同步导致的错误。
+1. 替换导入：`from app.core.llm import llm_client`
+2. 删除所有 `AIService` 实例化代码
+3. 删除所有 `_get_ai_service()` 或类似工厂方法
+4. 将 `ai.chat()` 替换为 `llm_client.chat()` 或 `llm_client.chat_json()`
+5. 将 `ai.chat_vision()` 替换为 `llm_client.chat_vision()` 或 `llm_client.chat_vision_json()`
+6. 删除所有 `await ai.close()` 调用（`llm_client` 自动管理连接）
+7. 更新异常处理：`AIOutputError` → `LLMOutputError`

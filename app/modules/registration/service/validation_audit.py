@@ -44,7 +44,7 @@ from app.modules.registration.schemas.validation_audit import (
     ValidationAuditTaskCreate,
     ValidationAuditTaskUpdate,
 )
-from app.platform.integrations.ai import get_ai_service
+from app.core.llm import llm_client
 from app.platform.integrations.ai.document_parser import DocumentParser
 
 logger = logging.getLogger(__name__)
@@ -193,7 +193,6 @@ class ValidationAuditService:
 
     async def build_golden_standard(self, document_text: str, file_type: str) -> dict:
         """从文件中提取黄金标准"""
-        ai = get_ai_service()
         user_prompt = GOLDEN_STANDARD_USER_TEMPLATE.format(
             file_type=file_type,
             document_text=document_text,
@@ -202,7 +201,7 @@ class ValidationAuditService:
             {"role": "system", "content": GOLDEN_STANDARD_SYSTEM},
             {"role": "user", "content": user_prompt},
         ]
-        raw = await ai.chat(messages, response_format="json_object", temperature=0.1)
+        raw = await llm_client.chat(messages, response_format="json_object", temperature=0.1)
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
@@ -246,7 +245,6 @@ class ValidationAuditService:
         protocol_file = next((f for f in files if f.file_type == "protocol"), files[0])
         golden = await self.build_golden_standard(protocol_file.parsed_text or "", "验证方案")
 
-        ai = get_ai_service()
         user_prompt = AUDIT_PROTOCOL_USER_TEMPLATE.format(
             product_name=task.product_name,
             method_name=task.method_name,
@@ -257,7 +255,7 @@ class ValidationAuditService:
             {"role": "system", "content": AUDIT_PROTOCOL_SYSTEM},
             {"role": "user", "content": user_prompt},
         ]
-        raw = await ai.chat(messages, response_format="json_object", temperature=0.1, max_tokens=32768)
+        raw = await llm_client.chat(messages, response_format="json_object", temperature=0.1, max_tokens=32768)
         return self._parse_audit_result(raw)
 
     async def _audit_report(
@@ -266,7 +264,6 @@ class ValidationAuditService:
         report_file = next((f for f in files if f.file_type == "report"), files[0])
         golden = await self.build_golden_standard(report_file.parsed_text or "", "验证报告")
 
-        ai = get_ai_service()
         user_prompt = AUDIT_REPORT_USER_TEMPLATE.format(
             product_name=task.product_name,
             method_name=task.method_name,
@@ -277,7 +274,7 @@ class ValidationAuditService:
             {"role": "system", "content": AUDIT_REPORT_SYSTEM},
             {"role": "user", "content": user_prompt},
         ]
-        raw = await ai.chat(messages, response_format="json_object", temperature=0.1, max_tokens=32768)
+        raw = await llm_client.chat(messages, response_format="json_object", temperature=0.1, max_tokens=32768)
         return self._parse_audit_result(raw)
 
     async def _audit_cross(
@@ -296,7 +293,6 @@ class ValidationAuditService:
             report_file.parsed_text or "", "验证报告"
         )
 
-        ai = get_ai_service()
         user_prompt = AUDIT_CROSS_USER_TEMPLATE.format(
             product_name=task.product_name,
             method_name=task.method_name,
@@ -309,7 +305,7 @@ class ValidationAuditService:
             {"role": "system", "content": AUDIT_CROSS_SYSTEM},
             {"role": "user", "content": user_prompt},
         ]
-        raw = await ai.chat(messages, response_format="json_object", temperature=0.1, max_tokens=32768)
+        raw = await llm_client.chat(messages, response_format="json_object", temperature=0.1, max_tokens=32768)
         return self._parse_audit_result(raw)
 
     def _parse_audit_result(self, raw: str) -> AuditResult:
@@ -424,7 +420,6 @@ class ValidationAuditService:
             "protocol_report": "模式 C - 方案+报告联合审核",
         }
 
-        ai = get_ai_service()
         user_prompt = REPORT_GENERATION_USER_TEMPLATE.format(
             task_name=task.task_name,
             product_name=task.product_name,
@@ -445,7 +440,7 @@ class ValidationAuditService:
             {"role": "system", "content": REPORT_GENERATION_SYSTEM},
             {"role": "user", "content": user_prompt},
         ]
-        markdown = await ai.chat(messages, temperature=0.2, max_tokens=32768)
+        markdown = await llm_client.chat(messages, temperature=0.2, max_tokens=32768)
 
         # 保存报告文件
         report_dir = _task_storage_path(task.id, "reports")

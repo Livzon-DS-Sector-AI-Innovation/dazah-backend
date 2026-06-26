@@ -2,7 +2,8 @@
 
 import uuid
 from datetime import date, datetime
-from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, UniqueConstraint, Text, Float
+from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, UniqueConstraint, Text, Float, text
+import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.base_model import BaseModel
@@ -46,7 +47,7 @@ class RegulatoryDocument(BaseModel):
         Boolean, default=False, server_default="false"
     )
     first_found_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=text("now()"), nullable=False
     )
     last_checked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

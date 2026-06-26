@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.safety.repository import SafetyRepository
 from app.platform.audit.service import record_audit_log
-from app.platform.integrations.ai.client import AIOutputError, AIService
+from app.core.llm import llm_client, LLMOutputError
 
 logger = logging.getLogger(__name__)
 
@@ -313,11 +313,6 @@ class RegulationService:
 
     # ==================== AI 辅助方法 ====================
 
-    async def _get_ai_client(self) -> AIService:
-        """获取文本模型 AIService（硬编码配置）"""
-        from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("text")
-
     async def _ai_identify_scope(
         self,
         revision_opinion: str,
@@ -344,17 +339,16 @@ class RegulationService:
 {{"scope": "process" 或 "safety_requirement" 或 "process,safety_requirement"（两者都有时逗号分隔）, "reasoning": "识别依据说明"}}"""
 
         try:
-            ai = await self._get_ai_client()
-            result = await ai.chat_parsed(
+            
+            result = await llm_client.chat_json(
                 messages=[
                     {"role": "system", "content": "你是一个专业的安全生产管理专家，擅长识别操规修订的影响范围。"},
                     {"role": "user", "content": prompt},
                 ],
                 expected_keys=["scope", "reasoning"],
             )
-            await ai.close()
             return result.get("scope", "safety_requirement")
-        except AIOutputError:
+        except LLMOutputError:
             logger.warning("AI 识别修订范围失败，默认标记为安全要求")
             return "safety_requirement"
         except Exception as e:
@@ -387,18 +381,17 @@ class RegulationService:
 请直接输出修订后的完整文档内容。"""
 
         try:
-            ai = await self._get_ai_client()
+            
             messages = [
                 {"role": "system", "content": "你是一个专业的安全操作规程编写专家，服务于原料药生产企业。"},
                 {"role": "user", "content": prompt},
             ]
             # 自由文本生成，使用 chat 方法
-            result = await ai.chat(
+            result = await llm_client.chat(
                 messages=messages,
                 response_format="text",
                 max_tokens=16384,
             )
-            await ai.close()
             return result if result else ""
         except Exception as e:
             logger.error(f"AI 生成修订版本失败: {e}")
@@ -425,15 +418,14 @@ class RegulationService:
 {{"has_changes": true/false, "changes": [{{"section": "章节/条款号", "old_text": "旧内容摘要", "new_text": "新内容摘要", "change_type": "新增/修改/删除"}}], "summary": "差异摘要说明"}}"""
 
         try:
-            ai = await self._get_ai_client()
-            result = await ai.chat_parsed(
+            
+            result = await llm_client.chat_json(
                 messages=[
                     {"role": "system", "content": "你是一个专业的文档对比分析专家。"},
                     {"role": "user", "content": prompt},
                 ],
                 expected_keys=["has_changes", "changes", "summary"],
             )
-            await ai.close()
             return result
         except Exception as e:
             logger.error(f"AI 差异分析失败: {e}")
