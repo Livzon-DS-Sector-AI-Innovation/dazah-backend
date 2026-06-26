@@ -223,6 +223,27 @@ async def validation_exception_handler(
     )
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    全局异常处理器 - 捕获所有未处理的异常
+    避免 FastAPI 返回纯文本 "Internal Server Error"
+    """
+    # 记录完整异常信息到日志（包含堆栈）
+    logger.error(
+        f"Unhandled exception on {request.method} {request.url.path}: {exc}",
+        exc_info=True
+    )
+    
+    # 返回统一的 JSON 错误格式（不暴露敏感堆栈信息）
+    return error_response(
+        message="服务器内部错误",
+        detail="请稍后重试或联系管理员" if not settings.DEBUG else str(exc),
+        status_code=500,
+    )
+
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
