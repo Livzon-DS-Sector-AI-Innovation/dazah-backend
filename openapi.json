@@ -28283,6 +28283,69 @@
         }
       }
     },
+    "/api/v1/warehouse/raw-materials": {
+      "get": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u539f\u8f85\u6599\u5e93\u5b58\u5217\u8868",
+        "operationId": "list_raw_materials_api_v1_warehouse_raw_materials_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RawMaterialListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/packaging-materials": {
+      "get": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u5305\u6750\u5e93\u5b58\u5217\u8868",
+        "operationId": "list_packaging_materials_api_v1_warehouse_packaging_materials_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackagingMaterialListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/products": {
+      "get": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u6210\u54c1\u5e93\u5b58\u5217\u8868",
+        "operationId": "list_products_api_v1_warehouse_products_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductInventoryListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/procurement/": {
       "get": {
         "tags": [
@@ -58427,6 +58490,245 @@
         "title": "OperationRegulationUpdate",
         "description": "\u66f4\u65b0\u5b89\u5168\u64cd\u4f5c\u89c4\u7a0b"
       },
+      "PackagingMaterialListResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PackagingMaterialResponse"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "PackagingMaterialListResponse"
+      },
+      "PackagingMaterialResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
+          },
+          "batch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch"
+          },
+          "available": {
+            "type": "number",
+            "title": "Available"
+          },
+          "safety": {
+            "type": "number",
+            "title": "Safety"
+          },
+          "last_month": {
+            "type": "number",
+            "title": "Last Month"
+          },
+          "two_months_ago": {
+            "type": "number",
+            "title": "Two Months Ago"
+          },
+          "today_balance": {
+            "type": "number",
+            "title": "Today Balance"
+          },
+          "front_stock": {
+            "type": "number",
+            "title": "Front Stock"
+          },
+          "this_month_use": {
+            "type": "number",
+            "title": "This Month Use"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning"
+          },
+          "product_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Line"
+          },
+          "erp_no": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erp No"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
+          },
+          "remark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remark"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "import_key": {
+            "type": "string",
+            "title": "Import Key"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "name",
+          "available",
+          "safety",
+          "last_month",
+          "two_months_ago",
+          "today_balance",
+          "front_stock",
+          "this_month_use",
+          "import_key"
+        ],
+        "title": "PackagingMaterialResponse"
+      },
       "PermitStatus": {
         "type": "string",
         "enum": [
@@ -59587,6 +59889,186 @@
         "title": "ProductDossierUpdate",
         "description": "\u66f4\u65b0\u54c1\u79cd\u8d44\u6599\u8bf7\u6c42"
       },
+      "ProductInventoryListResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ProductInventoryResponse"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ProductInventoryListResponse"
+      },
+      "ProductInventoryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
+          },
+          "order_quantity": {
+            "type": "number",
+            "title": "Order Quantity"
+          },
+          "pending_quantity": {
+            "type": "number",
+            "title": "Pending Quantity"
+          },
+          "qualified_quantity": {
+            "type": "number",
+            "title": "Qualified Quantity"
+          },
+          "subtotal_quantity": {
+            "type": "number",
+            "title": "Subtotal Quantity"
+          },
+          "remaining_quantity": {
+            "type": "number",
+            "title": "Remaining Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "remark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remark"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "import_key": {
+            "type": "string",
+            "title": "Import Key"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "order_quantity",
+          "pending_quantity",
+          "qualified_quantity",
+          "subtotal_quantity",
+          "remaining_quantity",
+          "import_key"
+        ],
+        "title": "ProductInventoryResponse"
+      },
       "ProductionPlanCreate": {
         "properties": {
           "plan_no": {
@@ -59925,6 +60407,245 @@
         ],
         "title": "QualificationTypeEnum",
         "description": "\u627f\u5305\u8d44\u8d28\u7c7b\u578b\u679a\u4e3e"
+      },
+      "RawMaterialListResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/RawMaterialResponse"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "RawMaterialListResponse"
+      },
+      "RawMaterialResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "available": {
+            "type": "number",
+            "title": "Available"
+          },
+          "safety": {
+            "type": "number",
+            "title": "Safety"
+          },
+          "last_month": {
+            "type": "number",
+            "title": "Last Month"
+          },
+          "two_months_ago": {
+            "type": "number",
+            "title": "Two Months Ago"
+          },
+          "today_balance": {
+            "type": "number",
+            "title": "Today Balance"
+          },
+          "front_stock": {
+            "type": "number",
+            "title": "Front Stock"
+          },
+          "this_month_use": {
+            "type": "number",
+            "title": "This Month Use"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning"
+          },
+          "product_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Line"
+          },
+          "erp_no": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erp No"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
+          },
+          "remark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remark"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "import_key": {
+            "type": "string",
+            "title": "Import Key"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "name",
+          "available",
+          "safety",
+          "last_month",
+          "two_months_ago",
+          "today_balance",
+          "front_stock",
+          "this_month_use",
+          "import_key"
+        ],
+        "title": "RawMaterialResponse"
       },
       "RectificationReplyRequest": {
         "properties": {
