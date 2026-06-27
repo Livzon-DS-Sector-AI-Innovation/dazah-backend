@@ -88,17 +88,21 @@ async def get_active_config(config_type: str = "text") -> Optional[LLMConfigData
     Returns:
         LLMConfigData or None if not found
     """
-    async with async_session_factory() as session:
-        result = await session.execute(
-            select(LLMConfigModel).where(
-                LLMConfigModel.is_active == True,
-                LLMConfigModel.config_type == config_type,
-                LLMConfigModel.is_deleted == False,
+    try:
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(LLMConfigModel).where(
+                    LLMConfigModel.is_active == True,
+                    LLMConfigModel.config_type == config_type,
+                    LLMConfigModel.is_deleted == False,
+                )
             )
-        )
-        config = result.scalar_one_or_none()
-        if config:
-            return config.to_config_data()
+            config = result.scalar_one_or_none()
+            if config:
+                return config.to_config_data()
+    except Exception:
+        # Database table doesn't exist or other error, fall back to env
+        pass
     return None
 
 

@@ -76,6 +76,7 @@ async def upsert_document(
         "first_found_at": datetime.now(timezone.utc),
         "last_checked_at": datetime.now(timezone.utc),
     })
+    await db.flush()  # 确保 doc.id 可用
     return ("created", doc)
 
 
@@ -86,13 +87,13 @@ async def sync_page_to_db(
     channel: DataChannel,
     job_id: uuid.UUID,
     page_num: int,
-) -> dict[str, int]:
+) -> dict:
     """同步单页数据到数据库。
 
     Returns:
-        {"checked": int, "new": int, "updated": int, "failed": int}
+        {"checked": int, "new": int, "updated": int, "failed": int, "new_docs": list}
     """
-    stats = {"checked": 0, "new": 0, "updated": 0, "failed": 0}
+    stats = {"checked": 0, "new": 0, "updated": 0, "failed": 0, "new_docs": []}
 
     # 记录分页开始
     page_record = await repo.create_sync_job_page(db, {
@@ -134,11 +135,8 @@ async def sync_page_to_db(
                 if action == "created":
                     stats["new"] += 1
                     new_on_page += 1
-                    # Trigger AI analysis for new documents
-                    try:
-                        await analyze_and_update(db, result)
-                    except Exception as e:
-                        logger.error(f"AI 分析失败: {e}")
+                    # 收集新增文档（用于后续自动分析）
+                    stats["new_docs"].append(result)
                 elif action == "updated":
                     stats["updated"] += 1
             except Exception as e:
@@ -195,6 +193,7 @@ async def run_sync_job(
     })
 
     total_stats = {"checked": 0, "new": 0, "updated": 0, "failed": 0}
+    new_docs_list = []  # 收集所有新增文档
     error_message = None
 
     try:
@@ -218,6 +217,7 @@ async def run_sync_job(
                 total_stats["new"] += stats["new"]
                 total_stats["updated"] += stats["updated"]
                 total_stats["failed"] += stats["failed"]
+                new_docs_list.extend(stats.get("new_docs", []))
 
                 # 每页提交一次
                 await db.commit()
@@ -255,4 +255,5 @@ async def run_sync_job(
         "updated": total_stats["updated"],
         "failed": total_stats["failed"],
         "error": error_message,
+        "new_docs": new_docs_list,  # 新增文档列表
     }

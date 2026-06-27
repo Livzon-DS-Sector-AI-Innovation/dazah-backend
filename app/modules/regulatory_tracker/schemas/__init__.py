@@ -18,6 +18,13 @@ from app.modules.regulatory_tracker.schemas.sync_job import (
     SyncJobRead,
     SyncJobPageRead,
 )
+from app.modules.regulatory_tracker.schemas.dashboard import (
+    DashboardResponse,
+    SourceStatusItem,
+    TrendItem,
+    SyncTriggerRequest,
+    BatchReadRequest,
+)
 
 __all__ = [
     "DataSourceCreate",
@@ -30,4 +37,9 @@ __all__ = [
     "SyncJobCreate",
     "SyncJobRead",
     "SyncJobPageRead",
+    "DashboardResponse",
+    "SourceStatusItem",
+    "TrendItem",
+    "SyncTriggerRequest",
+    "BatchReadRequest",
 ]

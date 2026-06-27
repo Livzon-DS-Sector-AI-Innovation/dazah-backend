@@ -36,3 +36,9 @@ docs/superpowers
 uploads/
 backups/
 .env.*
+
+# 运行时数据和测试产物
+*.tar.gz
+storage/
+scripts/regulatory_poc/*.png
+scripts/regulatory_poc/*.json

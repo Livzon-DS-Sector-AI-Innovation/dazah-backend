@@ -15,7 +15,13 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
-    connect_args={"server_settings": {"search_path": _search_path}},
+    # 禁用 asyncpg prepared statement 缓存，避免表结构变更后报错
+    # 参考: https://github.com/MagicStack/asyncpg/issues/736
+    connect_args={
+        "server_settings": {"search_path": _search_path},
+        "statement_cache_size": 0,  # 禁用 prepared statement 缓存
+        "max_cached_statement_lifetime": 0,  # 不缓存 statement
+    },
 )
 
 async_session_factory = async_sessionmaker(
