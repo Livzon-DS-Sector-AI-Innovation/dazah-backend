@@ -9,6 +9,7 @@ from app.modules.hr import router as hr_router
 from app.modules.procurement import router as procurement_router
 from app.modules.production import router as production_router
 from app.modules.quality import router as quality_router
+from app.modules.rd_project import router as rd_project_router
 from app.modules.registration import router as registration_router
 from app.modules.research import router as research_router
 from app.modules.regulatory_tracker import router as regulatory_tracker_router
@@ -46,6 +47,7 @@ api_router.include_router(
 )
 api_router.include_router(hr_router, prefix="/hr", tags=["人事管理"])
 api_router.include_router(research_router, prefix="/research", tags=["研发管理"])
+api_router.include_router(rd_project_router, prefix="/rd", tags=["研发项目管理"])
 api_router.include_router(
     registration_router,
     prefix="/registration",
