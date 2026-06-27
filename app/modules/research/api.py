@@ -1,6 +1,8 @@
 """研发项目 API 路由."""
 
 import uuid
+from uuid import UUID
+from typing import Optional
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1286,363 +1288,164 @@ from app.modules.research.schemas import (
     PilotWorkflowListItem,
 )
 
+# Rd Project schemas
+from app.modules.research.schemas import (
+    RdProjectCreate, RdProjectUpdate, RdProjectResponse,
+    RdMilestoneCreate, RdMilestoneUpdate, RdMilestoneResponse,
+    RdStageRecordCreate, RdStageRecordUpdate, RdStageRecordResponse,
+    RdResearchTrackCreate, RdResearchTrackUpdate, RdResearchTrackResponse,
+    RdResearchFindingCreate, RdResearchFindingUpdate, RdResearchFindingResponse
+)
 
-PILOT_STEPS_TEMPLATE = [
-    {"step_code": "recipe_review", "step_name": "工艺规程审核"},
-    {"step_code": "equipment_check", "step_name": "设备确认"},
-    {"step_code": "material_prep", "step_name": "物料准备"},
-    {"step_code": "pilot_execution", "step_name": "中试执行"},
-    {"step_code": "data_analysis", "step_name": "数据分析"},
-    {"step_code": "report_gen", "step_name": "报告生成"},
-]
 
+# ===== Milestone Endpoints =====
 
-@router.get("/pilot/workflow", summary="获取中试工作流列表")
-async def get_pilot_workflows(
-    status: str | None = Query(None, description="状态筛选"),
-    keyword: str | None = Query(None, description="搜索产品名称"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+@router.post("/projects/{project_id}/milestones", response_model=RdMilestoneResponse, summary="创建里程碑")
+async def create_milestone(
+    project_id: UUID,
+    data: RdMilestoneCreate,
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    from sqlalchemy import select, func, or_
-
-    query = select(PilotWorkflow).where(PilotWorkflow.is_deleted == False)
-    count_query = select(func.count()).select_from(PilotWorkflow).where(PilotWorkflow.is_deleted == False)
-
-    if status:
-        query = query.where(PilotWorkflow.status == status)
-        count_query = count_query.where(PilotWorkflow.status == status)
-    if keyword:
-        kw = f"%{keyword}%"
-        query = query.where(PilotWorkflow.product_name.ilike(kw))
-        count_query = count_query.where(PilotWorkflow.product_name.ilike(kw))
-
-    total = (await db.execute(count_query)).scalar() or 0
-
-    query = query.order_by(PilotWorkflow.created_at.desc())
-    query = query.offset((page - 1) * page_size).limit(page_size)
-    result = await db.execute(query)
-    workflows = result.scalars().all()
-
-    items = []
-    for wf in workflows:
-        # Count steps
-        step_count_result = await db.execute(
-            select(func.count()).select_from(PilotWorkflowStep).where(
-                PilotWorkflowStep.workflow_id == wf.id,
-                PilotWorkflowStep.is_deleted == False,
-            )
-        )
-        step_count = step_count_result.scalar() or 0
-
-        completed_result = await db.execute(
-            select(func.count()).select_from(PilotWorkflowStep).where(
-                PilotWorkflowStep.workflow_id == wf.id,
-                PilotWorkflowStep.status == "completed",
-                PilotWorkflowStep.is_deleted == False,
-            )
-        )
-        completed_count = completed_result.scalar() or 0
-
-        items.append(PilotWorkflowListItem(
-            id=wf.id,
-            product_name=wf.product_name,
-            scale_up_ratio=wf.scale_up_ratio,
-            equipment_type=wf.equipment_type,
-            equipment_volume=wf.equipment_volume,
-            status=wf.status,
-            created_at=wf.created_at,
-            step_count=step_count,
-            completed_step_count=completed_count,
-        ))
-
-    return paginated_response(
-        data=[item.model_dump(mode="json") for item in items],
-        page=page,
-        page_size=page_size,
-        total=total,
-    )
+    current_user: CurrentUser = None
+):
+    user_id = current_user.id if current_user else None
+    return await service.create_milestone(db, project_id, data, user_id)
 
 
-@router.get("/pilot/workflow/{workflow_id}", summary="获取中试工作流详情")
-async def get_pilot_workflow(
-    workflow_id: str,
+@router.get("/projects/{project_id}/milestones", response_model=list[RdMilestoneResponse], summary="获取里程碑列表")
+async def get_milestones(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    return await service.get_milestones(db, project_id)
+
+
+@router.put("/projects/milestones/{milestone_id}", response_model=RdMilestoneResponse, summary="更新里程碑")
+async def update_milestone(
+    milestone_id: UUID,
+    data: RdMilestoneUpdate,
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(PilotWorkflow).where(
-            PilotWorkflow.id == workflow_id,
-            PilotWorkflow.is_deleted == False,
-        )
-    )
-    workflow = result.scalar_one_or_none()
-    if not workflow:
-        raise HTTPException(status_code=404, detail="工作流不存在")
-
-    # Load steps
-    steps_result = await db.execute(
-        select(PilotWorkflowStep).where(
-            PilotWorkflowStep.workflow_id == workflow_id,
-            PilotWorkflowStep.is_deleted == False,
-        ).order_by(PilotWorkflowStep.step_order)
-    )
-    steps = steps_result.scalars().all()
-
-    resp = PilotWorkflowResponse(
-        id=workflow.id,
-        project_id=workflow.project_id,
-        product_name=workflow.product_name,
-        scale_up_ratio=workflow.scale_up_ratio,
-        equipment_type=workflow.equipment_type,
-        equipment_volume=workflow.equipment_volume,
-        input_document_path=workflow.input_document_path,
-        input_context=workflow.input_context,
-        status=workflow.status,
-        final_report=workflow.final_report,
-        created_at=workflow.created_at,
-        updated_at=workflow.updated_at,
-        created_by=workflow.created_by,
-        updated_by=workflow.updated_by,
-        steps=[PilotWorkflowStepResponse.model_validate(s) for s in steps],
-    )
-    return success_response(data=resp.model_dump(mode="json"))
+    current_user: CurrentUser = None
+):
+    user_id = current_user.id if current_user else None
+    return await service.update_milestone(db, milestone_id, data, user_id)
 
 
-@router.post("/pilot/workflow", summary="创建中试工作流")
-async def create_pilot_workflow(
-    data: PilotWorkflowCreate,
+# ===== Stage Record Endpoints =====
+
+@router.post("/projects/{project_id}/stages", response_model=RdStageRecordResponse, summary="创建阶段记录")
+async def create_stage_record(
+    project_id: UUID,
+    data: RdStageRecordCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
-) -> JSONResponse:
-    workflow_id = f"PLT-{_uuid.uuid4().hex[:12]}"
-    now = datetime.now(timezone.utc)
-
-    workflow = PilotWorkflow(
-        id=workflow_id,
-        project_id=data.project_id,
-        product_name=data.product_name,
-        scale_up_ratio=data.scale_up_ratio,
-        equipment_type=data.equipment_type,
-        equipment_volume=data.equipment_volume,
-        input_context=data.input_context,
-        status="pending",
-    )
-    if current_user:
-        workflow.created_by = current_user.id
-    db.add(workflow)
-
-    # Create steps from template
-    for idx, step_tpl in enumerate(PILOT_STEPS_TEMPLATE):
-        step = PilotWorkflowStep(
-            id=f"STP-{_uuid.uuid4().hex[:12]}",
-            workflow_id=workflow_id,
-            step_order=idx + 1,
-            step_code=step_tpl["step_code"],
-            step_name=step_tpl["step_name"],
-            status="pending",
-        )
-        if current_user:
-            step.created_by = current_user.id
-        db.add(step)
-
-    await db.commit()
-
-    from sqlalchemy import select
-    # Reload with steps
-    steps_result = await db.execute(
-        select(PilotWorkflowStep).where(
-            PilotWorkflowStep.workflow_id == workflow_id,
-            PilotWorkflowStep.is_deleted == False,
-        ).order_by(PilotWorkflowStep.step_order)
-    )
-    steps = steps_result.scalars().all()
-
-    resp = PilotWorkflowResponse(
-        id=workflow.id,
-        project_id=workflow.project_id,
-        product_name=workflow.product_name,
-        scale_up_ratio=workflow.scale_up_ratio,
-        equipment_type=workflow.equipment_type,
-        equipment_volume=workflow.equipment_volume,
-        input_document_path=workflow.input_document_path,
-        input_context=workflow.input_context,
-        status=workflow.status,
-        final_report=workflow.final_report,
-        created_at=workflow.created_at,
-        updated_at=workflow.updated_at,
-        created_by=workflow.created_by,
-        updated_by=workflow.updated_by,
-        steps=[PilotWorkflowStepResponse.model_validate(s) for s in steps],
-    )
-    return success_response(data=resp.model_dump(mode="json"))
+    current_user: CurrentUser = None
+):
+    user_id = current_user.id if current_user else None
+    return await service.create_stage_record(db, project_id, data, user_id)
 
 
-@router.delete("/pilot/workflow/{workflow_id}", summary="删除中试工作流")
-async def delete_pilot_workflow(
-    workflow_id: str,
+@router.get("/projects/{project_id}/stages", response_model=list[RdStageRecordResponse], summary="获取阶段记录列表")
+async def get_stage_records(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    return await service.get_stage_records(db, project_id)
+
+
+@router.put("/projects/stages/{record_id}", response_model=RdStageRecordResponse, summary="更新阶段记录")
+async def update_stage_record(
+    record_id: UUID,
+    data: RdStageRecordUpdate,
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(PilotWorkflow).where(
-            PilotWorkflow.id == workflow_id,
-            PilotWorkflow.is_deleted == False,
-        )
-    )
-    workflow = result.scalar_one_or_none()
-    if not workflow:
-        raise HTTPException(status_code=404, detail="工作流不存在")
-
-    workflow.is_deleted = True
-    # Also soft-delete steps
-    steps_result = await db.execute(
-        select(PilotWorkflowStep).where(
-            PilotWorkflowStep.workflow_id == workflow_id,
-            PilotWorkflowStep.is_deleted == False,
-        )
-    )
-    for step in steps_result.scalars().all():
-        step.is_deleted = True
-
-    await db.commit()
-    return success_response(message="已删除")
+    current_user: CurrentUser = None
+):
+    user_id = current_user.id if current_user else None
+    return await service.update_stage_record(db, record_id, data, user_id)
 
 
-@router.post("/pilot/workflow/{workflow_id}/start", summary="启动中试工作流")
-async def start_pilot_workflow(
-    workflow_id: str,
+# ===== Research Track Endpoints =====
+
+@router.post("/projects/{project_id}/tracks", response_model=RdResearchTrackResponse, summary="创建研究项")
+async def create_research_track(
+    project_id: UUID,
+    data: RdResearchTrackCreate,
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(PilotWorkflow).where(
-            PilotWorkflow.id == workflow_id,
-            PilotWorkflow.is_deleted == False,
-        )
-    )
-    workflow = result.scalar_one_or_none()
-    if not workflow:
-        raise HTTPException(status_code=404, detail="工作流不存在")
-
-    if workflow.status != "pending":
-        raise HTTPException(status_code=400, detail="只有待启动状态的工作流可以启动")
-
-    workflow.status = "running"
-    # Set first step to running
-    steps_result = await db.execute(
-        select(PilotWorkflowStep).where(
-            PilotWorkflowStep.workflow_id == workflow_id,
-            PilotWorkflowStep.is_deleted == False,
-        ).order_by(PilotWorkflowStep.step_order)
-    )
-    steps = steps_result.scalars().all()
-    if steps:
-        steps[0].status = "running"
-        steps[0].started_at = datetime.now(timezone.utc)
-
-    await db.commit()
-    return success_response(message="工作流已启动")
+    current_user: CurrentUser = None
+):
+    user_id = current_user.id if current_user else None
+    return await service.create_research_track(db, project_id, data, user_id)
 
 
-@router.post("/pilot/workflow/{workflow_id}/approve", summary="确认工作流步骤")
-async def approve_pilot_workflow_step(
-    workflow_id: str,
+@router.get("/projects/{project_id}/tracks", response_model=list[RdResearchTrackResponse], summary="获取研究项列表")
+async def get_research_tracks(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    return await service.get_research_tracks(db, project_id)
+
+
+@router.put("/projects/tracks/{track_id}", response_model=RdResearchTrackResponse, summary="更新研究项")
+async def update_research_track(
+    track_id: UUID,
+    data: RdResearchTrackUpdate,
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(PilotWorkflow).where(
-            PilotWorkflow.id == workflow_id,
-            PilotWorkflow.is_deleted == False,
-        )
-    )
-    workflow = result.scalar_one_or_none()
-    if not workflow:
-        raise HTTPException(status_code=404, detail="工作流不存在")
-
-    steps_result = await db.execute(
-        select(PilotWorkflowStep).where(
-            PilotWorkflowStep.workflow_id == workflow_id,
-            PilotWorkflowStep.is_deleted == False,
-        ).order_by(PilotWorkflowStep.step_order)
-    )
-    steps = steps_result.scalars().all()
-
-    # Find the waiting_approval step
-    waiting_step = None
-    for step in steps:
-        if step.status == "waiting_approval":
-            waiting_step = step
-            break
-
-    if not waiting_step:
-        raise HTTPException(status_code=400, detail="没有待确认的步骤")
-
-    now = datetime.now(timezone.utc)
-    waiting_step.status = "completed"
-    waiting_step.completed_at = now
-
-    # Find next pending step
-    next_step = None
-    for step in steps:
-        if step.status == "pending":
-            next_step = step
-            break
-
-    if next_step:
-        next_step.status = "running"
-        next_step.started_at = now
-        workflow.status = "running"
-        result_status = "running"
-    else:
-        # All steps completed
-        workflow.status = "completed"
-        workflow.final_report = {
-            "conclusion": f"{workflow.product_name} 中试研究已完成全部步骤。",
-            "sections": [
-                {"title": "总结", "content": f"放大倍数: {workflow.scale_up_ratio}x, 设备: {workflow.equipment_type} {workflow.equipment_volume}L"}
-            ],
-        }
-        result_status = "completed"
-
-    await db.commit()
-    return success_response(data={"status": result_status, "message": "步骤已确认"})
+    current_user: CurrentUser = None
+):
+    user_id = current_user.id if current_user else None
+    return await service.update_research_track(db, track_id, data, user_id)
 
 
-@router.post("/pilot/workflow/{workflow_id}/upload", summary="上传中试文档")
-async def upload_pilot_workflow_document(
-    workflow_id: str,
-    file: UploadFile = File(...),
+# ===== Research Finding Endpoints =====
+
+@router.post("/tracks/{track_id}/findings", response_model=RdResearchFindingResponse, summary="创建研究发现")
+async def create_research_finding(
+    track_id: UUID,
+    data: RdResearchFindingCreate,
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    from sqlalchemy import select
-    import os
+    current_user: CurrentUser = None
+):
+    user_id = current_user.id if current_user else None
+    return await service.create_research_finding(db, track_id, data, user_id)
 
-    result = await db.execute(
-        select(PilotWorkflow).where(
-            PilotWorkflow.id == workflow_id,
-            PilotWorkflow.is_deleted == False,
-        )
-    )
-    workflow = result.scalar_one_or_none()
-    if not workflow:
-        raise HTTPException(status_code=404, detail="工作流不存在")
 
-    # Save file
-    upload_dir = "/tmp/pilot_uploads"
-    os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, f"{workflow_id}_{file.filename}")
-    content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+@router.get("/tracks/{track_id}/findings", response_model=list[RdResearchFindingResponse], summary="获取研究发现列表")
+async def get_research_findings(
+    track_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    return await service.get_research_findings(db, track_id)
 
-    workflow.input_document_path = file_path
-    await db.commit()
 
-    return success_response(data={"path": file_path, "filename": file.filename})
+@router.put("/findings/{finding_id}", response_model=RdResearchFindingResponse, summary="更新研究发现")
+async def update_research_finding(
+    finding_id: UUID,
+    data: RdResearchFindingUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None
+):
+    user_id = current_user.id if current_user else None
+    return await service.update_research_finding(db, finding_id, data, user_id)
+
+
+# ===== Conclusion Version Endpoints =====
+
+@router.post("/tracks/{track_id}/conclusions", summary="发布新结论版本")
+async def publish_conclusion_version(
+    track_id: UUID,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None
+):
+    """发布新的结论版本，更新研究项的当前结论"""
+    user_id = current_user.id if current_user else None
+    conclusion = data.get("conclusion", "")
+    confidence = data.get("confidence", "preliminary")
+    return await service.publish_conclusion_version(db, track_id, conclusion, confidence, user_id)
+
+
+@router.get("/tracks/{track_id}/conclusions", summary="获取结论历史")
+async def get_conclusion_history(
+    track_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取研究项的结论版本历史"""
+    return await service.get_conclusion_history(db, track_id)
