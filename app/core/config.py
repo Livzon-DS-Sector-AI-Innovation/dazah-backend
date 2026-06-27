@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     # JWT
     JWT_EXPIRE_SECONDS: int = 86400  # 24 hours
 
+    # Permission System
+    ADMIN_EMPLOYEE_NOS: list[str] = []
+
     # Feishu Bitable — HR 模块多维表格同步
     FEISHU_BOT_NAME: str = ""
     FEISHU_BITABLE_APP_TOKEN: str = ""

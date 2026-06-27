@@ -9,13 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import CurrentUser
 from app.core.exceptions import AppException, ForbiddenException
 from app.core.response import success_response
 from app.modules.equipment import service
 from app.modules.equipment.schemas import WorkOrderResponse
+from app.platform.identity.models import User
 from app.platform.integrations.feishu.contact import is_department_member
 from app.platform.integrations.feishu.message import send_claim_notification
+from app.platform.permission.deps import require_permission
 
 router = APIRouter()
 
@@ -24,17 +25,14 @@ router = APIRouter()
 async def claim_work_order(
     work_order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
     settings = Depends(get_settings),
+    user: User = Depends(require_permission("equipment:work_order:update")),
 ) -> JSONResponse:
-    if not current_user:
-        raise AppException(message="需要登录", status_code=401)
-
     dept_id = settings.FEISHU_EQUIPMENT_DEPT_ID
     if not dept_id:
         raise AppException(message="设备部未配置")
 
-    feishu_id = current_user.feishu_user_id or ""
+    feishu_id = user.feishu_user_id or ""
     if not feishu_id:
         raise ForbiddenException(message="用户未关联飞书账号")
 
@@ -42,10 +40,10 @@ async def claim_work_order(
     if not is_member:
         raise ForbiddenException(message="只有设备部成员才能接单")
 
-    wo = await service.claim_work_order(db, work_order_id, current_user.id)
+    wo = await service.claim_work_order(db, work_order_id, user.id)
 
     asyncio.ensure_future(
-        send_claim_notification(wo.work_order_no, current_user.name)
+        send_claim_notification(wo.work_order_no, user.name)
     )
 
     resp = WorkOrderResponse.model_validate(wo)

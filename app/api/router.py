@@ -14,6 +14,7 @@ from app.modules.safety import router as safety_router
 from app.modules.warehouse import router as warehouse_router
 from app.platform.identity.api import (
     dept_router,
+    impersonation_router,
     personnel_router,
     sync_router,
     user_router,
@@ -21,12 +22,14 @@ from app.platform.identity.api import (
 from app.platform.identity.api import (
     router as identity_router,
 )
+from app.platform.permission.api import router as permission_router
 from app.platform.system import router as system_router
 
 api_router = APIRouter()
 
 api_router.include_router(identity_router, prefix="/identity", tags=["身份认证"])
 api_router.include_router(user_router, prefix="/identity", tags=["用户信息"])
+api_router.include_router(impersonation_router, prefix="/identity", tags=["用户代理"])
 api_router.include_router(dept_router, prefix="/identity", tags=["组织架构"])
 api_router.include_router(personnel_router, prefix="/identity", tags=["人员名单"])
 api_router.include_router(sync_router, prefix="/identity", tags=["飞书同步"])
@@ -51,3 +54,4 @@ api_router.include_router(
     tags=["注册管理"],
 )
 api_router.include_router(quality_router, prefix="/quality", tags=["质量管理"])
+api_router.include_router(permission_router, prefix="/permission", tags=["权限管理"])

@@ -1,3 +1,4 @@
+import datetime
 import json
 from uuid import UUID
 
@@ -108,3 +109,35 @@ class PersonnelListResponse(BaseModel):
     total: int
     offset: int
     limit: int
+
+
+# ── Impersonation ─────────────────────────────────────────────────────
+
+
+class ImpersonateStartRequest(BaseModel):
+    target_user_id: UUID
+
+
+class ImpersonateStartResponse(BaseModel):
+    target_user_id: UUID
+    target_user_name: str
+    target_department: str
+    target_position: str
+    token: str  # Server Action 用来设置 cookie
+    expires_at: datetime.datetime
+
+
+class ImpersonateUserInfo(BaseModel):
+    id: UUID
+    name: str
+    department: str
+    position: str
+
+    model_config = {"from_attributes": True}
+
+
+class ImpersonateStatusResponse(BaseModel):
+    is_impersonating: bool
+    real_user: ImpersonateUserInfo | None = None
+    target_user: ImpersonateUserInfo | None = None
+    expires_at: datetime.datetime | None = None

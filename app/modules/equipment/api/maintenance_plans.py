@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser
 from app.core.response import paginated_response, success_response
 from app.modules.equipment import service
 from app.modules.equipment.models.equipment import EquipmentCategory
@@ -17,6 +16,8 @@ from app.modules.equipment.schemas import (
     MaintenancePlanResponse,
     MaintenancePlanUpdate,
 )
+from app.platform.identity.models import User
+from app.platform.permission.deps import require_permission
 
 router = APIRouter()
 
@@ -54,7 +55,7 @@ def _enrich_plan(plan, category_names: dict[str, str]) -> MaintenancePlanRespons
 async def create_maintenance_plan(
     data: MaintenancePlanCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:create")),
 ) -> JSONResponse:
     plan = await service.create_maintenance_plan(db, data)
     cat_ids = [plan.category_id] if plan.category_id else []
@@ -71,6 +72,7 @@ async def list_maintenance_plans(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=200, description="每页数量"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("equipment:maintenance:read")),
 ) -> JSONResponse:
     plans, total = await service.get_maintenance_plans(
         db, equipment_id=equipment_id, category_id=category_id,
@@ -90,6 +92,7 @@ async def list_maintenance_plans(
 async def get_overdue_plans(
     days: int = Query(0, ge=0, description="提前天数，0=仅逾期"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("equipment:maintenance:read")),
 ) -> JSONResponse:
     plans = await service.get_overdue_maintenance_plans(db, days)
     cat_ids = [p.category_id for p in plans if p.category_id]
@@ -103,6 +106,7 @@ async def get_overdue_plans(
 async def get_maintenance_plan(
     plan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("equipment:maintenance:read")),
 ) -> JSONResponse:
     plan = await service.get_maintenance_plan_by_id(db, plan_id)
     cat_ids = [plan.category_id] if plan.category_id else []
@@ -115,7 +119,7 @@ async def update_maintenance_plan(
     plan_id: uuid.UUID,
     data: MaintenancePlanUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:update")),
 ) -> JSONResponse:
     plan = await service.update_maintenance_plan(db, plan_id, data)
     cat_ids = [plan.category_id] if plan.category_id else []
@@ -127,7 +131,7 @@ async def update_maintenance_plan(
 async def delete_maintenance_plan(
     plan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:delete")),
 ) -> JSONResponse:
     await service.delete_maintenance_plan(db, plan_id)
     return success_response(message="删除成功")

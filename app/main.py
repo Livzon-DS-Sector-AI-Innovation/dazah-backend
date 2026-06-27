@@ -109,6 +109,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger.info("Background tasks started")
 
+    # ── 权限系统启动引导 ──
+    from app.core.database import async_session_factory
+    from app.platform.permission.bootstrap import bootstrap_permissions
+
+    async with async_session_factory() as perm_db:
+        await bootstrap_permissions(perm_db, settings)
+
     yield
 
     stop_member_sync_flag.set()

@@ -7,7 +7,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser
 from app.core.response import paginated_response, success_response
 from app.modules.equipment import service
 from app.modules.equipment.schemas import (
@@ -19,6 +18,8 @@ from app.modules.equipment.schemas import (
     InspectionTemplateUpdate,
     WorkOrderResponse,
 )
+from app.platform.identity.models import User
+from app.platform.permission.deps import require_permission
 
 router = APIRouter()
 
@@ -28,7 +29,7 @@ router = APIRouter()
 async def create_inspection_template(
     data: InspectionTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:create")),
 ) -> JSONResponse:
     template = await service.create_inspection_template(db, data)
     return success_response(
@@ -46,6 +47,7 @@ async def list_inspection_templates(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=200, description="每页数量"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("equipment:maintenance:read")),
 ) -> JSONResponse:
     templates, total = await service.get_inspection_templates(
         db,
@@ -69,6 +71,7 @@ async def list_inspection_templates(
 async def get_inspection_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("equipment:maintenance:read")),
 ) -> JSONResponse:
     template = await service.get_inspection_template_by_id(db, template_id)
     return success_response(
@@ -81,7 +84,7 @@ async def update_inspection_template(
     template_id: uuid.UUID,
     data: InspectionTemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:update")),
 ) -> JSONResponse:
     template = await service.update_inspection_template(db, template_id, data)
     return success_response(
@@ -93,7 +96,7 @@ async def update_inspection_template(
 async def delete_inspection_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:delete")),
 ) -> JSONResponse:
     await service.delete_inspection_template(db, template_id)
     return success_response(message="删除成功")
@@ -105,7 +108,7 @@ async def add_template_item(
     template_id: uuid.UUID,
     data: InspectionTemplateItemCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:create")),
 ) -> JSONResponse:
     await service.add_template_item(db, template_id, data)
     return success_response(message="添加成功")
@@ -116,7 +119,7 @@ async def update_template_item(
     item_id: uuid.UUID,
     data: InspectionTemplateItemUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:update")),
 ) -> JSONResponse:
     await service.update_template_item(db, item_id, data)
     return success_response(message="修改成功")
@@ -126,7 +129,7 @@ async def update_template_item(
 async def delete_template_item(
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:delete")),
 ) -> JSONResponse:
     await service.delete_template_item(db, item_id)
     return success_response(message="删除成功")
@@ -138,7 +141,7 @@ async def complete_inspection(
     work_order_id: uuid.UUID,
     data: InspectionCompleteRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
+    user: User = Depends(require_permission("equipment:maintenance:update")),
 ) -> JSONResponse:
     wo = await service.complete_inspection(db, work_order_id, data)
     return success_response(data=WorkOrderResponse.model_validate(wo))

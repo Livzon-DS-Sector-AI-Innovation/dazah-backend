@@ -111,3 +111,33 @@ class IdentityService:
             self._settings.SECRET_KEY,
             algorithms=["HS256"],
         )
+
+    # -- Impersonation --
+
+    IMPERSONATE_EXPIRE_SECONDS = 7200  # 2 hours
+
+    def generate_impersonate_jwt(self, target_user: User, admin_user: User) -> str:
+        """生成代理身份 JWT，sub=目标用户，impersonated_by=管理员。"""
+        payload = {
+            "sub": str(target_user.id),
+            "impersonated_by": str(admin_user.id),
+            "iat": datetime.datetime.now(tz=datetime.UTC),
+            "exp": datetime.datetime.now(tz=datetime.UTC)
+            + datetime.timedelta(seconds=self.IMPERSONATE_EXPIRE_SECONDS),
+        }
+        return jwt.encode(
+            payload,
+            self._settings.SECRET_KEY,
+            algorithm="HS256",
+        )
+
+    def decode_impersonate_jwt(self, token: str) -> dict | None:
+        """解析代理 JWT，验证签名和过期。返回 payload 或 None。"""
+        try:
+            return jwt.decode(
+                token,
+                self._settings.SECRET_KEY,
+                algorithms=["HS256"],
+            )
+        except jwt.InvalidTokenError:
+            return None
