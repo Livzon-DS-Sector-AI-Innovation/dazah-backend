@@ -428,8 +428,7 @@ async def delete_process_spec(
     return ApiResponse(message="删除成功")
 
 
-# ============ ProcessStep Routes ============
-
+# ============ ProcessStep Routes =====
 
 @router.get("/process-specs/{spec_id}/steps", response_model=ApiResponse, summary="获取工艺步骤列表")
 async def get_process_steps(
@@ -641,3 +640,8 @@ async def update_material_balance(
         return ApiResponse(code=404, message="物料平衡不存在")
     await db.commit()
     return ApiResponse(data=MaterialBalanceResponse.model_validate(balance))
+
+# ============ 压差统计路由 ============
+from app.modules.production.pressure_api import router as pressure_router
+
+router.include_router(pressure_router, tags=["压差统计"])

@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import DuplicateException, NotFoundException
+from app.core.exceptions import AppException, DuplicateException, NotFoundException
 from app.modules.equipment import repository as repo
 from app.modules.equipment.models import Equipment, EquipmentCategory, Location
 from app.modules.equipment.schemas import (
@@ -84,11 +84,11 @@ async def delete_equipment_category(
 
     children = await repo.get_equipment_categories(db, parent_id=category_id)
     if children:
-        raise DuplicateException("子分类", "该分类下存在子分类，无法删除")
+        raise AppException(message="该分类下存在子分类，无法删除")
 
     equipment_count = await repo.count_equipments_by_category(db, category_id)
     if equipment_count > 0:
-        raise DuplicateException("设备分类", "该分类下存在设备，无法删除")
+        raise AppException(message="该分类下存在关联设备，无法删除")
 
     return await repo.delete_equipment_category(db, category_id)
 
@@ -158,11 +158,11 @@ async def delete_location(
 
     children = await repo.get_locations(db, parent_id=location_id)
     if children:
-        raise DuplicateException("子位置", "该位置下存在子位置，无法删除")
+        raise AppException(message="该位置下存在子位置，无法删除")
 
     equipment_count = await repo.count_equipments_by_location(db, location_id)
     if equipment_count > 0:
-        raise DuplicateException("设备位置", "该位置下存在设备，无法删除")
+        raise AppException(message="该位置下存在关联设备，无法删除")
 
     return await repo.delete_location(db, location_id)
 

@@ -2,9 +2,10 @@
 
 import os
 import uuid
+from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -20,15 +21,20 @@ from app.modules.equipment.schemas.inspection import (
     InspectionRecordResponse,
     InspectionRouteCreate,
     InspectionRouteDetailResponse,
-    InspectionRouteEquipmentBatch,
     InspectionRouteResponse,
     InspectionRouteUpdate,
+    InspectionScheduleCreate,
+    InspectionScheduleResponse,
+    InspectionScheduleUpdate,
     InspectionTaskClose,
     InspectionTaskCreate,
     InspectionTaskDetailResponse,
     InspectionTaskResponse,
     RouteCheckSubmit,
-    RouteEquipmentResponse,
+    RouteEquipmentTemplateResponse,
+    RouteLocationEquipmentResponse,
+    RouteLocationResponse,
+    RouteLocationsBatch,
 )
 from app.modules.equipment.service import inspection as inspection_svc
 
@@ -47,15 +53,16 @@ def _task_to_response(task) -> InspectionTaskResponse:
     resp = InspectionTaskResponse.model_validate(task)
     if task.equipment_ids:
         resp.equipment_count = len(task.equipment_ids)
-    elif task.route and task.route.equipments_rel:
-        resp.equipment_count = len(task.route.equipments_rel)
+    elif task.route and task.route.locations_rel:
+        count = 0
+        for loc in task.route.locations_rel:
+            count += len(loc.equipments or [])
+        resp.equipment_count = count
     if task.route:
         resp.route_name = task.route.name
     if task.equipment:
         resp.equipment_name = task.equipment.name
         resp.equipment_no = task.equipment.equipment_no
-    if hasattr(task, "template") and task.template:
-        resp.template_name = task.template.name
     if hasattr(task, "assignee") and task.assignee:
         resp.assignee_name = task.assignee.name
     return resp
@@ -112,8 +119,7 @@ async def create_route(
 @router.get("/routes", summary="巡检路线列表")
 async def list_routes(
     is_active: bool | None = Query(None, description="是否启用"),
-    area: str | None = Query(None, description="区域"),
-    period_type: str | None = Query(None, description="周期类型"),
+    location_id: uuid.UUID | None = Query(None, description="按地点筛选"),
     keyword: str | None = Query(None, description="关键词搜索"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=200, description="每页数量"),
@@ -122,8 +128,7 @@ async def list_routes(
     routes, total = await inspection_svc.get_routes(
         db,
         is_active=is_active,
-        area=area,
-        period_type=period_type,
+        location_id=location_id,
         keyword=keyword,
         page=page,
         page_size=page_size,
@@ -131,9 +136,12 @@ async def list_routes(
     resp_list = []
     for r in routes:
         resp = InspectionRouteResponse.model_validate(r)
-        resp.equipment_count = (
-            len(r.equipments_rel) if r.equipments_rel else 0
-        )
+        # 统计未删除的地点下的未删除设备
+        count = 0
+        for loc in (r.locations_rel or []):
+            count += len([e for e in (loc.equipments or []) if not e.is_deleted])
+        resp.equipment_count = count
+        resp.location_count = len(r.locations_rel or [])
         resp_list.append(resp)
     return paginated_response(
         data=resp_list,
@@ -150,17 +158,40 @@ async def get_route(
 ) -> JSONResponse:
     route = await inspection_svc.get_route_by_id(db, route_id)
     resp = InspectionRouteDetailResponse.model_validate(route)
-    resp.equipments = [
-        RouteEquipmentResponse(
-            id=re_.id,
-            equipment_id=re_.equipment_id,
-            sort_order=re_.sort_order,
-            equipment_name=re_.equipment.name if re_.equipment else None,
-            equipment_no=(
-                re_.equipment.equipment_no if re_.equipment else None
-            ),
+    resp.locations = [
+        RouteLocationResponse(
+            id=loc.id,
+            location_id=loc.location_id,
+            location_name=loc.location.name if loc.location else None,
+            sort_order=loc.sort_order,
+            equipments=[
+                RouteLocationEquipmentResponse(
+                    id=eq.id,
+                    equipment_id=eq.equipment_id,
+                    sort_order=eq.sort_order,
+                    equipment_name=(
+                        eq.equipment.name
+                        if (eq.equipment and not eq.equipment.is_deleted)
+                        else None
+                    ),
+                    equipment_no=(
+                        eq.equipment.equipment_no
+                        if (eq.equipment and not eq.equipment.is_deleted)
+                        else None
+                    ),
+                    templates=[
+                        RouteEquipmentTemplateResponse(
+                            id=rt.id,
+                            template_id=rt.template_id,
+                            template_name=rt.template.name if rt.template else None,
+                        )
+                        for rt in (eq.templates_rel or [])
+                    ],
+                )
+                for eq in (loc.equipments or [])
+            ],
         )
-        for re_ in (route.equipments_rel or [])
+        for loc in (route.locations_rel or [])
     ]
     return success_response(data=resp)
 
@@ -188,17 +219,43 @@ async def delete_route(
 
 
 @router.post(
-    "/routes/{route_id}/equipments", summary="配置路线设备"
+    "/routes/{route_id}/locations", summary="配置路线地点设备模板"
 )
-async def set_route_equipments(
+async def set_route_locations(
     route_id: uuid.UUID,
-    data: InspectionRouteEquipmentBatch,
+    data: RouteLocationsBatch,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = None,
 ) -> JSONResponse:
-    items = [item.model_dump() for item in data.equipments]
-    await inspection_svc.set_route_equipments(db, route_id, items)
-    return success_response(message="配置成功")
+    items = [item.model_dump() for item in data.locations]
+    locations = await inspection_svc.set_route_locations(db, route_id, items)
+    resp_list = [
+        RouteLocationResponse(
+            id=loc.id,
+            location_id=loc.location_id,
+            location_name=loc.location.name if loc.location else None,
+            sort_order=loc.sort_order,
+            equipments=[
+                RouteLocationEquipmentResponse(
+                    id=eq.id,
+                    equipment_id=eq.equipment_id,
+                    sort_order=eq.sort_order,
+                    equipment_name=eq.equipment.name if eq.equipment else None,
+                    equipment_no=eq.equipment.equipment_no if eq.equipment else None,
+                    templates=[
+                        RouteEquipmentTemplateResponse(
+                            id=rt.id,
+                            template_id=rt.template_id,
+                            template_name=rt.template.name if rt.template else None,
+                        )
+                        for rt in (eq.templates_rel or [])
+                    ],
+                )
+                for eq in (loc.equipments or [])
+            ],
+        )
+        for loc in locations
+    ]
+    return success_response(data=resp_list)
 
 
 # ═══════════ 巡检任务 ═══════════
@@ -219,26 +276,26 @@ async def list_tasks(
     route_id: uuid.UUID | None = Query(None, description="路线ID"),
     assigned_to: uuid.UUID | None = Query(None, description="巡检人员ID"),
     equipment_id: uuid.UUID | None = Query(None, description="设备ID"),
-    planned_date_from: str | None = Query(
-        None, description="计划日期起始"
+    planned_time_from: str | None = Query(
+        None, description="计划时间起始"
     ),
-    planned_date_to: str | None = Query(
-        None, description="计划日期截止"
+    planned_time_to: str | None = Query(
+        None, description="计划时间截止"
     ),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=200, description="每页数量"),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    from datetime import date as date_type
+    from datetime import datetime as dt_type
 
-    pd_from = (
-        date_type.fromisoformat(planned_date_from)
-        if planned_date_from
+    pt_from = (
+        dt_type.fromisoformat(planned_time_from)
+        if planned_time_from
         else None
     )
-    pd_to = (
-        date_type.fromisoformat(planned_date_to)
-        if planned_date_to
+    pt_to = (
+        dt_type.fromisoformat(planned_time_to)
+        if planned_time_to
         else None
     )
 
@@ -249,8 +306,8 @@ async def list_tasks(
         route_id=route_id,
         assigned_to=assigned_to,
         equipment_id=equipment_id,
-        planned_date_from=pd_from,
-        planned_date_to=pd_to,
+        planned_time_from=pt_from,
+        planned_time_to=pt_to,
         page=page,
         page_size=page_size,
     )
@@ -404,9 +461,21 @@ async def serve_photo(
     photo_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
+    from app.core.storage import get_object
+    from app.core.storage import is_enabled as minio_enabled
+
     photo = await repo.get_photo_by_id(db, photo_id)
     if not photo:
         raise NotFoundException("照片", str(photo_id))
+
+    if minio_enabled():
+        result = get_object("equipment", photo.file_path)
+        if result is None:
+            raise NotFoundException("照片文件")
+        data, content_type = result
+        return StreamingResponse(BytesIO(data), media_type=content_type)
+
+    # 本地文件系统模式
     if not os.path.exists(photo.file_path):
         raise NotFoundException("照片文件")
     return FileResponse(photo.file_path)
@@ -548,3 +617,70 @@ async def get_history_detail(
         ],
     )
     return success_response(data=model)
+
+
+# ═══════════ 路线定时任务 ═══════════
+
+@router.get(
+    "/routes/{route_id}/schedules",
+    summary="获取路线定时任务列表",
+)
+async def list_schedules(
+    route_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    schedules = await inspection_svc.get_schedules_by_route(db, route_id)
+    return success_response(schedules)
+
+
+@router.post(
+    "/routes/{route_id}/schedules",
+    summary="创建定时任务",
+)
+async def create_schedule(
+    route_id: uuid.UUID,
+    body: InspectionScheduleCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+):
+    _require_user(current_user)
+    data = body.model_dump(exclude_unset=True)
+    schedule = await inspection_svc.create_schedule(db, route_id, data)
+    return success_response(InspectionScheduleResponse.model_validate(schedule))
+
+
+@router.put(
+    "/routes/{route_id}/schedules/{schedule_id}",
+    summary="更新定时任务",
+)
+async def update_schedule(
+    route_id: uuid.UUID,
+    schedule_id: uuid.UUID,
+    body: InspectionScheduleUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+):
+    _require_user(current_user)
+    data = body.model_dump(exclude_unset=True)
+    schedule = await inspection_svc.update_schedule(db, schedule_id, data)
+    if str(schedule.route_id) != str(route_id):
+        raise NotFoundException("定时任务", str(schedule_id))
+    return success_response(InspectionScheduleResponse.model_validate(schedule))
+
+
+@router.delete(
+    "/routes/{route_id}/schedules/{schedule_id}",
+    summary="删除定时任务",
+)
+async def delete_schedule(
+    route_id: uuid.UUID,
+    schedule_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = None,
+):
+    _require_user(current_user)
+    schedule = await repo.get_schedule_by_id(db, schedule_id)
+    if not schedule or str(schedule.route_id) != str(route_id):
+        raise NotFoundException("定时任务", str(schedule_id))
+    await inspection_svc.delete_schedule(db, schedule_id)
+    return success_response(None)

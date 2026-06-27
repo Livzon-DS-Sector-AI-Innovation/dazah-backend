@@ -88,7 +88,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         equipment_ws_task = asyncio.create_task(start_equipment_ws())
 
     # ── 安全模块专属飞书事件订阅（WebSocket 长连接，独立应用凭据）──
-    import app.modules.safety.bot_handler as _  # noqa: F401 — 注册事件处理器
     from app.modules.safety.feishu.event_client import start_ws, stop_ws
 
     safety_ws_task = asyncio.create_task(start_ws())
@@ -100,6 +99,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     scheduler_task = asyncio.create_task(scheduled_task_loop())
+
+    # ── 统一调度引擎（平台级，各模块可渐进迁移）──
+    from app.platform.scheduler import SchedulerEngine, SchedulerRegistry
+
+    scheduler_registry = SchedulerRegistry()
+    scheduler_engine = SchedulerEngine(scheduler_registry)
+
+    from app.modules.equipment.scheduled import (
+        InspectionScheduleGenerator,
+    )
+    scheduler_registry.register_generator(InspectionScheduleGenerator())
+
+    scheduler_engine_task = asyncio.create_task(scheduler_engine.run())
 
     logger.info("Background tasks started")
 
@@ -118,6 +130,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 停止定时任务调度引擎
     stop_scheduled_task_flag.set()
     scheduler_task.cancel()
+
+    # ── 停止统一调度引擎 ──
+    scheduler_engine.stop()
+    try:
+        await asyncio.wait_for(scheduler_engine_task, timeout=10)
+    except (TimeoutError, asyncio.CancelledError):
+        pass
 
     # 停止设备模块 WebSocket
     if equipment_ws_task:

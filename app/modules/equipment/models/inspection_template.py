@@ -39,11 +39,13 @@ class InspectionTemplate(BaseModel):
         comment="是否启用",
     )
 
-    # 关系
+    # 关系（仅加载未删除的检查项）
     items: Mapped[list[InspectionTemplateItem]] = relationship(
         "InspectionTemplateItem",
         back_populates="template",
         order_by="InspectionTemplateItem.sort_order",
+        primaryjoin="and_(InspectionTemplate.id == foreign(InspectionTemplateItem.template_id), "
+                     "InspectionTemplateItem.is_deleted == False)",
     )
 
 
@@ -93,6 +95,11 @@ class InspectionRecord(BaseModel):
     task_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("equipment.inspection_tasks.id"),
         comment="关联巡检任务ID",
+    )
+    route_location_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("equipment.route_locations.id"),
+        nullable=True,
+        comment="关联线路地点（线路巡检时标记）",
     )
     equipment_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("equipment.equipments.id"),

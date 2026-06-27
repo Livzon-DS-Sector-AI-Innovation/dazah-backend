@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # dazah-backend/
@@ -28,6 +29,19 @@ class Settings(BaseSettings):
     APP_NAME: str = "dazah-backend"
     APP_ENV: str = "development"
     DEBUG: bool = False
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def coerce_debug_bool(cls, v):
+        """兼容 VS Code 等注入的非布尔值（如 DEBUG=release）。"""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            if v.lower() in ("true", "1", "yes"):
+                return True
+            return False
+        return bool(v)
+
     SECRET_KEY: str = "change-me-in-production"
 
     # Database
@@ -35,6 +49,14 @@ class Settings(BaseSettings):
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Upload
+    UPLOAD_DIR: str = "./uploads"
+    # AI
+    AI_API_KEY: str = ""
+    AI_BASE_URL: str = "https://api.openai.com/v1"
+    AI_VISION_MODEL: str = "gpt-4o"
+
 
     # Audit
     AUDIT_RETENTION_DAYS: int = 7
@@ -68,7 +90,15 @@ class Settings(BaseSettings):
 
     # Upload
     UPLOAD_DIR: str = "./uploads"
-    MAX_UPLOAD_SIZE_MB: int = 10
+    MAX_UPLOAD_SIZE_MB: int = 50
+
+    # MinIO / S3-compatible object storage
+    MINIO_ENABLED: bool = False
+    MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_BUCKET_PREFIX: str = "dazah"
+    MINIO_SECURE: bool = False
 
     # Energy
     ENERGY_AUTO_COLLECT_ENABLED: bool = False

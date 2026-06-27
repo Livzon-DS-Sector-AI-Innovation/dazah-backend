@@ -1,5 +1,10 @@
 """Equipment service layer: re-export all public functions."""
 
+from app.modules.equipment.service.ai import analyze_inspection_photo
+from app.modules.equipment.service.ai.service import (
+    get_inspection_items_for_session,
+    parse_manual_submission,
+)
 from app.modules.equipment.service.calibration import (
     create_calibration_plan,
     create_calibration_record,
@@ -55,7 +60,8 @@ from app.modules.equipment.service.inspection import (
     get_routes,
     get_task_detail,
     get_task_photos,
-    set_route_equipments,
+    set_route_locations,
+    skip_equipment_check,
     submit_equipment_check,
     update_route,
 )
@@ -77,7 +83,6 @@ from app.modules.equipment.service.inspection import (
 from app.modules.equipment.service.inspection import (
     upload_photo as upload_inspection_photo,
 )
-from app.modules.equipment.service.ai import analyze_inspection_photo
 from app.modules.equipment.service.inspection_template import (
     add_template_item,
     complete_inspection,
@@ -160,6 +165,8 @@ from app.modules.equipment.service.work_order_image import (
 __all__ = [
     # ai
     "analyze_inspection_photo",
+    "parse_manual_submission",
+    "get_inspection_items_for_session",
     # calibration
     "create_calibration_plan",
     "create_calibration_record",

@@ -11,11 +11,11 @@ from sqlalchemy.orm import selectinload
 from app.modules.safety.models import (
     Accident,
     AIWorkflowConfig,
-    APICallConfig,
     Contractor,
     ContractorWorkRecord,
     DailyRiskReport,
     EhsChange,
+    HazardIdentification,
     HazardReport,
     OhHazardMonitor,
     OhHealthExam,
@@ -88,15 +88,16 @@ class SafetyRepository:
         item = SafetyCheck(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(SafetyCheck).where(SafetyCheck.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_check(self, check_id: uuid.UUID, data: dict[str, Any]) -> SafetyCheck | None:
         """更新安全检查"""
         query = (
             update(SafetyCheck)
             .where(SafetyCheck.id == check_id, SafetyCheck.is_deleted == False)
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(SafetyCheck)
         )
         result = await self.session.execute(query)
@@ -119,9 +120,11 @@ class SafetyRepository:
         skip: int = 0,
         limit: int = 20,
         status: str | None = None,
+        rectification_status: str | None = None,
         hazard_type: str | None = None,
         hazard_level: str | None = None,
         hazard_category: str | None = None,
+        inspection_category: str | None = None,
         department: str | None = None,
         keyword: str | None = None,
     ) -> tuple[list[HazardReport], int]:
@@ -130,38 +133,44 @@ class SafetyRepository:
 
         if status:
             query = query.where(HazardReport.status == status)
+        if rectification_status:
+            query = query.where(HazardReport.rectification_status == rectification_status)
         if hazard_type:
             query = query.where(HazardReport.hazard_type == hazard_type)
         if hazard_level:
             query = query.where(HazardReport.hazard_level == hazard_level)
         if hazard_category:
             query = query.where(HazardReport.hazard_category == hazard_category)
+        if inspection_category:
+            query = query.where(HazardReport.inspection_category.contains(inspection_category))
         if department:
             query = query.where(HazardReport.department == department)
         if keyword:
             like = f"%{keyword}%"
             query = query.where(
                 HazardReport.description.ilike(like)
-                | HazardReport.location.ilike(like)
                 | HazardReport.hazard_no.ilike(like)
             )
 
         count_query = select(func.count(HazardReport.id)).where(HazardReport.is_deleted == False)
         if status:
             count_query = count_query.where(HazardReport.status == status)
+        if rectification_status:
+            count_query = count_query.where(HazardReport.rectification_status == rectification_status)
         if hazard_type:
             count_query = count_query.where(HazardReport.hazard_type == hazard_type)
         if hazard_level:
             count_query = count_query.where(HazardReport.hazard_level == hazard_level)
         if hazard_category:
             count_query = count_query.where(HazardReport.hazard_category == hazard_category)
+        if inspection_category:
+            count_query = count_query.where(HazardReport.inspection_category.contains(inspection_category))
         if department:
             count_query = count_query.where(HazardReport.department == department)
         if keyword:
             like = f"%{keyword}%"
             count_query = count_query.where(
                 HazardReport.description.ilike(like)
-                | HazardReport.location.ilike(like)
                 | HazardReport.hazard_no.ilike(like)
             )
 
@@ -170,6 +179,42 @@ class SafetyRepository:
         result = await self.session.execute(query)
         items = list(result.scalars().all())
         return items, total or 0
+
+    async def get_hazard_stats(self) -> dict[str, int]:
+        """获取隐患状态统计数据（全局，不受分页/筛选影响）。"""
+        from sqlalchemy import case
+
+        base = select(
+            func.count(HazardReport.id).label("total"),
+            func.count(case((HazardReport.ai_generated.is_(True)
+                             & (HazardReport.overall_status == "completed"), 1))).label("pending_review"),
+            func.count(case((HazardReport.rectification_status == "pending", 1))).label("pending"),
+            func.count(case((HazardReport.rectification_status == "in_progress", 1))).label("in_progress"),
+            func.count(case((HazardReport.rectification_status == "replied", 1))).label("replied"),
+            func.count(case((HazardReport.rectification_status.in_(["level1_approved", "level2_approved"]), 1))).label("verifying"),
+            func.count(case((HazardReport.rectification_status == "rejected", 1))).label("rejected"),
+            func.count(case((HazardReport.rectification_status == "closed", 1))).label("closed"),
+            func.count(case(
+                (HazardReport.deadline.is_not(None)
+                 & (HazardReport.deadline < func.now())
+                 & (HazardReport.rectification_status != "closed")
+                 & (HazardReport.status != "closed"), 1)
+            )).label("overdue"),
+        ).where(HazardReport.is_deleted == False)
+
+        result = await self.session.execute(base)
+        row = result.one()
+        return {
+            "total": row.total or 0,
+            "pending_review": row.pending_review or 0,
+            "pending": row.pending or 0,
+            "in_progress": row.in_progress or 0,
+            "replied": row.replied or 0,
+            "verifying": row.verifying or 0,
+            "rejected": row.rejected or 0,
+            "closed": row.closed or 0,
+            "overdue": row.overdue or 0,
+        }
 
     async def get_hazard_by_id(self, hazard_id: uuid.UUID) -> HazardReport | None:
         """获取隐患详情"""
@@ -189,15 +234,42 @@ class SafetyRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
+    # 禁止以空字符串覆盖的 person 姓名字段（防御 Bitable 空 person → "" 覆盖已有数据）
+    _PERSON_NAME_GUARD_FIELDS = frozenset({
+        "discovered_by_name", "rectification_responsible_person_name",
+    })
+
     async def update_hazard(self, hazard_id: uuid.UUID, data: dict[str, Any]) -> HazardReport | None:
-        """更新隐患"""
-        query = (
+        """更新隐患（写后 eager re-fetch，避免 session 缓存旧值）。
+
+        RETURNING 返回的对象不会刷新 identity map 中已缓存的旧实例，
+        导致同 session 内后续 get_hazard_by_id() 返回过期数据。
+        改为 UPDATE + SELECT populate_existing 两步，强制覆盖缓存。
+        """
+        # ── 防御层：禁止空字符串覆盖 person 姓名字段 ──
+        for guard_field in self._PERSON_NAME_GUARD_FIELDS:
+            if data.get(guard_field) == "":
+                import logging
+                _logger = logging.getLogger(__name__)
+                _logger.warning(
+                    "repo.update_hazard 拦截空字符串: hazard_id=%s field=%s (已从 update_data 移除)",
+                    hazard_id, guard_field,
+                )
+                del data[guard_field]
+
+        stmt_update = (
             update(HazardReport)
             .where(HazardReport.id == hazard_id, HazardReport.is_deleted == False)
-            .values(**data)
-            .returning(HazardReport)
+            .values(**data, updated_at=func.now())
         )
-        result = await self.session.execute(query)
+        await self.session.execute(stmt_update)
+
+        stmt_select = (
+            select(HazardReport)
+            .where(HazardReport.id == hazard_id, HazardReport.is_deleted == False)
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt_select)
         return result.scalar_one_or_none()
 
     async def delete_hazard(self, hazard_id: uuid.UUID) -> bool:
@@ -288,20 +360,27 @@ class SafetyRepository:
         item = Accident(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(Accident).where(Accident.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_accident(
         self, accident_id: uuid.UUID, data: dict[str, Any]
     ) -> Accident | None:
         """更新事故"""
-        query = (
+        # 两步模式：先 UPDATE，再 SELECT + populate_existing 强制刷新 identity map 缓存
+        stmt_update = (
             update(Accident)
             .where(Accident.id == accident_id, Accident.is_deleted == False)
-            .values(**data)
-            .returning(Accident)
+            .values(**data, updated_at=func.now())
         )
-        result = await self.session.execute(query)
+        await self.session.execute(stmt_update)
+        stmt_select = (
+            select(Accident)
+            .where(Accident.id == accident_id, Accident.is_deleted == False)
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt_select)
         return result.scalar_one_or_none()
 
     async def delete_accident(self, accident_id: uuid.UUID) -> bool:
@@ -365,20 +444,27 @@ class SafetyRepository:
         item = SafetyTraining(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(SafetyTraining).where(SafetyTraining.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_training(
         self, training_id: uuid.UUID, data: dict[str, Any]
     ) -> SafetyTraining | None:
         """更新安全培训"""
-        query = (
+        # 两步模式：先 UPDATE，再 SELECT + populate_existing 强制刷新 identity map 缓存
+        stmt_update = (
             update(SafetyTraining)
             .where(SafetyTraining.id == training_id, SafetyTraining.is_deleted == False)
-            .values(**data)
-            .returning(SafetyTraining)
+            .values(**data, updated_at=func.now())
         )
-        result = await self.session.execute(query)
+        await self.session.execute(stmt_update)
+        stmt_select = (
+            select(SafetyTraining)
+            .where(SafetyTraining.id == training_id, SafetyTraining.is_deleted == False)
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt_select)
         return result.scalar_one_or_none()
 
     async def delete_training(self, training_id: uuid.UUID) -> bool:
@@ -406,20 +492,27 @@ class SafetyRepository:
         item = TrainingRecord(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(TrainingRecord).where(TrainingRecord.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_training_record(
         self, record_id: uuid.UUID, data: dict[str, Any]
     ) -> TrainingRecord | None:
         """更新培训记录"""
-        query = (
+        # 两步模式：先 UPDATE，再 SELECT + populate_existing 强制刷新 identity map 缓存
+        stmt_update = (
             update(TrainingRecord)
             .where(TrainingRecord.id == record_id, TrainingRecord.is_deleted == False)
-            .values(**data)
-            .returning(TrainingRecord)
+            .values(**data, updated_at=func.now())
         )
-        result = await self.session.execute(query)
+        await self.session.execute(stmt_update)
+        stmt_select = (
+            select(TrainingRecord)
+            .where(TrainingRecord.id == record_id, TrainingRecord.is_deleted == False)
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt_select)
         return result.scalar_one_or_none()
 
     async def delete_training_record(self, record_id: uuid.UUID) -> bool:
@@ -506,7 +599,7 @@ class SafetyRepository:
         """获取危险源辨识列表"""
         from datetime import datetime as dt_module
 
-        from app.modules.safety.models import HazardIdentification
+
 
         query = select(HazardIdentification).where(HazardIdentification.is_deleted == False)
         count_query = select(func.count(HazardIdentification.id)).where(
@@ -567,7 +660,7 @@ class SafetyRepository:
 
     async def get_hazard_identification_stats(self) -> dict[str, int]:
         """获取危险源辨识工作流统计（按 overall_status 分组）"""
-        from app.modules.safety.models import HazardIdentification
+
 
         base = select(HazardIdentification).where(HazardIdentification.is_deleted == False)
         results = {"total_draft": 0, "total_in_progress": 0, "total_pending_review": 0, "total_completed": 0}
@@ -608,7 +701,7 @@ class SafetyRepository:
     ) -> dict[str, int]:
         """获取危险源辨识台账统计（按风险等级分组）"""
         from datetime import datetime as dt_module
-        from app.modules.safety.models import HazardIdentification
+
 
         base = select(func.count(HazardIdentification.id)).where(
             HazardIdentification.is_deleted == False,
@@ -665,7 +758,7 @@ class SafetyRepository:
         self, hid: uuid.UUID
     ) -> "HazardIdentification | None":
         """获取危险源辨识详情"""
-        from app.modules.safety.models import HazardIdentification
+
 
         query = select(HazardIdentification).where(
             HazardIdentification.id == hid, HazardIdentification.is_deleted == False
@@ -677,32 +770,38 @@ class SafetyRepository:
         self, data: dict[str, Any]
     ) -> "HazardIdentification":
         """创建危险源辨识记录"""
-        from app.modules.safety.models import HazardIdentification
+
 
         item = HazardIdentification(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(HazardIdentification).where(HazardIdentification.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_hazard_identification(
         self, hid: uuid.UUID, data: dict[str, Any]
     ) -> "HazardIdentification | None":
         """更新危险源辨识记录"""
-        from app.modules.safety.models import HazardIdentification
 
-        query = (
+        # 两步模式：先 UPDATE，再 SELECT + populate_existing 强制刷新 identity map 缓存
+        stmt_update = (
             update(HazardIdentification)
             .where(HazardIdentification.id == hid, HazardIdentification.is_deleted == False)
-            .values(**data)
-            .returning(HazardIdentification)
+            .values(**data, updated_at=func.now())
         )
-        result = await self.session.execute(query)
+        await self.session.execute(stmt_update)
+        stmt_select = (
+            select(HazardIdentification)
+            .where(HazardIdentification.id == hid, HazardIdentification.is_deleted == False)
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt_select)
         return result.scalar_one_or_none()
 
     async def delete_hazard_identification(self, hid: uuid.UUID) -> bool:
         """删除危险源辨识记录（软删除）"""
-        from app.modules.safety.models import HazardIdentification
+
 
         query = (
             update(HazardIdentification)
@@ -720,6 +819,7 @@ class SafetyRepository:
         limit: int = 20,
         position: str | None = None,
         keyword: str | None = None,
+        status: str | None = None,
     ) -> tuple[list[OperationRegulation], int]:
         """获取安全操作规程列表"""
         query = select(OperationRegulation).where(OperationRegulation.is_deleted == False)
@@ -740,6 +840,11 @@ class SafetyRepository:
                 OperationRegulation.regulation_name.ilike(like)
                 | OperationRegulation.regulation_no.ilike(like)
             )
+        if status:
+            statuses = [s.strip() for s in status.split(",") if s.strip()]
+            if statuses:
+                query = query.where(OperationRegulation.status.in_(statuses))
+                count_query = count_query.where(OperationRegulation.status.in_(statuses))
 
         total = await self.session.scalar(count_query)
         query = query.offset(skip).limit(limit).order_by(OperationRegulation.created_at.desc())
@@ -762,20 +867,27 @@ class SafetyRepository:
         item = OperationRegulation(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(OperationRegulation).where(OperationRegulation.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_regulation(
         self, regulation_id: uuid.UUID, data: dict[str, Any]
     ) -> OperationRegulation | None:
         """更新安全操作规程"""
-        query = (
+        # 两步模式：先 UPDATE，再 SELECT + populate_existing 强制刷新 identity map 缓存
+        stmt_update = (
             update(OperationRegulation)
             .where(OperationRegulation.id == regulation_id, OperationRegulation.is_deleted == False)
-            .values(**data)
-            .returning(OperationRegulation)
+            .values(**data, updated_at=func.now())
         )
-        result = await self.session.execute(query)
+        await self.session.execute(stmt_update)
+        stmt_select = (
+            select(OperationRegulation)
+            .where(OperationRegulation.id == regulation_id, OperationRegulation.is_deleted == False)
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt_select)
         return result.scalar_one_or_none()
 
     async def delete_regulation(self, regulation_id: uuid.UUID) -> bool:
@@ -846,8 +958,9 @@ class SafetyRepository:
         item = RegulationRevision(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(RegulationRevision).where(RegulationRevision.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_revision(
         self, revision_id: uuid.UUID, data: dict[str, Any]
@@ -856,7 +969,7 @@ class SafetyRepository:
         query = (
             update(RegulationRevision)
             .where(RegulationRevision.id == revision_id, RegulationRevision.is_deleted == False)
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(RegulationRevision)
         )
         result = await self.session.execute(query)
@@ -935,8 +1048,9 @@ class SafetyRepository:
         item = AIWorkflowConfig(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(AIWorkflowConfig).where(AIWorkflowConfig.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_ai_workflow_config(
         self, config_id: uuid.UUID, data: dict[str, Any]
@@ -948,7 +1062,7 @@ class SafetyRepository:
                 AIWorkflowConfig.id == config_id,
                 AIWorkflowConfig.is_deleted == False,
             )
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(AIWorkflowConfig)
         )
         result = await self.session.execute(query)
@@ -961,110 +1075,6 @@ class SafetyRepository:
             .where(
                 AIWorkflowConfig.id == config_id,
                 AIWorkflowConfig.is_deleted == False,
-            )
-            .values(is_deleted=True)
-        )
-        result = await self.session.execute(query)
-        return result.rowcount > 0
-
-    # ==================== API 调用配置 Operations ====================
-
-    async def get_api_call_configs(
-        self,
-        skip: int = 0,
-        limit: int = 100,
-        is_active: bool | None = None,
-    ) -> tuple[list[APICallConfig], int]:
-        """获取 API 调用配置列表"""
-        query = select(APICallConfig).where(APICallConfig.is_deleted == False)
-
-        if is_active is not None:
-            query = query.where(APICallConfig.is_active == is_active)
-
-        count_query = select(func.count(APICallConfig.id)).where(
-            APICallConfig.is_deleted == False
-        )
-        if is_active is not None:
-            count_query = count_query.where(APICallConfig.is_active == is_active)
-
-        total = (await self.session.execute(count_query)).scalar_one()
-
-        query = query.order_by(APICallConfig.is_active.desc(), APICallConfig.created_at.desc())
-        query = query.offset(skip).limit(limit)
-        result = await self.session.execute(query)
-        items = list(result.scalars().all())
-
-        return items, total or 0
-
-    async def get_api_call_config_by_id(
-        self, config_id: uuid.UUID
-    ) -> APICallConfig | None:
-        """获取 API 调用配置详情"""
-        query = select(APICallConfig).where(
-            APICallConfig.id == config_id,
-            APICallConfig.is_deleted == False,
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def get_active_api_call_config(
-        self, config_type: str = "text"
-    ) -> APICallConfig | None:
-        """获取当前激活的 API 调用配置（可按类型过滤）"""
-        query = select(APICallConfig).where(
-            APICallConfig.is_deleted == False,
-            APICallConfig.is_active == True,
-            APICallConfig.config_type == config_type,
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def create_api_call_config(
-        self, data: dict[str, Any]
-    ) -> APICallConfig:
-        """创建 API 调用配置"""
-        item = APICallConfig(**data)
-        self.session.add(item)
-        await self.session.flush()
-        await self.session.refresh(item)
-        return item
-
-    async def update_api_call_config(
-        self, config_id: uuid.UUID, data: dict[str, Any]
-    ) -> APICallConfig | None:
-        """更新 API 调用配置"""
-        query = (
-            update(APICallConfig)
-            .where(
-                APICallConfig.id == config_id,
-                APICallConfig.is_deleted == False,
-            )
-            .values(**data)
-            .returning(APICallConfig)
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def deactivate_all_api_call_configs(
-        self, config_type: str | None = None
-    ) -> None:
-        """停用 API 调用配置（可按类型过滤，不传则停用所有）"""
-        conditions = [
-            APICallConfig.is_deleted == False,
-            APICallConfig.is_active == True,
-        ]
-        if config_type:
-            conditions.append(APICallConfig.config_type == config_type)
-        query = update(APICallConfig).where(*conditions).values(is_active=False)
-        await self.session.execute(query)
-
-    async def delete_api_call_config(self, config_id: uuid.UUID) -> bool:
-        """删除 API 调用配置（软删除）"""
-        query = (
-            update(APICallConfig)
-            .where(
-                APICallConfig.id == config_id,
-                APICallConfig.is_deleted == False,
             )
             .values(is_deleted=True)
         )
@@ -1148,8 +1158,9 @@ class SafetyRepository:
         item = SpecialOperationPersonnel(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(SpecialOperationPersonnel).where(SpecialOperationPersonnel.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_special_operation_personnel(
         self, personnel_id: uuid.UUID, data: dict[str, Any]
@@ -1161,7 +1172,7 @@ class SafetyRepository:
                 SpecialOperationPersonnel.id == personnel_id,
                 SpecialOperationPersonnel.is_deleted == False,
             )
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(SpecialOperationPersonnel)
         )
         result = await self.session.execute(query)
@@ -1259,8 +1270,9 @@ class SafetyRepository:
         item = SpecialOperationPermit(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(SpecialOperationPermit).where(SpecialOperationPermit.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_special_operation_permit(
         self, permit_id: uuid.UUID, data: dict[str, Any]
@@ -1272,7 +1284,7 @@ class SafetyRepository:
                 SpecialOperationPermit.id == permit_id,
                 SpecialOperationPermit.is_deleted == False,
             )
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(SpecialOperationPermit)
         )
         result = await self.session.execute(query)
@@ -1359,8 +1371,9 @@ class SafetyRepository:
         item = SafetyKnowledgeArticle(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(SafetyKnowledgeArticle).where(SafetyKnowledgeArticle.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_knowledge_article(
         self, article_id: uuid.UUID, data: dict[str, Any]
@@ -1372,7 +1385,7 @@ class SafetyRepository:
                 SafetyKnowledgeArticle.id == article_id,
                 SafetyKnowledgeArticle.is_deleted == False,
             )
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(SafetyKnowledgeArticle)
         )
         result = await self.session.execute(query)
@@ -1468,23 +1481,33 @@ class SafetyRepository:
         item = SpecialOperationReport(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(SpecialOperationReport).where(SpecialOperationReport.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_special_operation_report(
         self, report_id: uuid.UUID, data: dict[str, Any]
     ) -> SpecialOperationReport | None:
         """更新特殊作业报备"""
-        query = (
+        # 两步模式：先 UPDATE，再 SELECT + populate_existing 强制刷新 identity map 缓存
+        stmt_update = (
             update(SpecialOperationReport)
             .where(
                 SpecialOperationReport.id == report_id,
                 SpecialOperationReport.is_deleted == False,
             )
-            .values(**data)
-            .returning(SpecialOperationReport)
+            .values(**data, updated_at=func.now())
         )
-        result = await self.session.execute(query)
+        await self.session.execute(stmt_update)
+        stmt_select = (
+            select(SpecialOperationReport)
+            .where(
+                SpecialOperationReport.id == report_id,
+                SpecialOperationReport.is_deleted == False,
+            )
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt_select)
         return result.scalar_one_or_none()
 
     async def delete_special_operation_report(self, report_id: uuid.UUID) -> bool:
@@ -1606,7 +1629,6 @@ class SafetyRepository:
         department: str | None = None,
         report_date: datetime | None = None,
         keyword: str | None = None,
-        report_type: str | None = None,
     ) -> tuple[list[DailyRiskReport], int]:
         """获取每日风险作业报备列表"""
         query = select(DailyRiskReport).where(DailyRiskReport.is_deleted == False)
@@ -1615,8 +1637,6 @@ class SafetyRepository:
             query = query.where(DailyRiskReport.status == status)
         if department:
             query = query.where(DailyRiskReport.department == department)
-        if report_type:
-            query = query.where(DailyRiskReport.report_type == report_type)
         if report_date:
             query = query.where(
                 func.date(DailyRiskReport.report_date) == report_date.date()
@@ -1636,8 +1656,6 @@ class SafetyRepository:
             count_query = count_query.where(DailyRiskReport.status == status)
         if department:
             count_query = count_query.where(DailyRiskReport.department == department)
-        if report_type:
-            count_query = count_query.where(DailyRiskReport.report_type == report_type)
         if report_date:
             count_query = count_query.where(
                 func.date(DailyRiskReport.report_date) == report_date.date()
@@ -1676,8 +1694,9 @@ class SafetyRepository:
         item = DailyRiskReport(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(DailyRiskReport).where(DailyRiskReport.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_daily_risk_report(
         self, report_id: uuid.UUID, data: dict[str, Any]
@@ -1689,7 +1708,7 @@ class SafetyRepository:
                 DailyRiskReport.id == report_id,
                 DailyRiskReport.is_deleted == False,
             )
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(DailyRiskReport)
         )
         result = await self.session.execute(query)
@@ -1707,53 +1726,6 @@ class SafetyRepository:
         )
         result = await self.session.execute(query)
         return result.rowcount > 0
-
-    # ── 危险源风险选项（常规作业报备用） ──
-
-    async def get_hazard_identifications_for_risk_options(
-        self,
-        department: str | None = None,
-        keyword: str | None = None,
-        skip: int = 0,
-        limit: int = 100,
-    ) -> tuple[list["HazardIdentification"], int]:
-        """返回 level_1/level_2 且 overall_status=completed 的危险源，供常规作业报备选择"""
-        from app.modules.safety.models import HazardIdentification
-
-        query = select(HazardIdentification).where(
-            HazardIdentification.is_deleted == False,
-            HazardIdentification.inherent_risk_level.in_(["level_1", "level_2"]),
-            HazardIdentification.overall_status == "completed",
-        )
-        count_query = select(func.count(HazardIdentification.id)).where(
-            HazardIdentification.is_deleted == False,
-            HazardIdentification.inherent_risk_level.in_(["level_1", "level_2"]),
-            HazardIdentification.overall_status == "completed",
-        )
-
-        if department:
-            query = query.where(HazardIdentification.department == department)
-            count_query = count_query.where(HazardIdentification.department == department)
-        if keyword:
-            like = f"%{keyword}%"
-            query = query.where(
-                HazardIdentification.hazard_id_no.ilike(like)
-                | HazardIdentification.department.ilike(like)
-                | HazardIdentification.position.ilike(like)
-                | HazardIdentification.production_step.ilike(like)
-            )
-            count_query = count_query.where(
-                HazardIdentification.hazard_id_no.ilike(like)
-                | HazardIdentification.department.ilike(like)
-                | HazardIdentification.position.ilike(like)
-                | HazardIdentification.production_step.ilike(like)
-            )
-
-        total = await self.session.scalar(count_query)
-        query = query.offset(skip).limit(limit).order_by(HazardIdentification.created_at.desc())
-        result = await self.session.execute(query)
-        items = list(result.scalars().all())
-        return items, total or 0
 
     # ==================== EHS变更管理 (MOC) Operations ====================
 
@@ -1821,23 +1793,33 @@ class SafetyRepository:
         item = EhsChange(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(EhsChange).where(EhsChange.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_ehs_change(
         self, change_id: uuid.UUID, data: dict[str, Any]
     ) -> EhsChange | None:
         """更新EHS变更"""
-        query = (
+        # 两步模式：先 UPDATE，再 SELECT + populate_existing 强制刷新 identity map 缓存
+        stmt_update = (
             update(EhsChange)
             .where(
                 EhsChange.id == change_id,
                 EhsChange.is_deleted == False,
             )
-            .values(**data)
-            .returning(EhsChange)
+            .values(**data, updated_at=func.now())
         )
-        result = await self.session.execute(query)
+        await self.session.execute(stmt_update)
+        stmt_select = (
+            select(EhsChange)
+            .where(
+                EhsChange.id == change_id,
+                EhsChange.is_deleted == False,
+            )
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt_select)
         return result.scalar_one_or_none()
 
     async def delete_ehs_change(self, change_id: uuid.UUID) -> bool:
@@ -1925,8 +1907,9 @@ class SafetyRepository:
         item = OhHazardMonitor(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(OhHazardMonitor).where(OhHazardMonitor.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_hazard_monitor(
         self, monitor_id: uuid.UUID, data: dict[str, Any]
@@ -1935,7 +1918,7 @@ class SafetyRepository:
         query = (
             update(OhHazardMonitor)
             .where(OhHazardMonitor.id == monitor_id, OhHazardMonitor.is_deleted == False)
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(OhHazardMonitor)
         )
         result = await self.session.execute(query)
@@ -2023,8 +2006,9 @@ class SafetyRepository:
         item = OhHealthExam(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(OhHealthExam).where(OhHealthExam.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_health_exam(
         self, exam_id: uuid.UUID, data: dict[str, Any]
@@ -2033,7 +2017,7 @@ class SafetyRepository:
         query = (
             update(OhHealthExam)
             .where(OhHealthExam.id == exam_id, OhHealthExam.is_deleted == False)
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(OhHealthExam)
         )
         result = await self.session.execute(query)
@@ -2107,8 +2091,9 @@ class SafetyRepository:
         item = Contractor(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(Contractor).where(Contractor.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_contractor(
         self, contractor_id: uuid.UUID, data: dict[str, Any]
@@ -2117,7 +2102,7 @@ class SafetyRepository:
         query = (
             update(Contractor)
             .where(Contractor.id == contractor_id, Contractor.is_deleted == False)
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(Contractor)
         )
         result = await self.session.execute(query)
@@ -2159,8 +2144,9 @@ class SafetyRepository:
         item = ContractorWorkRecord(**data)
         self.session.add(item)
         await self.session.flush()
-        await self.session.refresh(item)
-        return item
+        stmt = select(ContractorWorkRecord).where(ContractorWorkRecord.id == item.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_work_record(
         self, record_id: uuid.UUID, data: dict[str, Any]
@@ -2169,7 +2155,7 @@ class SafetyRepository:
         query = (
             update(ContractorWorkRecord)
             .where(ContractorWorkRecord.id == record_id, ContractorWorkRecord.is_deleted == False)
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(ContractorWorkRecord)
         )
         result = await self.session.execute(query)
@@ -2246,7 +2232,7 @@ class SafetyRepository:
         query = (
             update(ScheduledTask)
             .where(ScheduledTask.id == task_id, ScheduledTask.is_deleted == False)
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(ScheduledTask)
         )
         result = await self.session.execute(query)
@@ -2280,7 +2266,7 @@ class SafetyRepository:
         query = (
             update(ScheduledTaskLog)
             .where(ScheduledTaskLog.id == log_id)
-            .values(**data)
+            .values(**data, updated_at=func.now())
             .returning(ScheduledTaskLog)
         )
         result = await self.session.execute(query)

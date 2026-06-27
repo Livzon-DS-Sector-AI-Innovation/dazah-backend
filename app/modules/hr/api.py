@@ -1537,13 +1537,13 @@ async def list_new_employees(
     session: AsyncSession = Depends(get_db),
 ):
     where, params = _build_where(
-        "hr.employees_new",
+        "hr.employees",
         [("department", department), ("status", status)],
         keyword_fields=["name", "employee_number"],
         keyword=keyword,
     )
     data, total = await _query_clone_table(
-        session, "hr.employees_new", EmployeeResponse,
+        session, "hr.employees", EmployeeResponse,
         where, params, page_params.page, page_params.page_size,
     )
     return paginated_response(
@@ -1561,13 +1561,13 @@ async def list_new_onboarding_records(
     session: AsyncSession = Depends(get_db),
 ):
     where, params = _build_where(
-        "hr.onboarding_records_new",
+        "hr.onboarding_records",
         [("department", department), ("position", position)],
         keyword_fields=["name", "employee_number"],
         keyword=keyword,
     )
     data, total = await _query_clone_table(
-        session, "hr.onboarding_records_new", OnboardingRecordResponse,
+        session, "hr.onboarding_records", OnboardingRecordResponse,
         where, params, page_params.page, page_params.page_size,
         sort_by="hire_date", sort_order="desc",
     )
@@ -1586,13 +1586,13 @@ async def list_new_departure_records(
     session: AsyncSession = Depends(get_db),
 ):
     where, params = _build_where(
-        "hr.departure_records_new",
+        "hr.departure_records",
         [("department", department), ("offboarding_type", offboarding_type)],
         keyword_fields=["name", "department", "position"],
         keyword=keyword,
     )
     data, total = await _query_clone_table(
-        session, "hr.departure_records_new", DepartureRecordResponse,
+        session, "hr.departure_records", DepartureRecordResponse,
         where, params, page_params.page, page_params.page_size,
         sort_by="offboarding_date", sort_order="desc",
     )
@@ -1612,13 +1612,13 @@ async def list_new_offboarding_records(
 ):
     # Reuse departure_records_new as offboarding data for new factory
     where, params = _build_where(
-        "hr.departure_records_new",
+        "hr.departure_records",
         [("department", department), ("offboarding_type", offboarding_type)],
         keyword_fields=["name", "department", "position"],
         keyword=keyword,
     )
     data, total = await _query_clone_table(
-        session, "hr.departure_records_new", DepartureRecordResponse,
+        session, "hr.departure_records", DepartureRecordResponse,
         where, params, page_params.page, page_params.page_size,
         sort_by="offboarding_date", sort_order="desc",
     )
@@ -1642,7 +1642,7 @@ async def list_new_departments(
         params["keyword"] = f"%{keyword}%"
 
     count_sql = text(f"""
-        SELECT COUNT(DISTINCT department) FROM hr.employees_new
+        SELECT COUNT(DISTINCT department) FROM hr.employees
         WHERE {where}
     """)
     total = (await session.execute(count_sql, params)).scalar()
@@ -1655,7 +1655,7 @@ async def list_new_departments(
             gen_random_uuid() AS id,
             NOW() AS created_at,
             NOW() AS updated_at
-        FROM hr.employees_new
+        FROM hr.employees
         WHERE {where}
         ORDER BY department
         LIMIT :limit OFFSET :offset

@@ -175,55 +175,9 @@ async def _handle_text_message(
     if " " in text:
         text = text.split(" ", 1)[-1].strip()
 
-    # 检查是否有待确认的巡检会话
-    from app.modules.equipment.service.inspection_session import get_session
+    # 统一路由到新的命令处理系统
+    from app.modules.equipment.service.inspection_feishu import (
+        process_feishu_text,
+    )
 
-    session = await get_session(open_id)
-
-    if session:
-        if text in ("提交", "确认", "确认提交"):
-            from app.modules.equipment.service.inspection_feishu import (
-                submit_pending_results,
-            )
-
-            await submit_pending_results(open_id)
-        elif text in ("取消", "放弃", "取消提交"):
-            from app.modules.equipment.service.inspection_feishu import (
-                cancel_pending_session,
-            )
-
-            await cancel_pending_session(open_id)
-        else:
-            from app.modules.equipment.service.inspection_feishu import (
-                process_correction,
-            )
-
-            await process_correction(open_id, text)
-    else:
-        from app.modules.equipment.feishu.notification import send_user_card
-
-        if text in ("帮助", "help", "?", "？"):
-            await send_user_card(
-                open_id=open_id,
-                title="🤖 巡检助手使用说明",
-                content=(
-                    "**发送巡检照片**\n"
-                    "直接拍照或发送图片给机器人，系统会自动识别并分析检查项。\n\n"
-                    "**确认结果**\n"
-                    "AI 分析完成后，回复「提交」保存结果，或发送文字修改内容。\n\n"
-                    "**注意事项**\n"
-                    "- 请先在系统中开始巡检任务（状态为「执行中」）\n"
-                    "- 照片应清晰拍摄设备仪表/标识\n"
-                    "- 每张照片会立即进行 AI 分析\n"
-                    "- 分析结果会回复到当前对话"
-                ),
-            )
-        else:
-            await send_user_card(
-                open_id=open_id,
-                title="💡 提示",
-                content=(
-                    "请直接发送巡检照片，我会自动分析。\n"
-                    "发送 **帮助** 查看使用说明。"
-                ),
-            )
+    await process_feishu_text(open_id, text)

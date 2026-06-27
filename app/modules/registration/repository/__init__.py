@@ -29,11 +29,23 @@ from app.modules.registration.repository.holiday import (
     get_holidays,
     update_holiday,
 )
+from app.modules.registration.repository.validation_audit import (
+    ValidationAuditFileRepository,
+    ValidationAuditIssueRepository,
+    ValidationAuditKnowledgeBaseRepository,
+    ValidationAuditReportRepository,
+    ValidationAuditTaskRepository,
+)
 
 __all__ = [
     "AuthorizationLetterRepository",
     "ReferenceStandardRepository",
     "SupplementaryReplyRepository",
+    "ValidationAuditFileRepository",
+    "ValidationAuditIssueRepository",
+    "ValidationAuditKnowledgeBaseRepository",
+    "ValidationAuditReportRepository",
+    "ValidationAuditTaskRepository",
     "create_drug",
     "create_drug_node",
     "create_holiday",

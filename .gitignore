@@ -27,6 +27,7 @@ Thumbs.db
 *.swp
 *.swo
 
+.superpowers
 docs/superpowers
 
 # runtime / uploads
@@ -35,3 +36,5 @@ docs/superpowers
 uploads/
 backups/
 .env.*
+
+storage/
