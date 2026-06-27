@@ -8,7 +8,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.equipment.deps import EquipmentAccessContext
 from app.modules.equipment.models import WorkOrder
+from app.modules.equipment.service.data_scope import apply_equipment_scope
 
 
 async def create_work_order(
@@ -82,6 +84,7 @@ async def count_open_work_orders_by_equipment(
 
 async def get_work_orders(
     db: AsyncSession,
+    ctx: EquipmentAccessContext,
     status: str | None = None,
     exclude_status: str | None = None,
     equipment_id: uuid.UUID | None = None,
@@ -105,6 +108,9 @@ async def get_work_orders(
         )
         .where(WorkOrder.is_deleted == False)  # noqa: E712
     )
+
+    # Apply data scope filtering based on reporter_id
+    query = apply_equipment_scope(query, ctx, WorkOrder.reporter_id, "user_id")
 
     if status:
         query = query.where(WorkOrder.status == status)
