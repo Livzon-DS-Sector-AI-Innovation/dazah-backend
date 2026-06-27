@@ -16,6 +16,10 @@ from app.modules.equipment.service.calibration import (
     get_overdue_calibration_plans,
     update_calibration_plan,
 )
+from app.modules.equipment.service.data_scope import (
+    apply_equipment_scope,
+    verify_write_ownership,
+)
 from app.modules.equipment.service.equipment import (
     create_equipment,
     create_equipment_category,
@@ -167,6 +171,9 @@ __all__ = [
     "analyze_inspection_photo",
     "parse_manual_submission",
     "get_inspection_items_for_session",
+    # data scope
+    "apply_equipment_scope",
+    "verify_write_ownership",
     # calibration
     "create_calibration_plan",
     "create_calibration_record",
