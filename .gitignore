@@ -36,3 +36,5 @@ docs/superpowers
 uploads/
 backups/
 .env.*
+
+storage/

@@ -28308,6 +28308,331 @@
         }
       }
     },
+    "/api/v1/procurement/invoices/recognize": {
+      "post": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u8bc6\u522b\u91c7\u8d2d\u53d1\u7968 PDF",
+        "description": "\u4ece\u7535\u5b50\u53d1\u7968 PDF \u4e2d\u8bc6\u522b\u53d1\u7968\u53f7\u7801\u3001\u5f00\u7968\u65e5\u671f\u3001\u9500\u552e\u65b9\u540d\u79f0\u3001\u7a0e\u989d\u5408\u8ba1\u548c\u4ef7\u7a0e\u5408\u8ba1\uff08\u5c0f\u5199\uff09\u3002\u5f00\u542f\u660e\u7ec6\u8bc6\u522b\u65f6\u989d\u5916\u8bc6\u522b\u9879\u76ee\u540d\u79f0\u3001\u5355\u4f4d\u548c\u6570\u91cf\u3002",
+        "operationId": "recognize_invoice_api_v1_procurement_invoices_recognize_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_recognize_invoice_api_v1_procurement_invoices_recognize_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceRecognitionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/procurement/invoices/recognition-records": {
+      "get": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u67e5\u8be2\u91c7\u8d2d\u53d1\u7968\u8bc6\u522b\u8bb0\u5f55",
+        "description": "\u67e5\u8be2\u5df2\u7ecf\u4fdd\u5b58\u5230\u6570\u636e\u5e93\u7684\u91c7\u8d2d\u53d1\u7968\u8bc6\u522b\u7ed3\u679c\uff0c\u652f\u6301\u6309\u5173\u952e\u5b57\u3001\u9500\u552e\u65b9\u548c\u53d1\u7968\u53f7\u7801\u7b5b\u9009\u3002",
+        "operationId": "list_invoice_records_api_v1_procurement_invoices_recognition_records_get",
+        "parameters": [
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u6587\u4ef6\u540d\u3001\u53d1\u7968\u53f7\u7801\u6216\u9500\u552e\u65b9\u5173\u952e\u8bcd",
+              "title": "Keyword"
+            },
+            "description": "\u6587\u4ef6\u540d\u3001\u53d1\u7968\u53f7\u7801\u6216\u9500\u552e\u65b9\u5173\u952e\u8bcd"
+          },
+          {
+            "name": "seller_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u9500\u552e\u65b9\u540d\u79f0",
+              "title": "Seller Name"
+            },
+            "description": "\u9500\u552e\u65b9\u540d\u79f0"
+          },
+          {
+            "name": "invoice_number",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u53d1\u7968\u53f7\u7801",
+              "title": "Invoice Number"
+            },
+            "description": "\u53d1\u7968\u53f7\u7801"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "\u9875\u7801",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "\u9875\u7801"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "\u6bcf\u9875\u6761\u6570",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "\u6bcf\u9875\u6761\u6570"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceRecognitionRecordListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/procurement/invoices/recognition-records/{record_id}": {
+      "delete": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u5220\u9664\u91c7\u8d2d\u53d1\u7968\u8bc6\u522b\u8bb0\u5f55",
+        "description": "\u8f6f\u5220\u9664\u5355\u6761\u91c7\u8d2d\u53d1\u7968\u8bc6\u522b\u5386\u53f2\u8bb0\u5f55\u3002",
+        "operationId": "delete_invoice_record_api_v1_procurement_invoices_recognition_records__record_id__delete",
+        "parameters": [
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Record Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceRecognitionRecordDeleteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/procurement/invoices/recognition-records/batch-delete": {
+      "post": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u6279\u91cf\u5220\u9664\u91c7\u8d2d\u53d1\u7968\u8bc6\u522b\u8bb0\u5f55",
+        "description": "\u8f6f\u5220\u9664\u591a\u6761\u91c7\u8d2d\u53d1\u7968\u8bc6\u522b\u5386\u53f2\u8bb0\u5f55\u3002",
+        "operationId": "batch_delete_invoice_records_api_v1_procurement_invoices_recognition_records_batch_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceRecognitionRecordDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceRecognitionRecordDeleteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/procurement/contracts/templates/{category}": {
+      "get": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u83b7\u53d6\u91c7\u8d2d\u5408\u540c\u6a21\u677f\u5b57\u6bb5",
+        "description": "\u8fd4\u56de\u6307\u5b9a\u5408\u540c\u5206\u7c7b\u7684\u53ef\u586b\u5199\u5b57\u6bb5\uff0c\u7528\u4e8e\u524d\u7aef\u52a8\u6001\u5c55\u793a\u5408\u540c\u751f\u6210\u8868\u5355\u3002",
+        "operationId": "get_contract_template_api_v1_procurement_contracts_templates__category__get",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ContractCategory"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractTemplateMetadata"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/procurement/contracts/generate": {
+      "post": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u751f\u6210\u91c7\u8d2d\u5408\u540c",
+        "description": "\u6839\u636e\u5408\u540c\u5206\u7c7b\u3001\u57fa\u7840\u4fe1\u606f\u3001\u4f9b\u5e94\u5546\u4fe1\u606f\u548c\u660e\u7ec6\u884c\u751f\u6210 Word \u5408\u540c\u3002",
+        "operationId": "create_contract_api_v1_procurement_contracts_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContractGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/administration/": {
       "get": {
         "tags": [
@@ -44664,6 +44989,27 @@
         ],
         "title": "Body_preview_import_api_v1_quality_cpv_import_preview_post"
       },
+      "Body_recognize_invoice_api_v1_procurement_invoices_recognize_post": {
+        "properties": {
+          "include_details": {
+            "type": "boolean",
+            "title": "Include Details",
+            "description": "\u662f\u5426\u8bc6\u522b\u53d1\u7968\u660e\u7ec6",
+            "default": false
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "\u7535\u5b50\u53d1\u7968 PDF \u6587\u4ef6"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_recognize_invoice_api_v1_procurement_invoices_recognize_post"
+      },
       "Body_upload_asset_api_v1_dossier_writer_chapters__chapter_id__assets_post": {
         "properties": {
           "files": {
@@ -45520,6 +45866,564 @@
           "production_status"
         ],
         "title": "ConfirmProductionStatusRequest"
+      },
+      "ContractCategory": {
+        "type": "string",
+        "enum": [
+          "fixed-assets",
+          "consumables",
+          "hardware",
+          "raw-materials"
+        ],
+        "title": "ContractCategory"
+      },
+      "ContractGenerateRequest": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/ContractCategory",
+            "description": "\u5408\u540c\u5206\u7c7b"
+          },
+          "contract_number": {
+            "type": "string",
+            "title": "Contract Number",
+            "description": "\u5408\u540c\u7f16\u53f7"
+          },
+          "contract_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Contract Date",
+            "description": "\u7b7e\u8ba2\u65e5\u671f"
+          },
+          "delivery_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Date",
+            "description": "\u6700\u8fdf\u4ea4\u8d27\u65e5\u671f"
+          },
+          "delivery_terms": {
+            "type": "string",
+            "title": "Delivery Terms",
+            "description": "\u4ea4\u8d27\u65e5\u671f\u6216\u4ea4\u8d27\u8bf4\u660e",
+            "default": ""
+          },
+          "payment_terms": {
+            "type": "string",
+            "title": "Payment Terms",
+            "description": "\u4ed8\u6b3e\u671f\u9650/\u4ed8\u6b3e\u65b9\u5f0f\u5b8c\u6574\u63cf\u8ff0",
+            "default": ""
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Tax Rate",
+            "description": "\u589e\u503c\u7a0e\u7a0e\u7387",
+            "default": "13"
+          },
+          "seller": {
+            "$ref": "#/components/schemas/ContractPartyInfo",
+            "description": "\u5356\u65b9\u4fe1\u606f"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ContractItemInput"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Items",
+            "description": "\u5408\u540c\u660e\u7ec6"
+          },
+          "buyer_invoice_recipient": {
+            "type": "string",
+            "title": "Buyer Invoice Recipient",
+            "description": "\u53d1\u7968\u63a5\u6536\u4eba",
+            "default": "\u82d7\u9038\u98de"
+          },
+          "buyer_invoice_recipient_mobile": {
+            "type": "string",
+            "title": "Buyer Invoice Recipient Mobile",
+            "description": "\u53d1\u7968\u63a5\u6536\u4eba\u624b\u673a",
+            "default": "13323516444"
+          },
+          "buyer_receiver": {
+            "type": "string",
+            "title": "Buyer Receiver",
+            "description": "\u6536\u8d27\u4eba",
+            "default": "\u5b59\u6c38\u971e"
+          },
+          "buyer_receiver_mobile": {
+            "type": "string",
+            "title": "Buyer Receiver Mobile",
+            "description": "\u6536\u8d27\u4eba\u624b\u673a",
+            "default": "13909568331"
+          },
+          "buyer_receiver_phone": {
+            "type": "string",
+            "title": "Buyer Receiver Phone",
+            "description": "\u6536\u8d27\u4eba\u7535\u8bdd",
+            "default": "0952-6296677"
+          },
+          "attached_documents": {
+            "type": "string",
+            "title": "Attached Documents",
+            "description": "\u56fa\u5b9a\u8d44\u4ea7\u968f\u8d27\u8d44\u6599",
+            "default": ""
+          },
+          "installation_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installation Days",
+            "description": "\u5b89\u88c5\u8c03\u8bd5\u5de5\u4f5c\u65e5"
+          },
+          "warranty_months": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warranty Months",
+            "description": "\u8d28\u4fdd\u671f\uff08\u6708\uff09"
+          },
+          "response_hours": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Hours",
+            "description": "\u8d28\u4fdd\u671f\u54cd\u5e94\u5c0f\u65f6"
+          },
+          "onsite_hours": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onsite Hours",
+            "description": "\u8d28\u4fdd\u671f\u5230\u573a\u5904\u7406\u5c0f\u65f6"
+          },
+          "maintenance_response_hours": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintenance Response Hours",
+            "description": "\u8d28\u4fdd\u671f\u6ee1\u7ef4\u4fee\u54cd\u5e94\u5c0f\u65f6"
+          },
+          "overdue_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overdue Days",
+            "description": "\u903e\u671f\u591a\u5c11\u5929\u53ef\u89e3\u9664\u5408\u540c"
+          },
+          "jurisdiction": {
+            "type": "string",
+            "title": "Jurisdiction",
+            "description": "\u4e89\u8bae\u7ba1\u8f96\u5730",
+            "default": ""
+          },
+          "attachment_note": {
+            "type": "string",
+            "title": "Attachment Note",
+            "description": "\u9644\u4ef6\u8bf4\u660e",
+            "default": ""
+          },
+          "copies": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Copies",
+            "description": "\u5408\u540c\u603b\u4efd\u6570"
+          },
+          "buyer_copies": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyer Copies",
+            "description": "\u4e70\u65b9\u6267\u4efd\u6570"
+          },
+          "arrival_payment_condition": {
+            "type": "string",
+            "title": "Arrival Payment Condition",
+            "description": "\u56fa\u5b9a\u8d44\u4ea7\u5230\u8d27\u6b3e\u652f\u4ed8\u6761\u4ef6",
+            "default": ""
+          },
+          "arrival_payment_method": {
+            "type": "string",
+            "title": "Arrival Payment Method",
+            "description": "\u56fa\u5b9a\u8d44\u4ea7\u5230\u8d27\u6b3e\u652f\u4ed8\u65b9\u5f0f",
+            "default": ""
+          },
+          "arrival_payment_ratio": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrival Payment Ratio",
+            "description": "\u5230\u8d27\u6b3e\u6bd4\u4f8b"
+          },
+          "warranty_payment_ratio": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warranty Payment Ratio",
+            "description": "\u8d28\u4fdd\u91d1\u6bd4\u4f8b"
+          },
+          "warranty_payment_method": {
+            "type": "string",
+            "title": "Warranty Payment Method",
+            "description": "\u8d28\u4fdd\u91d1\u652f\u4ed8\u65b9\u5f0f",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "contract_number",
+          "contract_date",
+          "items"
+        ],
+        "title": "ContractGenerateRequest"
+      },
+      "ContractItemInput": {
+        "properties": {
+          "item_code": {
+            "type": "string",
+            "title": "Item Code",
+            "description": "\u7269\u6599\u6216\u7269\u54c1\u7f16\u7801",
+            "default": ""
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "\u5546\u54c1\u6216\u4ea7\u54c1\u540d\u79f0"
+          },
+          "specification": {
+            "type": "string",
+            "title": "Specification",
+            "description": "\u89c4\u683c",
+            "default": ""
+          },
+          "quality_standard": {
+            "type": "string",
+            "title": "Quality Standard",
+            "description": "\u8d28\u91cf\u6807\u51c6\u6216\u7b2c\u4e8c\u89c4\u683c\u5217",
+            "default": ""
+          },
+          "manufacturer": {
+            "type": "string",
+            "title": "Manufacturer",
+            "description": "\u751f\u4ea7\u5382\u5bb6\u6216\u751f\u4ea7\u5355\u4f4d",
+            "default": ""
+          },
+          "department": {
+            "type": "string",
+            "title": "Department",
+            "description": "\u7533\u8bf7\u90e8\u95e8\u6216\u5907\u6ce8\u90e8\u95e8",
+            "default": ""
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Quantity",
+            "description": "\u6570\u91cf"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit",
+            "description": "\u5355\u4f4d",
+            "default": ""
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Unit Price",
+            "description": "\u5355\u4ef7"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount",
+            "description": "\u542b\u7a0e\u91d1\u989d\uff0c\u4e0d\u586b\u5219\u6309\u6570\u91cf*\u5355\u4ef7\u8ba1\u7b97"
+          },
+          "remarks": {
+            "type": "string",
+            "title": "Remarks",
+            "description": "\u5907\u6ce8",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "quantity",
+          "unit_price"
+        ],
+        "title": "ContractItemInput"
+      },
+      "ContractPartyInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "\u5355\u4f4d\u540d\u79f0",
+            "default": ""
+          },
+          "representative": {
+            "type": "string",
+            "title": "Representative",
+            "description": "\u6cd5\u5b9a\u4ee3\u8868\u4eba\u6216\u7b7e\u7ea6\u4ee3\u8868",
+            "default": ""
+          },
+          "address": {
+            "type": "string",
+            "title": "Address",
+            "description": "\u5730\u5740",
+            "default": ""
+          },
+          "postal_code": {
+            "type": "string",
+            "title": "Postal Code",
+            "description": "\u90ae\u7f16",
+            "default": ""
+          },
+          "contact_person": {
+            "type": "string",
+            "title": "Contact Person",
+            "description": "\u8054\u7cfb\u4eba",
+            "default": ""
+          },
+          "contact_address": {
+            "type": "string",
+            "title": "Contact Address",
+            "description": "\u8054\u7cfb\u4eba\u5730\u5740",
+            "default": ""
+          },
+          "contact_phone": {
+            "type": "string",
+            "title": "Contact Phone",
+            "description": "\u8054\u7cfb\u4eba\u7535\u8bdd",
+            "default": ""
+          },
+          "mobile": {
+            "type": "string",
+            "title": "Mobile",
+            "description": "\u8054\u7cfb\u4eba\u624b\u673a",
+            "default": ""
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone",
+            "description": "\u7535\u8bdd",
+            "default": ""
+          },
+          "bank_name": {
+            "type": "string",
+            "title": "Bank Name",
+            "description": "\u5f00\u6237\u884c",
+            "default": ""
+          },
+          "bank_account": {
+            "type": "string",
+            "title": "Bank Account",
+            "description": "\u94f6\u884c\u8d26\u53f7",
+            "default": ""
+          },
+          "tax_id": {
+            "type": "string",
+            "title": "Tax Id",
+            "description": "\u7edf\u4e00\u793e\u4f1a\u4fe1\u7528\u4ee3\u7801\u6216\u7eb3\u7a0e\u4eba\u8bc6\u522b\u53f7",
+            "default": ""
+          },
+          "bank_line_number": {
+            "type": "string",
+            "title": "Bank Line Number",
+            "description": "\u94f6\u884c\u884c\u53f7",
+            "default": ""
+          },
+          "email": {
+            "type": "string",
+            "title": "Email",
+            "description": "\u90ae\u7bb1",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ContractPartyInfo"
+      },
+      "ContractTemplateField": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "\u5b57\u6bb5\u540d"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "\u663e\u793a\u540d\u79f0"
+          },
+          "input_type": {
+            "type": "string",
+            "title": "Input Type",
+            "description": "\u8f93\u5165\u63a7\u4ef6\u7c7b\u578b",
+            "default": "text"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "description": "\u662f\u5426\u5fc5\u586b",
+            "default": false
+          },
+          "default_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Value",
+            "description": "\u9ed8\u8ba4\u503c"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "label"
+        ],
+        "title": "ContractTemplateField"
+      },
+      "ContractTemplateMetadata": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/ContractCategory"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ContractTemplateField"
+            },
+            "type": "array",
+            "title": "Fields"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "label",
+          "fields"
+        ],
+        "title": "ContractTemplateMetadata"
       },
       "ContractorCreate": {
         "properties": {
@@ -54482,6 +55386,314 @@
         "type": "object",
         "title": "InspectionTemplateUpdate",
         "description": "\u66f4\u65b0\u5de1\u68c0\u6a21\u677f\u8bf7\u6c42"
+      },
+      "InvoiceLineItem": {
+        "properties": {
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name",
+            "description": "\u9879\u76ee\u540d\u79f0"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit",
+            "description": "\u5355\u4f4d"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity",
+            "description": "\u6570\u91cf"
+          }
+        },
+        "type": "object",
+        "title": "InvoiceLineItem"
+      },
+      "InvoiceRecognitionRecordDeleteRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Ids",
+            "description": "\u8bc6\u522b\u8bb0\u5f55 ID \u5217\u8868"
+          }
+        },
+        "type": "object",
+        "title": "InvoiceRecognitionRecordDeleteRequest"
+      },
+      "InvoiceRecognitionRecordDeleteResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "\u54cd\u5e94\u72b6\u6001\u7801",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "\u54cd\u5e94\u6d88\u606f",
+            "default": "success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceRecognitionRecordDeleteResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "title": "InvoiceRecognitionRecordDeleteResponse"
+      },
+      "InvoiceRecognitionRecordDeleteResult": {
+        "properties": {
+          "success_count": {
+            "type": "integer",
+            "title": "Success Count",
+            "description": "\u6210\u529f\u5220\u9664\u6570\u91cf",
+            "default": 0
+          },
+          "fail_count": {
+            "type": "integer",
+            "title": "Fail Count",
+            "description": "\u5220\u9664\u5931\u8d25\u6570\u91cf",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "InvoiceRecognitionRecordDeleteResult"
+      },
+      "InvoiceRecognitionRecordListResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "\u54cd\u5e94\u72b6\u6001\u7801",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "\u54cd\u5e94\u6d88\u606f",
+            "default": "success"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceRecognitionRecordResponse"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "InvoiceRecognitionRecordListResponse"
+      },
+      "InvoiceRecognitionRecordResponse": {
+        "properties": {
+          "invoice_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Number",
+            "description": "\u53d1\u7968\u53f7\u7801"
+          },
+          "invoice_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Date",
+            "description": "\u5f00\u7968\u65e5\u671f"
+          },
+          "seller_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Name",
+            "description": "\u9500\u552e\u65b9\u540d\u79f0"
+          },
+          "total_tax_amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tax Amount",
+            "description": "\u7a0e\u989d\u5408\u8ba1"
+          },
+          "total_amount_with_tax_small": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Amount With Tax Small",
+            "description": "\u4ef7\u7a0e\u5408\u8ba1\uff08\u5c0f\u5199\uff09"
+          },
+          "line_items": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceLineItem"
+            },
+            "type": "array",
+            "title": "Line Items",
+            "description": "\u53d1\u7968\u660e\u7ec6"
+          },
+          "raw_text": {
+            "type": "string",
+            "title": "Raw Text",
+            "description": "PDF \u6587\u672c\u5c42\u539f\u6587",
+            "default": ""
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "\u8bc6\u522b\u8bb0\u5f55 ID"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name",
+            "description": "\u4e0a\u4f20\u6587\u4ef6\u540d"
+          },
+          "include_details": {
+            "type": "boolean",
+            "title": "Include Details",
+            "description": "\u662f\u5426\u5f00\u542f\u660e\u7ec6\u8bc6\u522b",
+            "default": false
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "\u8bc6\u522b\u65f6\u95f4"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "file_name"
+        ],
+        "title": "InvoiceRecognitionRecordResponse"
+      },
+      "InvoiceRecognitionResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "\u54cd\u5e94\u72b6\u6001\u7801",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "\u54cd\u5e94\u6d88\u606f",
+            "default": "success"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InvoiceRecognitionRecordResponse"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "InvoiceRecognitionResponse"
       },
       "KnowledgeAttachmentRequest": {
         "properties": {
