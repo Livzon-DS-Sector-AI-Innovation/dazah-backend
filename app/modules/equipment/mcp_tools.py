@@ -316,7 +316,11 @@ async def operate_work_order(
         repair_detail: 维修过程描述，action=complete 时必需
     """
     db = get_db()
-    await resolve_user(db, operator_id)
+    user = await resolve_user(db, operator_id)
+
+    from app.modules.equipment.deps import EquipmentAccessContext
+
+    ctx = EquipmentAccessContext(user=user, data_scope="all")
 
     if action not in ("start", "complete"):
         raise ValueError(f"无效的操作类型 '{action}'，可选值：start / complete")
@@ -325,7 +329,7 @@ async def operate_work_order(
     wo = await get_work_order_by_id(db, wo_uuid)
 
     if action == "start":
-        result = await start_work_order(db, wo.id)
+        result = await start_work_order(db, wo.id, ctx)
         return {
             "success": True,
             "work_order_no": result.work_order_no,
@@ -339,7 +343,7 @@ async def operate_work_order(
     from app.modules.equipment.schemas.work_order import WorkOrderComplete
 
     data = WorkOrderComplete(repair_detail=repair_detail.strip())
-    result = await complete_work_order(db, wo.id, data)
+    result = await complete_work_order(db, wo.id, data, ctx)
     return {
         "success": True,
         "work_order_no": result.work_order_no,
