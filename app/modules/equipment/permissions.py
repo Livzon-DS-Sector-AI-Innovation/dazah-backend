@@ -75,6 +75,9 @@ PERMISSIONS: list[PermissionDef] = [
     PermissionDef(
         "equipment:spare_part:update", "编辑备件", "equipment", "spare_part", "update"
     ),
+    PermissionDef(
+        "equipment:spare_part:delete", "删除备件", "equipment", "spare_part", "delete"
+    ),
     # ── 人员配置 ──
     PermissionDef(
         "equipment:personnel:read", "查看人员配置", "equipment", "personnel", "read"
