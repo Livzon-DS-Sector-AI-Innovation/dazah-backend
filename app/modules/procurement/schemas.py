@@ -70,6 +70,146 @@ class InvoiceRecognitionRecordDeleteResponse(BaseModel):
     meta: dict[str, Any] | None = None
 
 
+class PurchaseRequestCategory(StrEnum):
+    hardware = "hardware"
+    computer = "computer"
+    office = "office"
+    raw_auxiliary = "raw-auxiliary"
+    chemical_glass = "chemical-glass"
+    electrical = "electrical"
+    labor_protection = "labor-protection"
+
+
+class PurchaseRequestStatus(StrEnum):
+    draft = "draft"
+    pending_department_head = "pending_department_head"
+    pending_responsible_leader = "pending_responsible_leader"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class PurchaseApprovalRole(StrEnum):
+    department_head = "department_head"
+    responsible_leader = "responsible_leader"
+
+
+class PurchaseApprovalResult(StrEnum):
+    approved = "approved"
+    rejected = "rejected"
+
+
+class PurchaseApprovalView(StrEnum):
+    pending = "pending"
+    completed = "completed"
+    rejected = "rejected"
+
+
+class PurchaseRequestItemInput(BaseModel):
+    product_name: str = Field(..., min_length=1, max_length=255, description="商品名称")
+    specification: str = Field("", max_length=255, description="规格")
+    purpose: str = Field("", max_length=255, description="用途")
+    material: str = Field("", max_length=255, description="材质")
+    brand: str = Field("", max_length=255, description="品牌")
+    quantity: Decimal = Field(..., ge=0, description="数量")
+    unit: str = Field("", max_length=64, description="单位")
+    unit_price: Decimal = Field(..., ge=0, description="单价（元）")
+    remarks: str = Field("", description="备注")
+
+
+class PurchaseRequestItemResponse(PurchaseRequestItemInput):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(..., description="明细 ID")
+    sequence: int = Field(..., description="序号")
+    total_amount: Decimal = Field(..., description="总额（元）")
+
+
+class PurchaseApprovalRequest(BaseModel):
+    approval_role: PurchaseApprovalRole = Field(..., description="审批角色")
+    approver_name: str = Field("", max_length=100, description="审批人姓名")
+    opinion: str = Field("", description="审批意见")
+    result: PurchaseApprovalResult = Field(..., description="审批结果")
+
+
+class PurchaseRequestCreate(BaseModel):
+    category: PurchaseRequestCategory = Field(..., description="采购分类")
+    request_department: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="申购部门",
+    )
+    request_date: date = Field(..., description="申请日期")
+    items: list[PurchaseRequestItemInput] = Field(
+        ...,
+        min_length=1,
+        description="申请明细",
+    )
+
+
+class PurchaseRequestUpdate(BaseModel):
+    request_department: str | None = Field(
+        None,
+        min_length=1,
+        max_length=200,
+        description="申购部门",
+    )
+    request_date: date | None = Field(None, description="申请日期")
+    items: list[PurchaseRequestItemInput] | None = Field(
+        None,
+        min_length=1,
+        description="申请明细",
+    )
+
+
+class PurchaseApprovalRecordResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(..., description="审批记录 ID")
+    approval_role: PurchaseApprovalRole = Field(..., description="审批角色")
+    result: PurchaseApprovalResult = Field(..., description="审批结果")
+    opinion: str = Field("", description="审批意见")
+    approver_name: str = Field("", description="审批人姓名")
+    approval_time: datetime = Field(..., description="审批时间")
+
+
+class PurchaseRequestResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(..., description="采购申请 ID")
+    category: PurchaseRequestCategory = Field(..., description="采购分类")
+    request_department: str = Field(..., description="申购部门")
+    request_date: date = Field(..., description="申请日期")
+    status: PurchaseRequestStatus = Field(..., description="流程状态")
+    total_amount: Decimal = Field(..., description="合计金额")
+    rejected_step: PurchaseApprovalRole | None = Field(None, description="驳回步骤")
+    status_updated_at: datetime | None = Field(None, description="状态更新时间")
+    created_at: datetime | None = Field(None, description="创建时间")
+    updated_at: datetime | None = Field(None, description="更新时间")
+    items: list[PurchaseRequestItemResponse] = Field(
+        default_factory=list,
+        description="申请明细",
+    )
+    approvals: list[PurchaseApprovalRecordResponse] = Field(
+        default_factory=list,
+        description="审批记录",
+    )
+
+
+class PurchaseRequestApiResponse(BaseModel):
+    code: int = Field(200, description="响应状态码")
+    message: str = Field("success", description="响应消息")
+    data: PurchaseRequestResponse
+    meta: dict[str, Any] | None = None
+
+
+class PurchaseRequestListResponse(BaseModel):
+    code: int = Field(200, description="响应状态码")
+    message: str = Field("success", description="响应消息")
+    data: list[PurchaseRequestResponse]
+    meta: dict[str, Any] | None = None
+
+
 class ContractCategory(StrEnum):
     fixed_assets = "fixed-assets"
     consumables = "consumables"
@@ -126,13 +266,11 @@ class ContractGenerateRequest(BaseModel):
     )
     items: list[ContractItemInput] = Field(..., min_length=1, description="合同明细")
 
-    buyer_invoice_recipient: str = Field("苗逸飞", description="发票接收人")
-    buyer_invoice_recipient_mobile: str = Field(
-        "13323516444", description="发票接收人手机"
-    )
-    buyer_receiver: str = Field("孙永霞", description="收货人")
-    buyer_receiver_mobile: str = Field("13909568331", description="收货人手机")
-    buyer_receiver_phone: str = Field("0952-6296677", description="收货人电话")
+    buyer_invoice_recipient: str = Field("", description="发票接收人")
+    buyer_invoice_recipient_mobile: str = Field("", description="发票接收人手机")
+    buyer_receiver: str = Field("", description="收货人")
+    buyer_receiver_mobile: str = Field("", description="收货人手机")
+    buyer_receiver_phone: str = Field("", description="收货人电话")
 
     attached_documents: str = Field("", description="固定资产随货资料")
     installation_days: int | None = Field(None, ge=0, description="安装调试工作日")

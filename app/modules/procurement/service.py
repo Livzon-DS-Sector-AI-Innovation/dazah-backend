@@ -1,7 +1,8 @@
 """Procurement business workflows live here."""
 
 import re
-from decimal import Decimal, InvalidOperation
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from hashlib import sha256
 from io import BytesIO
 from uuid import UUID
@@ -9,12 +10,39 @@ from uuid import UUID
 from pypdf import PdfReader
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.procurement.models import InvoiceRecognitionRecord
-from app.modules.procurement.repository import InvoiceRecognitionRepository
-from app.modules.procurement.schemas import InvoiceLineItem, InvoiceRecognitionResult
+from app.modules.procurement.models import (
+    InvoiceRecognitionRecord,
+    PurchaseRequest,
+    PurchaseRequestApproval,
+    PurchaseRequestItem,
+)
+from app.modules.procurement.repository import (
+    InvoiceRecognitionRepository,
+    PurchaseRequestRepository,
+)
+from app.modules.procurement.schemas import (
+    InvoiceLineItem,
+    InvoiceRecognitionResult,
+    PurchaseApprovalRequest,
+    PurchaseApprovalResult,
+    PurchaseApprovalRole,
+    PurchaseApprovalView,
+    PurchaseRequestCreate,
+    PurchaseRequestResponse,
+    PurchaseRequestStatus,
+    PurchaseRequestUpdate,
+)
 
 MONEY_PATTERN = r"[¥￥]?\s*([0-9]+(?:\.[0-9]+)?)"
 NUMBER_PATTERN = r"[0-9]+(?:\.[0-9]+)?"
+MONEY_QUANT = Decimal("0.01")
+
+APPROVAL_ROLE_TO_PENDING_STATUS = {
+    PurchaseApprovalRole.department_head: PurchaseRequestStatus.pending_department_head,
+    PurchaseApprovalRole.responsible_leader: (
+        PurchaseRequestStatus.pending_responsible_leader
+    ),
+}
 
 
 class DuplicateInvoiceError(ValueError):
@@ -111,6 +139,243 @@ async def batch_delete_invoice_recognition_records(
     record_ids: list[UUID],
 ) -> int:
     return await InvoiceRecognitionRepository(db).batch_delete_records(record_ids)
+
+
+async def create_purchase_request(
+    db: AsyncSession,
+    data: PurchaseRequestCreate,
+) -> PurchaseRequestResponse:
+    repository = PurchaseRequestRepository(db)
+    items, total_amount = _build_purchase_request_items(data.items)
+    now = datetime.now(UTC)
+    request = PurchaseRequest(
+        category=data.category.value,
+        request_department=data.request_department,
+        request_date=data.request_date,
+        status=PurchaseRequestStatus.draft.value,
+        total_amount=total_amount,
+        status_updated_at=now,
+    )
+    created = await repository.create(request, items)
+    return await _get_purchase_request_response(repository, created.id)
+
+
+async def update_purchase_request(
+    db: AsyncSession,
+    request_id: UUID,
+    data: PurchaseRequestUpdate,
+) -> PurchaseRequestResponse:
+    repository = PurchaseRequestRepository(db)
+    request = await repository.get(request_id)
+    if not request:
+        raise ValueError("采购申请不存在")
+    if request.status not in {
+        PurchaseRequestStatus.draft.value,
+        PurchaseRequestStatus.rejected.value,
+    }:
+        raise ValueError("只有草稿或已驳回的采购申请可以编辑")
+
+    if data.request_department is not None:
+        request.request_department = data.request_department
+    if data.request_date is not None:
+        request.request_date = data.request_date
+    if data.items is not None:
+        items, total_amount = _build_purchase_request_items(data.items)
+        await repository.replace_items(request_id, items)
+        request.total_amount = total_amount
+    await db.flush()
+    return await _get_purchase_request_response(repository, request_id)
+
+
+async def get_purchase_request(
+    db: AsyncSession,
+    request_id: UUID,
+) -> PurchaseRequestResponse:
+    repository = PurchaseRequestRepository(db)
+    return await _get_purchase_request_response(repository, request_id)
+
+
+async def list_purchase_requests(
+    db: AsyncSession,
+    *,
+    category: str | None = None,
+    status: str | None = None,
+    approval_role: PurchaseApprovalRole | None = None,
+    approval_view: PurchaseApprovalView = PurchaseApprovalView.pending,
+    keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[PurchaseRequestResponse], int]:
+    repository = PurchaseRequestRepository(db)
+    if approval_role:
+        if approval_view == PurchaseApprovalView.pending:
+            status = APPROVAL_ROLE_TO_PENDING_STATUS[approval_role].value
+        else:
+            approval_result = (
+                PurchaseApprovalResult.approved
+                if approval_view == PurchaseApprovalView.completed
+                else PurchaseApprovalResult.rejected
+            )
+            requests, total = await repository.list_requests_by_approval(
+                approval_role=approval_role.value,
+                result=approval_result.value,
+                category=category,
+                keyword=keyword,
+                page=page,
+                page_size=page_size,
+            )
+            responses = [
+                await _get_purchase_request_response(repository, request.id)
+                for request in requests
+            ]
+            return responses, total
+
+    requests, total = await repository.list_requests(
+        category=category,
+        status=status,
+        keyword=keyword,
+        page=page,
+        page_size=page_size,
+    )
+    responses = [
+        await _get_purchase_request_response(repository, request.id)
+        for request in requests
+    ]
+    return responses, total
+
+
+async def submit_purchase_request(
+    db: AsyncSession,
+    request_id: UUID,
+) -> PurchaseRequestResponse:
+    repository = PurchaseRequestRepository(db)
+    request = await repository.get(request_id)
+    if not request:
+        raise ValueError("采购申请不存在")
+    if request.status not in {
+        PurchaseRequestStatus.draft.value,
+        PurchaseRequestStatus.rejected.value,
+    }:
+        raise ValueError("只有草稿或已驳回的采购申请可以提交")
+    items = await repository.list_items(request_id)
+    if not items:
+        raise ValueError("采购申请至少需要一条明细")
+
+    now = datetime.now(UTC)
+    request.status = PurchaseRequestStatus.pending_department_head.value
+    request.rejected_step = None
+    request.status_updated_at = now
+    await db.flush()
+    return await _get_purchase_request_response(repository, request_id)
+
+
+async def approve_purchase_request(
+    db: AsyncSession,
+    request_id: UUID,
+    data: PurchaseApprovalRequest,
+) -> PurchaseRequestResponse:
+    if data.result != PurchaseApprovalResult.approved:
+        raise ValueError("审批通过接口的结果必须为 approved")
+    return await _review_purchase_request(db, request_id, data)
+
+
+async def reject_purchase_request(
+    db: AsyncSession,
+    request_id: UUID,
+    data: PurchaseApprovalRequest,
+) -> PurchaseRequestResponse:
+    if data.result != PurchaseApprovalResult.rejected:
+        raise ValueError("审批驳回接口的结果必须为 rejected")
+    return await _review_purchase_request(db, request_id, data)
+
+
+async def _review_purchase_request(
+    db: AsyncSession,
+    request_id: UUID,
+    data: PurchaseApprovalRequest,
+) -> PurchaseRequestResponse:
+    repository = PurchaseRequestRepository(db)
+    request = await repository.get(request_id)
+    if not request:
+        raise ValueError("采购申请不存在")
+
+    expected_status = APPROVAL_ROLE_TO_PENDING_STATUS[data.approval_role].value
+    if request.status != expected_status:
+        raise ValueError("当前采购申请不在该审批步骤")
+
+    now = datetime.now(UTC)
+    await repository.add_approval(
+        PurchaseRequestApproval(
+            purchase_request_id=str(request_id),
+            approval_role=data.approval_role.value,
+            result=data.result.value,
+            opinion=data.opinion,
+            approver_name=data.approver_name,
+            approval_time=now,
+        )
+    )
+
+    if data.result == PurchaseApprovalResult.rejected:
+        request.status = PurchaseRequestStatus.rejected.value
+        request.rejected_step = data.approval_role.value
+    elif data.approval_role == PurchaseApprovalRole.department_head:
+        request.status = PurchaseRequestStatus.pending_responsible_leader.value
+        request.rejected_step = None
+    else:
+        request.status = PurchaseRequestStatus.approved.value
+        request.rejected_step = None
+    request.status_updated_at = now
+    await db.flush()
+    return await _get_purchase_request_response(repository, request_id)
+
+
+def _build_purchase_request_items(
+    item_inputs: list,
+) -> tuple[list[PurchaseRequestItem], Decimal]:
+    items: list[PurchaseRequestItem] = []
+    total_amount = Decimal("0")
+    for index, item in enumerate(item_inputs, start=1):
+        line_amount = _calculate_line_amount(item.quantity, item.unit_price)
+        total_amount += line_amount
+        items.append(
+            PurchaseRequestItem(
+                purchase_request_id="",
+                sequence=index,
+                product_name=item.product_name,
+                specification=item.specification,
+                purpose=item.purpose,
+                material=item.material,
+                brand=item.brand,
+                quantity=item.quantity,
+                unit=item.unit,
+                unit_price=item.unit_price,
+                total_amount=line_amount,
+                remarks=item.remarks,
+            )
+        )
+    return items, total_amount.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _calculate_line_amount(quantity: Decimal, unit_price: Decimal) -> Decimal:
+    return (quantity * unit_price).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
+async def _get_purchase_request_response(
+    repository: PurchaseRequestRepository,
+    request_id: UUID,
+) -> PurchaseRequestResponse:
+    request = await repository.get(request_id)
+    if not request:
+        raise ValueError("采购申请不存在")
+    items = await repository.list_items(request_id)
+    approvals = await repository.list_approvals(request_id)
+    return PurchaseRequestResponse.model_validate(
+        {
+            **request.__dict__,
+            "items": items,
+            "approvals": approvals,
+        }
+    )
 
 
 def _parse_invoice_text(
