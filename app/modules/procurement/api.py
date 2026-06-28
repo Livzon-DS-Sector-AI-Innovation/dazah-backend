@@ -22,13 +22,29 @@ from app.modules.procurement.schemas import (
     InvoiceRecognitionRecordListResponse,
     InvoiceRecognitionRecordResponse,
     InvoiceRecognitionResponse,
+    PurchaseApprovalRequest,
+    PurchaseApprovalRole,
+    PurchaseApprovalView,
+    PurchaseRequestApiResponse,
+    PurchaseRequestCategory,
+    PurchaseRequestCreate,
+    PurchaseRequestListResponse,
+    PurchaseRequestStatus,
+    PurchaseRequestUpdate,
 )
 from app.modules.procurement.service import (
     DuplicateInvoiceError,
+    approve_purchase_request,
     batch_delete_invoice_recognition_records,
+    create_purchase_request,
     delete_invoice_recognition_record,
+    get_purchase_request,
     list_invoice_recognition_records,
+    list_purchase_requests,
     recognize_and_store_invoice_pdf,
+    reject_purchase_request,
+    submit_purchase_request,
+    update_purchase_request,
 )
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
@@ -172,6 +188,153 @@ async def batch_delete_invoice_records(
         ).model_dump(mode="json"),
         message="识别记录删除成功",
     )
+
+
+@router.get(
+    "/purchase-requests",
+    summary="查询采购申请",
+    description="按采购分类、流程状态、审批角色或申购部门关键词查询采购申请。",
+    response_model=PurchaseRequestListResponse,
+)
+async def list_purchase_request_records(
+    category: PurchaseRequestCategory | None = Query(None, description="采购分类"),
+    status: PurchaseRequestStatus | None = Query(None, description="流程状态"),
+    approval_role: PurchaseApprovalRole | None = Query(
+        None,
+        description="审批角色。与 approval_view 一起筛选该角色的审批列表。",
+    ),
+    approval_view: PurchaseApprovalView = Query(
+        PurchaseApprovalView.pending,
+        description="审批视图：待审批、审批完成或审批驳回。",
+    ),
+    keyword: str | None = Query(None, description="申购部门关键词"),
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=100, description="每页条数"),
+    db: AsyncSession = Depends(get_db),
+):
+    requests, total = await list_purchase_requests(
+        db,
+        category=category.value if category else None,
+        status=status.value if status else None,
+        approval_role=approval_role,
+        approval_view=approval_view,
+        keyword=keyword,
+        page=page,
+        page_size=page_size,
+    )
+    data = [request.model_dump(mode="json") for request in requests]
+    return paginated_response(data, page, page_size, total)
+
+
+@router.post(
+    "/purchase-requests",
+    summary="创建采购申请",
+    description="保存采购申请草稿，并按数量和单价自动计算明细总额与合计。",
+    response_model=PurchaseRequestApiResponse,
+)
+async def create_purchase_request_record(
+    payload: PurchaseRequestCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        request = await create_purchase_request(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(
+        data=request.model_dump(mode="json"),
+        message="采购申请已保存",
+    )
+
+
+@router.get(
+    "/purchase-requests/{request_id}",
+    summary="获取采购申请详情",
+    response_model=PurchaseRequestApiResponse,
+)
+async def get_purchase_request_record(
+    request_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        request = await get_purchase_request(db, request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return success_response(data=request.model_dump(mode="json"))
+
+
+@router.put(
+    "/purchase-requests/{request_id}",
+    summary="更新采购申请",
+    description="仅草稿或已驳回的采购申请允许编辑。",
+    response_model=PurchaseRequestApiResponse,
+)
+async def update_purchase_request_record(
+    request_id: UUID,
+    payload: PurchaseRequestUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        request = await update_purchase_request(db, request_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(
+        data=request.model_dump(mode="json"),
+        message="采购申请已更新",
+    )
+
+
+@router.post(
+    "/purchase-requests/{request_id}/submit",
+    summary="提交采购申请",
+    description="将采购申请提交到部门负责人审批。",
+    response_model=PurchaseRequestApiResponse,
+)
+async def submit_purchase_request_record(
+    request_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        request = await submit_purchase_request(db, request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(
+        data=request.model_dump(mode="json"),
+        message="采购申请已提交",
+    )
+
+
+@router.post(
+    "/purchase-requests/{request_id}/approve",
+    summary="通过采购申请审批",
+    response_model=PurchaseRequestApiResponse,
+)
+async def approve_purchase_request_record(
+    request_id: UUID,
+    payload: PurchaseApprovalRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        request = await approve_purchase_request(db, request_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(data=request.model_dump(mode="json"), message="审批已通过")
+
+
+@router.post(
+    "/purchase-requests/{request_id}/reject",
+    summary="驳回采购申请审批",
+    response_model=PurchaseRequestApiResponse,
+)
+async def reject_purchase_request_record(
+    request_id: UUID,
+    payload: PurchaseApprovalRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        request = await reject_purchase_request(db, request_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(data=request.model_dump(mode="json"), message="审批已驳回")
 
 
 @router.get(

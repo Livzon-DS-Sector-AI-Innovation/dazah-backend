@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, Index, Numeric, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Index, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -100,4 +101,200 @@ class InvoiceRecognitionRecord(BaseModel):
         default="",
         server_default="",
         comment="PDF 文本层原文",
+    )
+
+
+class PurchaseRequest(BaseModel):
+    """采购申请单主表。"""
+
+    __tablename__ = "purchase_requests"
+    __table_args__ = (
+        Index("ix_procurement_purchase_request_category", "category"),
+        Index("ix_procurement_purchase_request_status", "status"),
+        Index("ix_procurement_purchase_request_request_date", "request_date"),
+        Index("ix_procurement_purchase_request_department", "request_department"),
+        Index("ix_procurement_purchase_request_created_at", "created_at"),
+        {"schema": "procurement"},
+    )
+
+    category: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="采购分类",
+    )
+    request_department: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+        comment="申购部门",
+    )
+    request_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+        comment="申请日期",
+    )
+    status: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="draft",
+        server_default="draft",
+        comment="流程状态",
+    )
+    total_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+        comment="申请总额",
+    )
+    rejected_step: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="驳回步骤",
+    )
+    status_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="状态更新时间",
+    )
+
+
+class PurchaseRequestItem(BaseModel):
+    """采购申请单明细。"""
+
+    __tablename__ = "purchase_request_items"
+    __table_args__ = (
+        Index(
+            "ix_procurement_purchase_request_item_request_id",
+            "purchase_request_id",
+        ),
+        {"schema": "procurement"},
+    )
+
+    purchase_request_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="采购申请 ID",
+    )
+    sequence: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="序号",
+    )
+    product_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        comment="商品名称",
+    )
+    specification: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="规格",
+    )
+    purpose: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="用途",
+    )
+    material: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="材质",
+    )
+    brand: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="品牌",
+    )
+    quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4),
+        nullable=False,
+        comment="数量",
+    )
+    unit: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="单位",
+    )
+    unit_price: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4),
+        nullable=False,
+        comment="单价",
+    )
+    total_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+        comment="总额",
+    )
+    remarks: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+        comment="备注",
+    )
+
+
+class PurchaseRequestApproval(BaseModel):
+    """采购申请审批记录。"""
+
+    __tablename__ = "purchase_request_approvals"
+    __table_args__ = (
+        Index(
+            "ix_procurement_purchase_request_approval_request_id",
+            "purchase_request_id",
+        ),
+        Index("ix_procurement_purchase_request_approval_role", "approval_role"),
+        Index(
+            "ix_procurement_purchase_request_approval_role_result_time",
+            "approval_role",
+            "result",
+            "approval_time",
+        ),
+        Index("ix_procurement_purchase_request_approval_time", "approval_time"),
+        {"schema": "procurement"},
+    )
+
+    purchase_request_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        comment="采购申请 ID",
+    )
+    approval_role: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="审批角色",
+    )
+    result: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="审批结果",
+    )
+    opinion: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+        comment="审批意见",
+    )
+    approver_name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="审批人姓名",
+    )
+    approval_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="审批时间",
     )

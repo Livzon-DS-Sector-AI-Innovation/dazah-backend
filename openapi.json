@@ -28614,6 +28614,435 @@
         }
       }
     },
+    "/api/v1/procurement/purchase-requests": {
+      "get": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u67e5\u8be2\u91c7\u8d2d\u7533\u8bf7",
+        "description": "\u6309\u91c7\u8d2d\u5206\u7c7b\u3001\u6d41\u7a0b\u72b6\u6001\u3001\u5ba1\u6279\u89d2\u8272\u6216\u7533\u8d2d\u90e8\u95e8\u5173\u952e\u8bcd\u67e5\u8be2\u91c7\u8d2d\u7533\u8bf7\u3002",
+        "operationId": "list_purchase_request_records_api_v1_procurement_purchase_requests_get",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PurchaseRequestCategory"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u91c7\u8d2d\u5206\u7c7b",
+              "title": "Category"
+            },
+            "description": "\u91c7\u8d2d\u5206\u7c7b"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PurchaseRequestStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u6d41\u7a0b\u72b6\u6001",
+              "title": "Status"
+            },
+            "description": "\u6d41\u7a0b\u72b6\u6001"
+          },
+          {
+            "name": "approval_role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PurchaseApprovalRole"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u5ba1\u6279\u89d2\u8272\u3002\u4e0e approval_view \u4e00\u8d77\u7b5b\u9009\u8be5\u89d2\u8272\u7684\u5ba1\u6279\u5217\u8868\u3002",
+              "title": "Approval Role"
+            },
+            "description": "\u5ba1\u6279\u89d2\u8272\u3002\u4e0e approval_view \u4e00\u8d77\u7b5b\u9009\u8be5\u89d2\u8272\u7684\u5ba1\u6279\u5217\u8868\u3002"
+          },
+          {
+            "name": "approval_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/PurchaseApprovalView",
+              "description": "\u5ba1\u6279\u89c6\u56fe\uff1a\u5f85\u5ba1\u6279\u3001\u5ba1\u6279\u5b8c\u6210\u6216\u5ba1\u6279\u9a73\u56de\u3002",
+              "default": "pending"
+            },
+            "description": "\u5ba1\u6279\u89c6\u56fe\uff1a\u5f85\u5ba1\u6279\u3001\u5ba1\u6279\u5b8c\u6210\u6216\u5ba1\u6279\u9a73\u56de\u3002"
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u7533\u8d2d\u90e8\u95e8\u5173\u952e\u8bcd",
+              "title": "Keyword"
+            },
+            "description": "\u7533\u8d2d\u90e8\u95e8\u5173\u952e\u8bcd"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "\u9875\u7801",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "\u9875\u7801"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "\u6bcf\u9875\u6761\u6570",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "\u6bcf\u9875\u6761\u6570"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseRequestListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u521b\u5efa\u91c7\u8d2d\u7533\u8bf7",
+        "description": "\u4fdd\u5b58\u91c7\u8d2d\u7533\u8bf7\u8349\u7a3f\uff0c\u5e76\u6309\u6570\u91cf\u548c\u5355\u4ef7\u81ea\u52a8\u8ba1\u7b97\u660e\u7ec6\u603b\u989d\u4e0e\u5408\u8ba1\u3002",
+        "operationId": "create_purchase_request_record_api_v1_procurement_purchase_requests_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseRequestCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseRequestApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/procurement/purchase-requests/{request_id}": {
+      "get": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u83b7\u53d6\u91c7\u8d2d\u7533\u8bf7\u8be6\u60c5",
+        "operationId": "get_purchase_request_record_api_v1_procurement_purchase_requests__request_id__get",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseRequestApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u66f4\u65b0\u91c7\u8d2d\u7533\u8bf7",
+        "description": "\u4ec5\u8349\u7a3f\u6216\u5df2\u9a73\u56de\u7684\u91c7\u8d2d\u7533\u8bf7\u5141\u8bb8\u7f16\u8f91\u3002",
+        "operationId": "update_purchase_request_record_api_v1_procurement_purchase_requests__request_id__put",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseRequestUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseRequestApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/procurement/purchase-requests/{request_id}/submit": {
+      "post": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u63d0\u4ea4\u91c7\u8d2d\u7533\u8bf7",
+        "description": "\u5c06\u91c7\u8d2d\u7533\u8bf7\u63d0\u4ea4\u5230\u90e8\u95e8\u8d1f\u8d23\u4eba\u5ba1\u6279\u3002",
+        "operationId": "submit_purchase_request_record_api_v1_procurement_purchase_requests__request_id__submit_post",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseRequestApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/procurement/purchase-requests/{request_id}/approve": {
+      "post": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u901a\u8fc7\u91c7\u8d2d\u7533\u8bf7\u5ba1\u6279",
+        "operationId": "approve_purchase_request_record_api_v1_procurement_purchase_requests__request_id__approve_post",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseApprovalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseRequestApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/procurement/purchase-requests/{request_id}/reject": {
+      "post": {
+        "tags": [
+          "\u91c7\u8d2d\u7ba1\u7406"
+        ],
+        "summary": "\u9a73\u56de\u91c7\u8d2d\u7533\u8bf7\u5ba1\u6279",
+        "operationId": "reject_purchase_request_record_api_v1_procurement_purchase_requests__request_id__reject_post",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseApprovalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseRequestApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/procurement/contracts/templates/{category}": {
       "get": {
         "tags": [
@@ -46014,31 +46443,31 @@
             "type": "string",
             "title": "Buyer Invoice Recipient",
             "description": "\u53d1\u7968\u63a5\u6536\u4eba",
-            "default": "\u82d7\u9038\u98de"
+            "default": ""
           },
           "buyer_invoice_recipient_mobile": {
             "type": "string",
             "title": "Buyer Invoice Recipient Mobile",
             "description": "\u53d1\u7968\u63a5\u6536\u4eba\u624b\u673a",
-            "default": "13323516444"
+            "default": ""
           },
           "buyer_receiver": {
             "type": "string",
             "title": "Buyer Receiver",
             "description": "\u6536\u8d27\u4eba",
-            "default": "\u5b59\u6c38\u971e"
+            "default": ""
           },
           "buyer_receiver_mobile": {
             "type": "string",
             "title": "Buyer Receiver Mobile",
             "description": "\u6536\u8d27\u4eba\u624b\u673a",
-            "default": "13909568331"
+            "default": ""
           },
           "buyer_receiver_phone": {
             "type": "string",
             "title": "Buyer Receiver Phone",
             "description": "\u6536\u8d27\u4eba\u7535\u8bdd",
-            "default": "0952-6296677"
+            "default": ""
           },
           "attached_documents": {
             "type": "string",
@@ -60384,6 +60813,582 @@
         "type": "object",
         "title": "ProductionRecordUpdate",
         "description": "\u66f4\u65b0\u751f\u4ea7\u8bb0\u5f55"
+      },
+      "PurchaseApprovalRecordResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "\u5ba1\u6279\u8bb0\u5f55 ID"
+          },
+          "approval_role": {
+            "$ref": "#/components/schemas/PurchaseApprovalRole",
+            "description": "\u5ba1\u6279\u89d2\u8272"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PurchaseApprovalResult",
+            "description": "\u5ba1\u6279\u7ed3\u679c"
+          },
+          "opinion": {
+            "type": "string",
+            "title": "Opinion",
+            "description": "\u5ba1\u6279\u610f\u89c1",
+            "default": ""
+          },
+          "approver_name": {
+            "type": "string",
+            "title": "Approver Name",
+            "description": "\u5ba1\u6279\u4eba\u59d3\u540d",
+            "default": ""
+          },
+          "approval_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Approval Time",
+            "description": "\u5ba1\u6279\u65f6\u95f4"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "approval_role",
+          "result",
+          "approval_time"
+        ],
+        "title": "PurchaseApprovalRecordResponse"
+      },
+      "PurchaseApprovalRequest": {
+        "properties": {
+          "approval_role": {
+            "$ref": "#/components/schemas/PurchaseApprovalRole",
+            "description": "\u5ba1\u6279\u89d2\u8272"
+          },
+          "approver_name": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Approver Name",
+            "description": "\u5ba1\u6279\u4eba\u59d3\u540d",
+            "default": ""
+          },
+          "opinion": {
+            "type": "string",
+            "title": "Opinion",
+            "description": "\u5ba1\u6279\u610f\u89c1",
+            "default": ""
+          },
+          "result": {
+            "$ref": "#/components/schemas/PurchaseApprovalResult",
+            "description": "\u5ba1\u6279\u7ed3\u679c"
+          }
+        },
+        "type": "object",
+        "required": [
+          "approval_role",
+          "result"
+        ],
+        "title": "PurchaseApprovalRequest"
+      },
+      "PurchaseApprovalResult": {
+        "type": "string",
+        "enum": [
+          "approved",
+          "rejected"
+        ],
+        "title": "PurchaseApprovalResult"
+      },
+      "PurchaseApprovalRole": {
+        "type": "string",
+        "enum": [
+          "department_head",
+          "responsible_leader"
+        ],
+        "title": "PurchaseApprovalRole"
+      },
+      "PurchaseApprovalView": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "completed",
+          "rejected"
+        ],
+        "title": "PurchaseApprovalView"
+      },
+      "PurchaseRequestApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "\u54cd\u5e94\u72b6\u6001\u7801",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "\u54cd\u5e94\u6d88\u606f",
+            "default": "success"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PurchaseRequestResponse"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "PurchaseRequestApiResponse"
+      },
+      "PurchaseRequestCategory": {
+        "type": "string",
+        "enum": [
+          "hardware",
+          "computer",
+          "office",
+          "raw-auxiliary",
+          "chemical-glass",
+          "electrical",
+          "labor-protection"
+        ],
+        "title": "PurchaseRequestCategory"
+      },
+      "PurchaseRequestCreate": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/PurchaseRequestCategory",
+            "description": "\u91c7\u8d2d\u5206\u7c7b"
+          },
+          "request_department": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Request Department",
+            "description": "\u7533\u8d2d\u90e8\u95e8"
+          },
+          "request_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Request Date",
+            "description": "\u7533\u8bf7\u65e5\u671f"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseRequestItemInput"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Items",
+            "description": "\u7533\u8bf7\u660e\u7ec6"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "request_department",
+          "request_date",
+          "items"
+        ],
+        "title": "PurchaseRequestCreate"
+      },
+      "PurchaseRequestItemInput": {
+        "properties": {
+          "product_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Product Name",
+            "description": "\u5546\u54c1\u540d\u79f0"
+          },
+          "specification": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Specification",
+            "description": "\u89c4\u683c",
+            "default": ""
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Purpose",
+            "description": "\u7528\u9014",
+            "default": ""
+          },
+          "material": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Material",
+            "description": "\u6750\u8d28",
+            "default": ""
+          },
+          "brand": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Brand",
+            "description": "\u54c1\u724c",
+            "default": ""
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Quantity",
+            "description": "\u6570\u91cf"
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Unit",
+            "description": "\u5355\u4f4d",
+            "default": ""
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Unit Price",
+            "description": "\u5355\u4ef7\uff08\u5143\uff09"
+          },
+          "remarks": {
+            "type": "string",
+            "title": "Remarks",
+            "description": "\u5907\u6ce8",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_name",
+          "quantity",
+          "unit_price"
+        ],
+        "title": "PurchaseRequestItemInput"
+      },
+      "PurchaseRequestItemResponse": {
+        "properties": {
+          "product_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Product Name",
+            "description": "\u5546\u54c1\u540d\u79f0"
+          },
+          "specification": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Specification",
+            "description": "\u89c4\u683c",
+            "default": ""
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Purpose",
+            "description": "\u7528\u9014",
+            "default": ""
+          },
+          "material": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Material",
+            "description": "\u6750\u8d28",
+            "default": ""
+          },
+          "brand": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Brand",
+            "description": "\u54c1\u724c",
+            "default": ""
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "description": "\u6570\u91cf"
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Unit",
+            "description": "\u5355\u4f4d",
+            "default": ""
+          },
+          "unit_price": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unit Price",
+            "description": "\u5355\u4ef7\uff08\u5143\uff09"
+          },
+          "remarks": {
+            "type": "string",
+            "title": "Remarks",
+            "description": "\u5907\u6ce8",
+            "default": ""
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "\u660e\u7ec6 ID"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence",
+            "description": "\u5e8f\u53f7"
+          },
+          "total_amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Amount",
+            "description": "\u603b\u989d\uff08\u5143\uff09"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_name",
+          "quantity",
+          "unit_price",
+          "id",
+          "sequence",
+          "total_amount"
+        ],
+        "title": "PurchaseRequestItemResponse"
+      },
+      "PurchaseRequestListResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "description": "\u54cd\u5e94\u72b6\u6001\u7801",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "\u54cd\u5e94\u6d88\u606f",
+            "default": "success"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseRequestResponse"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "PurchaseRequestListResponse"
+      },
+      "PurchaseRequestResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "\u91c7\u8d2d\u7533\u8bf7 ID"
+          },
+          "category": {
+            "$ref": "#/components/schemas/PurchaseRequestCategory",
+            "description": "\u91c7\u8d2d\u5206\u7c7b"
+          },
+          "request_department": {
+            "type": "string",
+            "title": "Request Department",
+            "description": "\u7533\u8d2d\u90e8\u95e8"
+          },
+          "request_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Request Date",
+            "description": "\u7533\u8bf7\u65e5\u671f"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PurchaseRequestStatus",
+            "description": "\u6d41\u7a0b\u72b6\u6001"
+          },
+          "total_amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Amount",
+            "description": "\u5408\u8ba1\u91d1\u989d"
+          },
+          "rejected_step": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PurchaseApprovalRole"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u9a73\u56de\u6b65\u9aa4"
+          },
+          "status_updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Updated At",
+            "description": "\u72b6\u6001\u66f4\u65b0\u65f6\u95f4"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "\u521b\u5efa\u65f6\u95f4"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "\u66f4\u65b0\u65f6\u95f4"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseRequestItemResponse"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "\u7533\u8bf7\u660e\u7ec6"
+          },
+          "approvals": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseApprovalRecordResponse"
+            },
+            "type": "array",
+            "title": "Approvals",
+            "description": "\u5ba1\u6279\u8bb0\u5f55"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "category",
+          "request_department",
+          "request_date",
+          "status",
+          "total_amount"
+        ],
+        "title": "PurchaseRequestResponse"
+      },
+      "PurchaseRequestStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "pending_department_head",
+          "pending_responsible_leader",
+          "approved",
+          "rejected"
+        ],
+        "title": "PurchaseRequestStatus"
+      },
+      "PurchaseRequestUpdate": {
+        "properties": {
+          "request_department": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Department",
+            "description": "\u7533\u8d2d\u90e8\u95e8"
+          },
+          "request_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Date",
+            "description": "\u7533\u8bf7\u65e5\u671f"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PurchaseRequestItemInput"
+                },
+                "type": "array",
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items",
+            "description": "\u7533\u8bf7\u660e\u7ec6"
+          }
+        },
+        "type": "object",
+        "title": "PurchaseRequestUpdate"
       },
       "QualificationLevelEnum": {
         "type": "string",

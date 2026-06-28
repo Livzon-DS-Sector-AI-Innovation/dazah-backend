@@ -2,10 +2,15 @@
 
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import String, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.procurement.models import InvoiceRecognitionRecord
+from app.modules.procurement.models import (
+    InvoiceRecognitionRecord,
+    PurchaseRequest,
+    PurchaseRequestApproval,
+    PurchaseRequestItem,
+)
 
 
 class InvoiceRecognitionRepository:
@@ -119,3 +124,176 @@ class InvoiceRecognitionRepository:
         )
         result = await self.session.execute(stmt)
         return result.rowcount
+
+
+class PurchaseRequestRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(
+        self,
+        request: PurchaseRequest,
+        items: list[PurchaseRequestItem],
+    ) -> PurchaseRequest:
+        self.session.add(request)
+        await self.session.flush()
+        request_id = str(request.id)
+        for item in items:
+            item.purchase_request_id = request_id
+        self.session.add_all(items)
+        await self.session.flush()
+        return request
+
+    async def get(self, request_id: UUID) -> PurchaseRequest | None:
+        result = await self.session.execute(
+            select(PurchaseRequest).where(
+                PurchaseRequest.id == request_id,
+                PurchaseRequest.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_items(self, request_id: UUID) -> list[PurchaseRequestItem]:
+        result = await self.session.execute(
+            select(PurchaseRequestItem)
+            .where(
+                PurchaseRequestItem.purchase_request_id == str(request_id),
+                PurchaseRequestItem.is_deleted.is_(False),
+            )
+            .order_by(PurchaseRequestItem.sequence.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_approvals(self, request_id: UUID) -> list[PurchaseRequestApproval]:
+        result = await self.session.execute(
+            select(PurchaseRequestApproval)
+            .where(
+                PurchaseRequestApproval.purchase_request_id == str(request_id),
+                PurchaseRequestApproval.is_deleted.is_(False),
+            )
+            .order_by(PurchaseRequestApproval.approval_time.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_requests(
+        self,
+        *,
+        category: str | None = None,
+        status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[PurchaseRequest], int]:
+        base_query = select(PurchaseRequest).where(
+            PurchaseRequest.is_deleted.is_(False)
+        )
+        count_query = select(func.count(PurchaseRequest.id)).where(
+            PurchaseRequest.is_deleted.is_(False)
+        )
+
+        if category:
+            base_query = base_query.where(PurchaseRequest.category == category)
+            count_query = count_query.where(PurchaseRequest.category == category)
+        if status:
+            base_query = base_query.where(PurchaseRequest.status == status)
+            count_query = count_query.where(PurchaseRequest.status == status)
+        if keyword:
+            like_pattern = f"%{keyword}%"
+            keyword_filter = PurchaseRequest.request_department.ilike(like_pattern)
+            base_query = base_query.where(keyword_filter)
+            count_query = count_query.where(keyword_filter)
+
+        total_result = await self.session.execute(count_query)
+        total = total_result.scalar() or 0
+
+        result = await self.session.execute(
+            base_query.order_by(PurchaseRequest.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(result.scalars().all()), total
+
+    async def list_requests_by_approval(
+        self,
+        *,
+        approval_role: str,
+        result: str,
+        category: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[PurchaseRequest], int]:
+        approval_subquery = (
+            select(
+                PurchaseRequestApproval.purchase_request_id,
+                func.max(PurchaseRequestApproval.approval_time).label(
+                    "latest_approval_time"
+                ),
+            )
+            .where(
+                PurchaseRequestApproval.is_deleted.is_(False),
+                PurchaseRequestApproval.approval_role == approval_role,
+                PurchaseRequestApproval.result == result,
+            )
+            .group_by(PurchaseRequestApproval.purchase_request_id)
+            .subquery()
+        )
+        request_id_match = (
+            cast(PurchaseRequest.id, String(36))
+            == approval_subquery.c.purchase_request_id
+        )
+        base_query = (
+            select(PurchaseRequest)
+            .join(approval_subquery, request_id_match)
+            .where(PurchaseRequest.is_deleted.is_(False))
+        )
+        count_query = (
+            select(func.count(PurchaseRequest.id))
+            .join(approval_subquery, request_id_match)
+            .where(PurchaseRequest.is_deleted.is_(False))
+        )
+
+        if category:
+            base_query = base_query.where(PurchaseRequest.category == category)
+            count_query = count_query.where(PurchaseRequest.category == category)
+        if keyword:
+            like_pattern = f"%{keyword}%"
+            keyword_filter = PurchaseRequest.request_department.ilike(like_pattern)
+            base_query = base_query.where(keyword_filter)
+            count_query = count_query.where(keyword_filter)
+
+        total_result = await self.session.execute(count_query)
+        total = total_result.scalar() or 0
+
+        result_set = await self.session.execute(
+            base_query.order_by(approval_subquery.c.latest_approval_time.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(result_set.scalars().all()), total
+
+    async def replace_items(
+        self,
+        request_id: UUID,
+        items: list[PurchaseRequestItem],
+    ) -> None:
+        await self.session.execute(
+            update(PurchaseRequestItem)
+            .where(
+                PurchaseRequestItem.purchase_request_id == str(request_id),
+                PurchaseRequestItem.is_deleted.is_(False),
+            )
+            .values(is_deleted=True)
+        )
+        for item in items:
+            item.purchase_request_id = str(request_id)
+        self.session.add_all(items)
+        await self.session.flush()
+
+    async def add_approval(
+        self,
+        approval: PurchaseRequestApproval,
+    ) -> PurchaseRequestApproval:
+        self.session.add(approval)
+        await self.session.flush()
+        return approval
