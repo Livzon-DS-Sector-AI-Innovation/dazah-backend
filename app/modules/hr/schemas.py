@@ -11,6 +11,9 @@ class DepartmentBase(BaseModel):
     name: str = Field(..., max_length=64, description="部门名称")
     code: str = Field(..., max_length=32, description="部门编码")
     description: str | None = Field(None, max_length=256, description="部门描述")
+    is_production: bool = Field(False, description="是否生产部门")
+    production_start_time: str | None = Field(None, max_length=8, description="生产班次开始时间(HH:MM)")
+    production_end_time: str | None = Field(None, max_length=8, description="生产班次结束时间(HH:MM)")
 
 
 class DepartmentCreate(DepartmentBase):
@@ -21,6 +24,9 @@ class DepartmentUpdate(BaseModel):
     name: str | None = Field(None, max_length=64)
     code: str | None = Field(None, max_length=32)
     description: str | None = Field(None, max_length=256)
+    is_production: bool | None = Field(None, description="是否生产部门")
+    production_start_time: str | None = Field(None, max_length=8)
+    production_end_time: str | None = Field(None, max_length=8)
 
 
 class DepartmentResponse(DepartmentBase):
@@ -74,6 +80,7 @@ class EmployeeBase(BaseModel):
     position: str = Field(..., max_length=64, description="职位")
     job_category: str | None = Field(None, max_length=32, description="职类")
     level: str | None = Field(None, max_length=32, description="级别")
+    position_level: str | None = Field(None, max_length=16, description="职位级别(自动判定): 普通员工/工程师级/主管级")
 
     # Qualifications
     qualifications: list[str] | None = Field(None, description="职称／职业资格")
@@ -166,6 +173,7 @@ class EmployeeUpdate(BaseModel):
     position: str | None = Field(None, max_length=64)
     job_category: str | None = Field(None, max_length=32)
     level: str | None = Field(None, max_length=32)
+    position_level: str | None = Field(None, max_length=16, description="职位级别")
     qualifications: list[str] | None = Field(None)
     qualification_type: str | None = Field(None, max_length=32)
     gender: str | None = Field(None, max_length=8)
@@ -239,7 +247,7 @@ class TrainingSignInSheetInput(BaseModel):
     training_date: date = Field(..., description="培训日期")
     training_time_start: str | None = Field(None, max_length=32, description="培训开始时间")
     training_time_end: str | None = Field(None, max_length=32, description="培训结束时间")
-    department: str = Field(..., max_length=64, description="受训部门")
+    department: str = Field(..., max_length=256, description="受训部门")
     training_subject: str | None = Field(None, max_length=128, description="培训主题")
     topic: str = Field(..., max_length=256, description="培训题目或内容概要")
     instructor: str | None = Field(None, max_length=64, description="授课人")
@@ -278,6 +286,31 @@ class TrainingNotifyInput(BaseModel):
     training_method: str | None = Field(None, max_length=32, description="培训方式")
     issuer_department: str | None = Field(None, max_length=64, description="落款部门")
     issue_date: date | None = Field(None, description="落款日期")
+    factory: str | None = Field(None, max_length=8, description="厂区: old=旧厂, new=新厂")
+
+
+class TrainingSelectTaskCreate(BaseModel):
+    """Create a temporary task for selecting trainees via Feishu."""
+
+    department: str = Field(..., max_length=64, description="主办部门")
+    training_date: str = Field(..., max_length=32, description="培训日期")
+    subject: str = Field(..., max_length=128, description="培训主题")
+    training_time_start: str | None = Field(None, max_length=32, description="培训开始时间")
+    training_time_end: str | None = Field(None, max_length=32, description="培训结束时间")
+    location: str | None = Field(None, max_length=128, description="培训地点")
+    trainer: str | None = Field(None, max_length=64, description="培训师")
+    content: str | None = Field(None, max_length=512, description="培训内容")
+    training_method: str | None = Field(None, max_length=32, description="培训方式")
+    issuer_department: str | None = Field(None, max_length=64, description="落款部门")
+    issue_date: str | None = Field(None, max_length=32, description="落款日期")
+    factory: str | None = Field(None, max_length=8, description="厂区: old=旧厂, new=新厂")
+
+
+class TrainingSelectTaskSubmit(BaseModel):
+    """Submit selected trainees for a training task."""
+
+    employee_numbers: list[str] = Field(..., description="选择的受训人员工号列表")
+    employee_names: list[str] | None = Field(None, description="选择的受训人员姓名列表")
 
 
 class TrainingEvaluationInput(BaseModel):
@@ -308,6 +341,7 @@ class TrainingEvaluationInput(BaseModel):
     organizer: str | None = Field(None, max_length=64, description="培训组织人")
     organizer_date: date | None = Field(None, description="组织日期")
     remarks: str | None = Field(None, max_length=512, description="备注")
+    employee_names: list[str] | None = Field(None, description="受训人员姓名列表")
 
 
 class OnboardingEvaluationInput(BaseModel):
@@ -634,6 +668,7 @@ class TrainingLedgerBase(BaseModel):
     source_type: str = Field("manual", max_length=16, description="来源: manual, notification")
     source_id: str | None = Field(None, max_length=64, description="来源ID")
     remarks: str | None = Field(None, max_length=512, description="备注")
+    ledger_type: str = Field("event", max_length=16, description="台账类型: event=事件台账, sop=SOP培训台账")
 
 
 class TrainingLedgerCreate(TrainingLedgerBase):
@@ -671,11 +706,80 @@ class TrainingLedgerListResponse(BaseModel):
     meta: dict | None = None
 
 
+class TrainingSessionBase(BaseModel):
+    factory: str = Field("old", max_length=8, description="厂区: old=旧厂, new=新厂")
+    department: str = Field(..., max_length=64, description="主办部门")
+    training_date: date = Field(..., description="培训日期")
+    subject: str = Field(..., max_length=256, description="培训主题")
+    training_time_start: str | None = Field(None, max_length=32, description="培训开始时间")
+    training_time_end: str | None = Field(None, max_length=32, description="培训结束时间")
+    location: str | None = Field(None, max_length=128, description="培训地点")
+    trainer: str | None = Field(None, max_length=128, description="培训师")
+    training_method: str | None = Field(None, max_length=32, description="培训方式")
+    content: str | None = Field(None, max_length=512, description="培训内容")
+    trainee_departments: list[str] | None = Field(None, description="受训部门列表")
+    employee_names: list[str] | None = Field(None, description="应出席受训人员姓名列表")
+    employee_numbers: list[str] | None = Field(None, description="应出席受训人员工号列表")
+    issuer_department: str | None = Field(None, max_length=64, description="落款部门")
+    issue_date: date | None = Field(None, description="落款日期")
+    remarks: str | None = Field(None, max_length=512, description="备注")
+    status: str | None = Field("draft", max_length=16, description="状态: draft, notified, selecting, confirmed, evaluated, archived")
+    select_task_token: str | None = Field(None, max_length=64, description="飞书选择任务token")
+    select_tasks: list[dict] | None = Field(None, description="多部门选择任务列表")
+
+
+class TrainingSessionCreate(TrainingSessionBase):
+    pass
+
+
+class TrainingSessionUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    factory: str | None = Field(None, max_length=8)
+    department: str | None = Field(None, max_length=64)
+    training_date: date | None = Field(None)
+    subject: str | None = Field(None, max_length=256)
+    training_time_start: str | None = Field(None, max_length=32)
+    training_time_end: str | None = Field(None, max_length=32)
+    location: str | None = Field(None, max_length=128)
+    trainer: str | None = Field(None, max_length=128)
+    training_method: str | None = Field(None, max_length=32)
+    content: str | None = Field(None, max_length=512)
+    trainee_departments: list[str] | None = Field(None)
+    employee_names: list[str] | None = Field(None)
+    employee_numbers: list[str] | None = Field(None)
+    issuer_department: str | None = Field(None, max_length=64)
+    issue_date: date | None = Field(None)
+    remarks: str | None = Field(None, max_length=512)
+    status: str | None = Field(None, max_length=16)
+    select_task_token: str | None = Field(None, max_length=64)
+
+
+class TrainingSessionStatusUpdate(BaseModel):
+    status: str = Field(..., max_length=16, description="状态: draft, notified, selecting, confirmed, evaluated, archived")
+
+
+class TrainingSessionResponse(TrainingSessionBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class TrainingSessionListResponse(BaseModel):
+    code: int
+    message: str
+    data: list[TrainingSessionResponse]
+    meta: dict | None = None
+
+
 # ─── TrainingLedgerPage Schemas ───
 
 class TrainingLedgerPageCreate(BaseModel):
     employee_number: str = Field(..., max_length=32, description="工号")
     employee_name: str = Field(..., max_length=64, description="员工姓名")
+    ledger_type: str = Field("event", max_length=16, description="台账类型: event=事件台账, sop=SOP培训台账")
 
 
 class TrainingLedgerPageResponse(BaseModel):
@@ -684,7 +788,9 @@ class TrainingLedgerPageResponse(BaseModel):
     id: UUID
     employee_number: str
     employee_name: str
+    ledger_type: str = Field("event", max_length=16, description="台账类型")
     department: str | None = Field(None, max_length=64, description="所属部门")
+    factory: str | None = Field(None, max_length=8, description="厂区: old=旧厂, new=新厂")
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -779,6 +885,35 @@ class AnnualTrainingPlanItemResponse(AnnualTrainingPlanItemBase):
 
 class AnnualTrainingPlanItemBatchUpdate(BaseModel):
     items: list[AnnualTrainingPlanItemCreate] = Field(default_factory=list, description="明细列表")
+
+
+# ─── Training Specialist Schemas ───
+
+class TrainingSpecialistCreate(BaseModel):
+    department: str = Field(..., max_length=64, description="部门名称")
+    employee_number: str = Field(..., max_length=32, description="培训专员工号")
+    employee_name: str = Field(..., max_length=64, description="培训专员姓名")
+    factory: str = Field("old", max_length=8, description="厂区: old=旧厂, new=新厂")
+
+
+class TrainingSpecialistUpdate(BaseModel):
+    employee_number: str | None = Field(None, max_length=32)
+    employee_name: str | None = Field(None, max_length=64)
+
+
+class TrainingSpecialistResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    department: str
+    employee_number: str
+    employee_name: str
+    factory: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+# ─── Candidate Schemas ───
+
 class CandidateBase(BaseModel):
     name: str = Field(..., max_length=64, description="候选人姓名")
     position: str = Field(..., max_length=64, description="应聘职位名称")

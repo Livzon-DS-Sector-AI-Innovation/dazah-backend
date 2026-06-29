@@ -24,7 +24,7 @@ def _find_template() -> Path:
     raise FileNotFoundError("模板文件未找到: 7.5培训签到表.xlsx")
 
 
-def generate_training_sign_in_sheet(data: TrainingSignInSheetInput, page: int = 0) -> BytesIO:
+def generate_training_sign_in_sheet(data: TrainingSignInSheetInput, factory: str = "old", page: int = 0) -> BytesIO:
     """Fill the training sign-in sheet template with form data.
 
     Each page holds up to 30 employees.  Returns a BytesIO buffer

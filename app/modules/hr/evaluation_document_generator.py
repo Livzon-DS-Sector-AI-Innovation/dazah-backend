@@ -36,6 +36,7 @@ class TrainingEvaluationInput(BaseModel):
     organizer: str | None = Field(None, max_length=64, description="培训组织人")
     organizer_date: date | None = Field(None, description="组织日期")
     remarks: str | None = Field(None, max_length=512, description="备注")
+    employee_names: list[str] | None = Field(None, description="受训人员姓名列表")
 
 
 def _cell_border():
@@ -51,7 +52,7 @@ def _left_align():
     return Alignment(horizontal="left", vertical="center", wrap_text=True)
 
 
-def generate_training_evaluation(data: TrainingEvaluationInput) -> BytesIO:
+def generate_training_evaluation(data: TrainingEvaluationInput, factory: str = "old") -> BytesIO:
     """根据填写的培训信息生成培训效果评估表 Excel 文档."""
     wb = Workbook()
     ws = wb.active
@@ -241,6 +242,21 @@ def generate_training_evaluation(data: TrainingEvaluationInput) -> BytesIO:
     ws["A20"].border = _cell_border()
     ws.row_dimensions[19].height = 24
     ws.row_dimensions[20].height = 36
+
+    # 受训人员名单（追加在备注后，row 21 起）
+    if data.employee_names:
+        ws.merge_cells("A21:E21")
+        ws["A21"] = f"受训人员名单（共 {len(data.employee_names)} 人）："
+        ws["A21"].alignment = _left_align()
+        ws["A21"].border = _cell_border()
+        ws.row_dimensions[21].height = 24
+        for i, name in enumerate(data.employee_names):
+            row_num = 22 + i // 5
+            col_letter = chr(ord("A") + i % 5)
+            ws[f"{col_letter}{row_num}"] = name
+            ws[f"{col_letter}{row_num}"].alignment = _left_align()
+            ws[f"{col_letter}{row_num}"].border = _cell_border()
+            ws.row_dimensions[row_num].height = 22
 
     buffer = BytesIO()
     wb.save(buffer)

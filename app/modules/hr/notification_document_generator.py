@@ -22,19 +22,23 @@ class TrainingNotificationInput(BaseModel):
     issue_date: date | None = None
 
 
-def _find_template() -> Path:
-    """Locate the docx template, trying several path candidates."""
+def _find_template(factory: str = "old") -> Path:
+    """Locate the docx template by factory."""
+    if factory == "new":
+        template_name = "SOP-GN-2002 Q 培训通知.docx"
+    else:
+        template_name = "培训通知.docx"
     candidates = [
-        Path("员工培训教育管理规程/SOP-GN-2002 Q 培训通知.docx"),
-        Path("../员工培训教育管理规程/SOP-GN-2002 Q 培训通知.docx"),
+        Path(f"员工培训教育管理规程/{template_name}"),
+        Path(f"../员工培训教育管理规程/{template_name}"),
         Path(__file__).resolve().parent.parent.parent.parent
         / "员工培训教育管理规程"
-        / "SOP-GN-2002 Q 培训通知.docx",
+        / template_name,
     ]
     for p in candidates:
         if p.exists():
             return p
-    raise FileNotFoundError("模板文件未找到: SOP-GN-2002 Q 培训通知.docx")
+    raise FileNotFoundError(f"模板文件未找到: {template_name}")
 
 
 def _find_underlined_groups(paragraph) -> list[list[int]]:
@@ -86,9 +90,9 @@ def _fill_first_underlined_run(paragraph, text: str) -> None:
     _remove_empty_space_runs(paragraph)
 
 
-def generate_training_notification(data: TrainingNotificationInput) -> BytesIO:
+def generate_training_notification(data: TrainingNotificationInput, factory: str = "old") -> BytesIO:
     """根据填写的培训信息生成培训通知 Word 文档."""
-    template_path = _find_template()
+    template_path = _find_template(factory)
     doc = Document(str(template_path))
 
     # ── P2: 部门 将于 年 月 日 举行 主题 的培训 ──

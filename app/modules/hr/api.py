@@ -1,19 +1,20 @@
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
-import logging
 from uuid import UUID
+import logging
 
-logger = logging.getLogger(__name__)
 from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 from urllib.parse import quote
 
 from app.core.database import get_db
-from app.core.response import paginated_response, success_response
+from app.core.redis import cache_set, cache_get, cache_delete
+from app.core.response import paginated_response, success_response, error_response
 from app.modules.hr.schemas import (
     AnnualTrainingPlanCreate,
     AnnualTrainingPlanItemBatchUpdate,
@@ -48,18 +49,37 @@ from app.modules.hr.schemas import (
     TrainingLedgerUpdate,
     TrainingLedgerPageCreate,
     TrainingLedgerPageResponse,
+    TrainingSessionCreate,
+    TrainingSessionResponse,
+    TrainingSessionUpdate,
+    TrainingSessionStatusUpdate,
     TrainingNotificationInput,
     TrainingNotifyInput,
+    TrainingSelectTaskCreate,
+    TrainingSelectTaskSubmit,
     TrainingSignInSheetInput,
+    TrainingSpecialistCreate,
+    TrainingSpecialistUpdate,
+    TrainingSpecialistResponse,
 )
-from app.modules.hr.models import Employee
+try:
+    from app.modules.hr.attendance_schemas import DepartmentProductionSettings
+except ImportError:
+    DepartmentProductionSettings = None  # type: ignore
+from app.modules.hr.models import Department, Employee
 from app.modules.hr.document_generator import generate_onboarding_training_record
 from app.modules.hr.evaluation_document_generator import generate_training_evaluation
 from app.modules.hr.notification_document_generator import generate_training_notification
 from app.modules.hr.onboarding_evaluation_document_generator import generate_onboarding_evaluation
 from app.modules.hr.prejob_document_generator import generate_prejob_training_plan
 from app.modules.hr.signin_document_generator import generate_training_sign_in_sheet
+from app.modules.hr.ledger_export_generator import generate_ledger_export
 from app.modules.hr.analysis_api import router as analysis_router
+try:
+    from app.modules.hr.attendance_api import router as attendance_router
+except ImportError:
+    attendance_router = None  # type: ignore
+from app.modules.hr.repository import TrainingSpecialistRepository
 from app.modules.hr.service import (
     AnnualTrainingPlanItemService,
     AnnualTrainingPlanService,
@@ -72,12 +92,15 @@ from app.modules.hr.service import (
     TeamService,
     TrainingLedgerService,
     TrainingLedgerPageService,
+    TrainingSessionService,
 )
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
 from app.shared.schemas import PageParams
 
 router = create_module_router(MODULES_BY_CODE["hr"])
+
+logger = logging.getLogger(__name__)
 
 
 async def _get_new_employee(employee_id: UUID, session: AsyncSession) -> Employee:
@@ -148,6 +171,12 @@ def get_annual_training_plan_item_service(
     session: AsyncSession = Depends(get_db),
 ) -> AnnualTrainingPlanItemService:
     return AnnualTrainingPlanItemService(session)
+
+
+def get_training_session_service(
+    session: AsyncSession = Depends(get_db),
+) -> TrainingSessionService:
+    return TrainingSessionService(session)
 
 
 def get_candidate_service(
@@ -313,13 +342,7 @@ async def export_onboarding_training_record(
     session: AsyncSession = Depends(get_db),
 ):
     """根据员工数据自动生成并下载入职培训记录 Word 文档。"""
-    if factory == "old":
-        employee = await service.get_employee(employee_id)
-    else:
-        try:
-            employee = await _get_new_employee(employee_id, session)
-        except HTTPException:
-            employee = await service.get_employee(employee_id)
+    employee = await service.get_employee(employee_id) if factory == "old" else await _get_new_employee(employee_id, session)
     try:
         buffer: BytesIO = generate_onboarding_training_record(employee, factory)
     except FileNotFoundError as e:
@@ -348,13 +371,7 @@ async def export_prejob_training_plan(
     session: AsyncSession = Depends(get_db),
 ):
     """根据员工数据自动生成并下载岗前培训计划文档。"""
-    if factory == "old":
-        employee = await service.get_employee(employee_id)
-    else:
-        try:
-            employee = await _get_new_employee(employee_id, session)
-        except HTTPException:
-            employee = await service.get_employee(employee_id)
+    employee = await service.get_employee(employee_id) if factory == "old" else await _get_new_employee(employee_id, session)
     try:
         buffer: BytesIO = generate_prejob_training_plan(employee, factory)
     except FileNotFoundError as e:
@@ -389,17 +406,19 @@ async def export_onboarding_evaluation_by_employee(
     session: AsyncSession = Depends(get_db),
 ):
     """根据员工档案预填基本信息并导出上岗评估表文档。"""
-    if factory == "old":
-        employee = await service.get_employee(employee_id)
-    else:
-        try:
-            employee = await _get_new_employee(employee_id, session)
-        except HTTPException:
-            employee = await service.get_employee(employee_id)
+    employee = await service.get_employee(employee_id) if factory == "old" else await _get_new_employee(employee_id, session)
+
     try:
         buffer: BytesIO = generate_onboarding_evaluation(employee, factory)
+    except Exception as e:
+        import traceback
+        detail = traceback.format_exc()
+        raise HTTPException(status_code=500, detail=f"生成文档失败: {str(e)}\n{detail}")
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    with open('d:/LivzonAI/api_success.log', 'w', encoding='utf-8') as f:
+        f.write(f"Buffer type: {type(buffer)}, size: {len(buffer.getvalue()) if buffer else 'None'}")
 
     def _iterfile():
         buffer.seek(0)
@@ -425,17 +444,20 @@ import zipfile
 @router.post("/training-sign-in-sheet", summary="生成培训签到表")
 async def export_training_sign_in_sheet(
     payload: TrainingSignInSheetInput,
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
 ):
-    """根据填写的培训信息自动生成培训签到表 Excel 文档。
+    """根据填写的培训信息自动生成培训签到表文档。
 
     当应出席受训人员超过 30 人时，自动分页生成多张签到表并打包为 zip。
     """
     safe_date = str(payload.training_date).replace("-", "")
     total = len(payload.employee_names)
+    ext = "xlsx"
+    media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     if total <= 30:
         try:
-            buffer: BytesIO = generate_training_sign_in_sheet(payload)
+            buffer: BytesIO = generate_training_sign_in_sheet(payload, factory)
         except FileNotFoundError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -443,10 +465,10 @@ async def export_training_sign_in_sheet(
             buffer.seek(0)
             yield buffer.read()
 
-        filename = f"training_sign_in_sheet_{safe_date}.xlsx"
+        filename = f"training_sign_in_sheet_{safe_date}.{ext}"
         return StreamingResponse(
             _iterfile(),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            media_type=media_type,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
@@ -456,11 +478,11 @@ async def export_training_sign_in_sheet(
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for page in range(pages):
             try:
-                page_buffer = generate_training_sign_in_sheet(payload, page=page)
+                page_buffer = generate_training_sign_in_sheet(payload, factory, page=page)
             except FileNotFoundError as e:
                 raise HTTPException(status_code=400, detail=str(e))
             page_buffer.seek(0)
-            zf.writestr(f"training_sign_in_sheet_{safe_date}_page{page + 1}.xlsx", page_buffer.read())
+            zf.writestr(f"training_sign_in_sheet_{safe_date}_page{page + 1}.{ext}", page_buffer.read())
     zip_buffer.seek(0)
 
     def _iter_zip():
@@ -485,18 +507,214 @@ async def send_training_notification(
     return success_response(data=result, message=msg)
 
 
+# ─── Training Select Task APIs ───
+
+import uuid
+import json
+
+from app.core.config import get_settings
+from app.platform.integrations.feishu.auth import FeishuAuth
+from app.platform.integrations.feishu.im import FeishuIM
+
+
+@router.post("/training-select-tasks/send", summary="发送飞书选择受训人员任务")
+async def send_training_select_task(
+    payload: TrainingSelectTaskCreate,
+    service: EmployeeService = Depends(get_employee_service),
+):
+    """创建临时选择任务，发送飞书消息给李文兆。"""
+    token = str(uuid.uuid4())
+    cache_key = f"training_select:{token}"
+    cache_data = payload.model_dump_json()
+    await cache_set(cache_key, cache_data, ex=86400)
+
+    # 同时记录到任务列表
+    list_key = "training_select_list"
+    await cache_set(f"{list_key}:{token}", cache_data, ex=86400)
+
+    # 更新任务列表
+    list_key = "training_select_list"
+    existing = await cache_get(list_key)
+    task_list = json.loads(existing) if existing else []
+    task_list.append({
+        "token": token,
+        "department": payload.department,
+        "training_date": payload.training_date,
+        "subject": payload.subject,
+        "factory": payload.factory,
+        "created_at": datetime.now().isoformat(),
+    })
+    await cache_set(list_key, json.dumps(task_list, ensure_ascii=False), ex=604800)  # 7 天
+
+    settings = get_settings()
+    select_url = f"{settings.FRONTEND_URL}/hr/training/select?token={token}"
+
+    # 查询李文兆（先查老厂，再查新厂）
+    li_employee = None
+    li_table = None
+    for table in ["hr.employees", "hr.employees_new"]:
+        sql = text(
+            f"SELECT * FROM {table} WHERE name = :name AND is_deleted = false LIMIT 1"
+        )
+        result = await service.repo.session.execute(sql, {"name": "李文兆"})
+        row = result.mappings().first()
+        if row:
+            li_employee = Employee(**dict(row))
+            li_table = table
+            break
+
+    if not li_employee:
+        raise HTTPException(status_code=404, detail="未找到接收人李文兆")
+
+    open_id = li_employee.feishu_open_id
+    if not open_id and li_employee.phone:
+        try:
+            im = FeishuIM()
+            mobile = li_employee.phone if li_employee.phone.startswith("+") else f"+86{li_employee.phone}"
+            mapping = await im.batch_get_open_ids_by_mobile([mobile])
+            open_id = mapping.get(mobile) or mapping.get(li_employee.phone)
+            if open_id:
+                # 持久化到数据库
+                update_sql = text(
+                    f"UPDATE {li_table} SET feishu_open_id = :oid WHERE employee_number = :eno"
+                )
+                await service.repo.session.execute(update_sql, {"oid": open_id, "eno": li_employee.employee_number})
+                await service.repo.session.flush()
+        except Exception:
+            pass
+
+    if not open_id:
+        raise HTTPException(status_code=400, detail="李文兆缺少飞书 open_id 且无法实时获取")
+
+    msg_content = (
+        f"【培训人员选择通知】\n"
+        f"请为 {payload.department} 的 {payload.training_date} {payload.subject} 培训选择受训人员。\n"
+        f"点击链接选择：{select_url}\n"
+        f"（链接 1 小时内有效）"
+    )
+
+    try:
+        im = FeishuIM()
+        await im.send_text_message(open_id, msg_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"发送飞书消息失败: {str(e)}")
+
+    return success_response(
+        data={"token": token, "url": select_url},
+        message="已发送飞书选择任务给李文兆",
+    )
+
+
+@router.get("/training-select-tasks/{token}", summary="获取选择任务")
+async def get_training_select_task(token: str):
+    """根据 token 获取临时选择任务详情。"""
+    cache_key = f"training_select:{token}"
+    data = await cache_get(cache_key)
+    if not data:
+        raise HTTPException(status_code=404, detail="任务已过期或不存在")
+    return success_response(data=json.loads(data))
+
+
+@router.post("/training-select-tasks/{token}/submit", summary="提交选择结果")
+async def submit_training_select_task(
+    token: str,
+    payload: TrainingSelectTaskSubmit,
+    service: TrainingSessionService = Depends(get_training_session_service),
+):
+    """提交选择的受训人员，返回培训信息 + 选择的人员。"""
+    cache_key = f"training_select:{token}"
+    data = await cache_get(cache_key)
+    if not data:
+        raise HTTPException(status_code=404, detail="任务已过期或不存在")
+
+    task = json.loads(data)
+    task["employee_numbers"] = payload.employee_numbers
+    task["employee_names"] = payload.employee_names or []
+    await cache_set(cache_key, json.dumps(task, ensure_ascii=False), ex=3600)
+
+    # 找到关联的 TrainingSession 并更新 select_tasks
+    # 先按旧的 select_task_token 查找，再按 select_tasks JSON 数组查找
+    session_obj = await service.repo.get_by_select_task_token(token)
+    if not session_obj:
+        session_obj = await service.repo.get_by_select_tasks_json_token(token)
+    if session_obj and session_obj.select_tasks:
+        for st in session_obj.select_tasks:
+            if st.get("token") == token:
+                st["employee_names"] = payload.employee_names or []
+                st["employee_numbers"] = payload.employee_numbers
+                st["status"] = "submitted"
+                break
+        # 标记 JSON 字段已变更，SQLAlchemy 才能检测到嵌套修改
+        flag_modified(session_obj, "select_tasks")
+        await service.repo.update(session_obj)
+
+    return success_response(
+        data=task,
+        message="选择结果已提交",
+    )
+
+
+@router.get("/training-select-tasks", summary="获取培训选择任务列表")
+async def list_training_select_tasks():
+    """获取所有已发送的培训选择任务列表。"""
+    list_key = "training_select_list"
+    existing = await cache_get(list_key)
+    if not existing:
+        return success_response(data=[])
+
+    task_list = json.loads(existing)
+    results = []
+    for meta in task_list:
+        token = meta["token"]
+        data = await cache_get(f"training_select:{token}")
+        if data:
+            task = json.loads(data)
+            results.append({
+                "token": token,
+                "department": task.get("department"),
+                "training_date": task.get("training_date"),
+                "subject": task.get("subject"),
+                "factory": task.get("factory"),
+                "location": task.get("location"),
+                "trainer": task.get("trainer"),
+                "training_method": task.get("training_method"),
+                "has_result": bool(task.get("employee_numbers")),
+                "selected_count": len(task.get("employee_numbers", [])),
+                "created_at": meta.get("created_at"),
+            })
+
+    # 按时间倒序
+    results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return success_response(data=results)
+
+
+@router.get("/training-select-tasks/{token}/result", summary="获取选择结果")
+async def get_training_select_task_result(token: str):
+    """根据 token 获取已提交的选择结果。"""
+    cache_key = f"training_select:{token}"
+    data = await cache_get(cache_key)
+    if not data:
+        raise HTTPException(status_code=404, detail="任务已过期或不存在")
+    task = json.loads(data)
+    if not task.get("employee_numbers"):
+        raise HTTPException(status_code=400, detail="该任务尚未提交选择结果")
+    return success_response(data=task)
+
+
 @router.post("/training-notification", summary="生成培训通知")
 async def export_training_notification(
     payload: TrainingNotificationInput,
+    factory: str = Query("old", description="厂区: old=旧厂, new=新厂"),
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     """根据填写的培训信息自动生成培训通知 Word 文档。
 
+    旧厂使用模板「培训通知.docx」，新厂使用模板「SOP-GN-2002 Q 培训通知.docx」。
     若应出席受训人员包含李健文(110000673)或黄丽耘(110001372)，
     自动为其创建培训台账记录。
     """
     try:
-        buffer: BytesIO = generate_training_notification(payload)
+        buffer: BytesIO = generate_training_notification(payload, factory)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -534,19 +752,26 @@ async def export_training_notification(
 @router.post("/training-evaluation", summary="生成培训效果评估表")
 async def export_training_evaluation(
     payload: TrainingEvaluationInput,
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
 ):
-    """根据填写的培训信息自动生成培训效果评估表 Excel 文档。"""
-    buffer: BytesIO = generate_training_evaluation(payload)
+    """根据填写的培训信息自动生成培训效果评估表文档。"""
+    buffer: BytesIO = generate_training_evaluation(payload, factory)
 
     def _iterfile():
         buffer.seek(0)
         yield buffer.read()
 
     safe_date = str(payload.training_date).replace("-", "") if payload.training_date else "nodate"
-    filename = f"training_evaluation_{safe_date}.xlsx"
+    ext = "xlsx" if factory == "old" else "docx"
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if factory == "old"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    filename = f"training_evaluation_{safe_date}.{ext}"
     return StreamingResponse(
         _iterfile(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -563,7 +788,7 @@ async def export_onboarding_evaluation(
         buffer.seek(0)
         yield buffer.read()
 
-    safe_date = str(payload.evaluation_date).replace("-", "") if payload.evaluation_date else "nodate"
+    safe_date = str(payload.approval_date).replace("-", "") if payload.approval_date else "nodate"
     ext = "xlsx" if factory == "old" else "docx"
     media_type = (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -647,6 +872,26 @@ async def delete_department(
 ):
     await service.delete_department(department_id)
     return success_response(message="部门删除成功")
+
+
+if DepartmentProductionSettings is not None:
+
+    @router.put("/departments/{department_id}/production-settings", summary="设置部门生产属性")
+    async def set_department_production(
+        department_id: UUID,
+        payload: DepartmentProductionSettings,
+        service: DepartmentService = Depends(get_department_service),
+    ):
+        """设置部门是否为生产部门及生产班次时间。"""
+        department = await service.get_department(department_id)
+        department.is_production = payload.is_production
+        department.production_start_time = payload.production_start_time
+        department.production_end_time = payload.production_end_time
+        await service.repo.session.flush()
+        return success_response(
+            data={"id": str(department.id), "is_production": department.is_production},
+            message="生产设置已更新",
+        )
 
 
 # ─── Team Routes ───
@@ -1045,11 +1290,13 @@ async def list_training_ledger_pages(
             "id": str(page.id),
             "employee_number": page.employee_number,
             "employee_name": page.employee_name,
+            "ledger_type": page.ledger_type,
             "department": dept or "未知部门",
+            "factory": factory or "",
             "created_at": page.created_at.isoformat() if page.created_at else None,
             "updated_at": page.updated_at.isoformat() if page.updated_at else None,
         }
-        for page, dept in pages_with_dept
+        for page, dept, factory in pages_with_dept
     ]
     return success_response(data=data)
 
@@ -1214,19 +1461,22 @@ def _generate_training_ledger_excel(employee: dict, records: list[dict]) -> Byte
     return buffer
 
 
-@router.get("/training-ledgers/export", summary="导出培训台账Excel")
+@router.get("/training-ledgers/export", summary="导出培训台账")
 async def export_training_ledger(
     employee_number: str = Query(..., description="员工工号"),
+    ledger_type: str = Query("event", description="台账类型: event=事件台账, sop=SOP培训台账"),
+    factory: str = Query("old", description="厂区: old=旧厂, new=新厂"),
     ledger_service: TrainingLedgerService = Depends(get_training_ledger_service),
     employee_service: EmployeeService = Depends(get_employee_service),
 ):
-    """根据员工数据生成并导出培训台账 Excel 文件。"""
+    """根据员工数据、厂区和台账类型选择对应模板导出培训台账。"""
     employee = await employee_service.get_employee_by_number(employee_number)
     if not employee:
         raise HTTPException(status_code=404, detail="未找到该员工")
 
     records, _ = await ledger_service.list_records(
         employee_number=employee_number,
+        ledger_type=ledger_type,
         page=1,
         page_size=1000,
         sort_by="training_date",
@@ -1239,19 +1489,23 @@ async def export_training_ledger(
         for r in records
     ]
 
-    buffer = _generate_training_ledger_excel(employee_dict, record_dicts)
+    buffer = generate_ledger_export(employee_dict, record_dicts, factory, ledger_type)
     buffer.seek(0)
 
     safe_name = employee.name or "unknown"
-    filename = f"{safe_name}培训台账.xlsx"
+    ext = "xlsx" if factory == "old" else "docx"
+    filename = f"{safe_name}培训台账.{ext}"
     encoded_filename = quote(filename, safe="")
 
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if factory == "old"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
     return StreamingResponse(
         iter([buffer.read()]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"
-        },
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"},
     )
 
 
@@ -1596,12 +1850,24 @@ async def list_new_employees(
     page_params: PageParams = Depends(),
     session: AsyncSession = Depends(get_db),
 ):
+    """List employees from employees_new clone table."""
+    # 处理多肽车间按班组拆分的情况
+    dept_filter = department
+    team_filter = None
+    if department and department.startswith("多肽车间-"):
+        dept_filter = "多肽车间"
+        team_filter = department.replace("多肽车间-", "")
+
     where, params = _build_where(
         "hr.employees_new",
-        [("department", department), ("status", status)],
+        [("department", dept_filter), ("status", status)],
         keyword_fields=["name", "employee_number"],
         keyword=keyword,
     )
+    if team_filter:
+        where += " AND hr.employees_new.team = :team"
+        params["team"] = team_filter
+
     data, total = await _query_clone_table(
         session, "hr.employees_new", EmployeeResponse,
         where, params, page_params.page, page_params.page_size,
@@ -1729,10 +1995,42 @@ async def list_new_departments(
         DepartmentResponse.model_validate(SimpleNamespace(**dict(row))).model_dump(mode="json")
         for row in rows
     ]
+
+    # 多肽车间按班组拆分为 多肽车间-xxx
+    expanded: list[dict] = []
+    for dept in data:
+        name = dept["name"]
+        if name == "多肽车间":
+            # 查询多肽车间下所有班组
+            team_sql = text("""
+                SELECT DISTINCT team FROM hr.employees_new
+                WHERE department = '多肽车间' AND is_deleted = false AND team IS NOT NULL AND team != ''
+                ORDER BY team
+            """)
+            team_result = await session.execute(team_sql)
+            team_rows = team_result.mappings().all()
+            if team_rows:
+                for row in team_rows:
+                    team_name = row["team"]
+                    expanded.append({
+                        **dept,
+                        "name": f"多肽车间-{team_name}",
+                        "code": f"多肽车间-{team_name}",
+                    })
+            else:
+                expanded.append(dept)
+        else:
+            expanded.append(dept)
+
     return paginated_response(
-        data=data, page=page_params.page,
+        data=expanded, page=page_params.page,
         page_size=page_params.page_size, total=total,
     )
+
+
+router.include_router(analysis_router)
+if attendance_router is not None:
+    router.include_router(attendance_router)
 
 
 # ─── Candidate Routes ───
@@ -1956,4 +2254,285 @@ async def preview_candidate_resume(
     )
 
 
-router.include_router(analysis_router)
+# ─── TrainingSession Routes ───
+
+@router.get("/training-sessions", summary="培训记录列表")
+async def list_training_sessions(
+    department: str | None = Query(None, description="部门筛选"),
+    keyword: str | None = Query(None, description="主题或培训师关键词"),
+    date_from: date | None = Query(None, description="日期起始"),
+    date_to: date | None = Query(None, description="日期截止"),
+    page_params: PageParams = Depends(),
+    service: TrainingSessionService = Depends(get_training_session_service),
+):
+    sessions, total = await service.list_sessions(
+        department=department,
+        keyword=keyword,
+        date_from=date_from,
+        date_to=date_to,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    data = [
+        TrainingSessionResponse.model_validate(s).model_dump(mode="json")
+        for s in sessions
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/training-sessions", summary="创建培训记录")
+async def create_training_session(
+    payload: TrainingSessionCreate,
+    service: TrainingSessionService = Depends(get_training_session_service),
+):
+    session_obj = await service.create_session(payload)
+    return success_response(
+        data=TrainingSessionResponse.model_validate(session_obj).model_dump(mode="json"),
+        message="培训记录创建成功",
+        status_code=201,
+    )
+
+
+@router.put("/training-sessions/{session_id}/status", summary="更新培训记录状态")
+async def update_training_session_status(
+    session_id: UUID,
+    payload: TrainingSessionStatusUpdate,
+    service: TrainingSessionService = Depends(get_training_session_service),
+):
+    session_obj = await service.update_status(session_id, payload.status)
+    return success_response(
+        data=TrainingSessionResponse.model_validate(session_obj).model_dump(mode="json"),
+        message="状态更新成功",
+    )
+
+
+@router.get("/training-sessions/{session_id}", summary="培训记录详情")
+async def get_training_session(
+    session_id: UUID,
+    service: TrainingSessionService = Depends(get_training_session_service),
+):
+    session_obj = await service.get_session(session_id)
+    return success_response(
+        data=TrainingSessionResponse.model_validate(session_obj).model_dump(mode="json"),
+    )
+
+
+@router.put("/training-sessions/{session_id}", summary="更新培训记录")
+async def update_training_session(
+    session_id: UUID,
+    payload: TrainingSessionUpdate,
+    service: TrainingSessionService = Depends(get_training_session_service),
+):
+    session_obj = await service.update_session(session_id, payload)
+    return success_response(
+        data=TrainingSessionResponse.model_validate(session_obj).model_dump(mode="json"),
+        message="培训记录更新成功",
+    )
+
+
+@router.delete("/training-sessions/{session_id}", summary="删除培训记录")
+async def delete_training_session(
+    session_id: UUID,
+    service: TrainingSessionService = Depends(get_training_session_service),
+):
+    await service.delete_session(session_id)
+    return success_response(message="培训记录删除成功")
+
+
+@router.post("/training-sessions/{session_id}/send-select-tasks", summary="发送多部门选择受训人员任务")
+async def send_training_session_select_tasks(
+    session_id: UUID,
+    service: TrainingSessionService = Depends(get_training_session_service),
+    employee_service: EmployeeService = Depends(get_employee_service),
+):
+    """为培训记录的每个受训部门发送选择受训人员任务。
+
+    - 为每个部门生成 UUID token
+    - 将任务数据存入 Redis（24h 有效）
+    - 查找该部门培训专员并发送飞书 IM 消息
+    - 更新 TrainingSession.select_tasks 和 status
+    """
+    session_obj = await service.get_session(session_id)
+    trainee_departments = session_obj.trainee_departments or []
+    if not trainee_departments:
+        raise HTTPException(status_code=400, detail="该培训记录没有受训部门")
+
+    settings = get_settings()
+    select_tasks: list[dict] = []
+
+    for dept in trainee_departments:
+        token = str(uuid.uuid4())
+        cache_key = f"training_select:{token}"
+        task_data = {
+            "department": dept,
+            "training_date": str(session_obj.training_date),
+            "subject": session_obj.subject,
+            "training_time_start": session_obj.training_time_start,
+            "training_time_end": session_obj.training_time_end,
+            "location": session_obj.location,
+            "trainer": session_obj.trainer,
+            "training_method": session_obj.training_method,
+            "content": session_obj.content,
+            "factory": session_obj.factory,
+            "issuer_department": session_obj.issuer_department,
+            "issue_date": str(session_obj.issue_date) if session_obj.issue_date else None,
+        }
+        await cache_set(cache_key, json.dumps(task_data, ensure_ascii=False), ex=86400)
+        await cache_set(f"training_select_list:{token}", json.dumps(task_data, ensure_ascii=False), ex=86400)
+
+        # 同步更新共享任务列表
+        list_key = "training_select_list"
+        existing = await cache_get(list_key)
+        task_list = json.loads(existing) if existing else []
+        task_list.append({
+            "token": token,
+            "department": dept,
+            "training_date": str(session_obj.training_date),
+            "subject": session_obj.subject,
+            "factory": session_obj.factory,
+            "created_at": datetime.now().isoformat(),
+        })
+        await cache_set(list_key, json.dumps(task_list, ensure_ascii=False), ex=604800)
+
+        # 查找培训专员 — 从 training_specialists 表查询
+        specialist_repo = TrainingSpecialistRepository(employee_service.repo.session)
+        specialist_config = await specialist_repo.get_by_dept_factory(dept, session_obj.factory or "old")
+        specialist = None
+        specialist_table = None
+
+        if specialist_config:
+            # 根据工号从对应厂区的员工表查找
+            for table in ["hr.employees", "hr.employees_new"]:
+                sql = text(
+                    f"SELECT * FROM {table} "
+                    f"WHERE employee_number = :num AND is_deleted = false LIMIT 1"
+                )
+                result = await employee_service.repo.session.execute(sql, {"num": specialist_config.employee_number})
+                row = result.mappings().first()
+                if row:
+                    specialist = Employee(**dict(row))
+                    specialist_table = table
+                    break
+
+        if not specialist:
+            logger.warning("部门 %s（%s厂）未配置培训专员，跳过发送飞书消息", dept, session_obj.factory or "old")
+            select_tasks.append({
+                "department": dept,
+                "token": token,
+                "status": "pending",
+                "employee_names": [],
+                "employee_numbers": [],
+                "specialist_found": False,
+            })
+            continue
+
+        # 解析飞书 open_id
+        open_id = specialist.feishu_open_id
+        if not open_id and specialist.phone:
+            try:
+                im = FeishuIM()
+                mobile = specialist.phone if specialist.phone.startswith("+") else f"+86{specialist.phone}"
+                mapping = await im.batch_get_open_ids_by_mobile([mobile])
+                open_id = mapping.get(mobile) or mapping.get(specialist.phone)
+                if open_id:
+                    update_sql = text(
+                        f"UPDATE {specialist_table} SET feishu_open_id = :oid WHERE employee_number = :eno"
+                    )
+                    await employee_service.repo.session.execute(update_sql, {"oid": open_id, "eno": specialist.employee_number})
+                    await employee_service.repo.session.flush()
+            except Exception:
+                pass
+
+        if open_id:
+            select_url = f"{settings.FRONTEND_URL}/hr/training/select?token={token}&department={quote(dept)}"
+            msg_content = (
+                f"【培训人员选择通知】\n"
+                f"请为 {dept} 的 {session_obj.training_date} {session_obj.subject} 培训选择受训人员。\n"
+                f"点击链接选择：{select_url}\n"
+                f"（链接 24 小时内有效）"
+            )
+            try:
+                im = FeishuIM()
+                await im.send_text_message(open_id, msg_content)
+            except Exception as e:
+                logger.warning("发送飞书消息给 %s 失败: %s", specialist.name, e)
+
+        select_tasks.append({
+            "department": dept,
+            "token": token,
+            "status": "pending",
+            "employee_names": [],
+            "employee_numbers": [],
+            "specialist_found": True,
+            "specialist_name": specialist.name,
+        })
+
+    session_obj.select_tasks = select_tasks
+    session_obj.status = "selecting"
+    await service.repo.update(session_obj)
+
+    return success_response(
+        data={"session_id": str(session_id), "select_tasks": select_tasks},
+        message="选择任务已发送",
+    )
+
+
+@router.get("/training-sessions/{session_id}/select-tasks", summary="获取培训记录的选择任务列表")
+async def get_training_session_select_tasks(
+    session_id: UUID,
+    service: TrainingSessionService = Depends(get_training_session_service),
+):
+    """获取培训记录的多部门选择任务列表。"""
+    session_obj = await service.get_session(session_id)
+    return success_response(data=session_obj.select_tasks or [])
+
+
+# ─── Training Specialists ───
+
+
+def get_specialist_repo(session: AsyncSession = Depends(get_db)) -> TrainingSpecialistRepository:
+    return TrainingSpecialistRepository(session)
+
+
+@router.get("/training-specialists", summary="培训专员列表")
+async def list_training_specialists(
+    repo: TrainingSpecialistRepository = Depends(get_specialist_repo),
+):
+    specialists = await repo.list_all()
+    data = [
+        {
+            "id": str(s.id),
+            "department": s.department,
+            "employee_number": s.employee_number,
+            "employee_name": s.employee_name,
+            "factory": s.factory,
+        }
+        for s in specialists
+    ]
+    return success_response(data=data)
+
+
+@router.post("/training-specialists", summary="新增或更新培训专员")
+async def upsert_training_specialist(
+    payload: TrainingSpecialistCreate,
+    repo: TrainingSpecialistRepository = Depends(get_specialist_repo),
+):
+    s = await repo.upsert(payload.department, payload.employee_number, payload.employee_name, payload.factory)
+    return success_response(
+        data={"id": str(s.id), "department": s.department, "employee_number": s.employee_number, "employee_name": s.employee_name, "factory": s.factory},
+        message="培训专员已保存",
+    )
+
+
+@router.delete("/training-specialists/{specialist_id}", summary="删除培训专员")
+async def delete_training_specialist(
+    specialist_id: UUID,
+    repo: TrainingSpecialistRepository = Depends(get_specialist_repo),
+):
+    await repo.delete(specialist_id)
+    return success_response(message="培训专员已删除")
