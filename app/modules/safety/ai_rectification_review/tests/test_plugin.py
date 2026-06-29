@@ -180,9 +180,9 @@ class TestPrompts:
 
     def test_work_rules_has_five_sections(self):
         assert "### 1. 图片比对规则" in WORK_RULES
-        assert "### 2. 措施质量评估规则" in WORK_RULES
+        assert "### 2. 措施有效性评估规则" in WORK_RULES
         assert "### 3. 整改完整性规则" in WORK_RULES
-        assert "### 4. 标准合规规则" in WORK_RULES
+        assert "### 4. 标准合规评估规则" in WORK_RULES
         assert "### 5. 综合评审判定规则" in WORK_RULES
 
     def test_output_format_has_all_keys(self):
@@ -332,16 +332,16 @@ class TestRuleEngine:
         assert not result.is_valid
         assert any("AI初审结果" in e for e in result.errors)
 
-    def test_no_photos_pass_blocked(self):
-        """无照片 + 通过 → 错误。"""
+    def test_no_photos_pass_allowed_with_warning(self):
+        """无照片 + 通过 → 允许（但产生 warning）。"""
         inp = make_input()
         out = make_output(
             photo_match_level="no_photos",
             review_conclusion="通过",
         )
         result = self.engine.validate(inp, out)
-        assert not result.is_valid
-        assert any("无整改后图片" in e for e in result.errors)
+        assert result.is_valid  # 降级为 warning，不阻断
+        assert any("无整改后图片" in w for w in result.warnings)
 
     def test_inadequate_quality_pass_blocked(self):
         """措施不合格 + 通过 → 错误。"""
@@ -353,6 +353,17 @@ class TestRuleEngine:
         result = self.engine.validate(inp, out)
         assert not result.is_valid
 
+    def test_unmatched_pass_blocked(self):
+        """图片不匹配 + 通过 → 错误（硬性：照片显示隐患仍存在）。"""
+        inp = make_input()
+        out = make_output(
+            photo_match_level="unmatched",
+            review_conclusion="通过",
+        )
+        result = self.engine.validate(inp, out)
+        assert not result.is_valid
+        assert any("unmatched" in e for e in result.errors)
+
     def test_insufficient_completeness_pass_blocked(self):
         """完整性不足 + 通过 → 错误。"""
         inp = make_input()
@@ -363,15 +374,16 @@ class TestRuleEngine:
         result = self.engine.validate(inp, out)
         assert not result.is_valid
 
-    def test_non_compliant_pass_blocked(self):
-        """不合规 + 通过 → 错误。"""
+    def test_non_compliant_pass_allowed_with_warning(self):
+        """不合规 + 通过 → 允许（但产生 warning，标准合规是参考维度）。"""
         inp = make_input()
         out = make_output(
             standard_compliance_level="non_compliant",
             review_conclusion="通过",
         )
         result = self.engine.validate(inp, out)
-        assert not result.is_valid
+        assert result.is_valid  # 降级为 warning，不阻断
+        assert any("non_compliant" in w for w in result.warnings)
 
     def test_banned_phrase_warning(self):
         """泛泛表述检测。"""

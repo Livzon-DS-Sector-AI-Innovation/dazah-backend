@@ -42,11 +42,14 @@ BANNED_PHRASES = [
     "严格执行", "认真对待", "高度重视", "切实落实",
 ]
 
-# 各维度逻辑一致性规则
-# - photo_match_level=no_photos → review_conclusion ≠ 通过
+# 各维度逻辑一致性规则（v2 — 实效导向）
+# 硬性错误:
+# - photo_match_level=unmatched → review_conclusion ≠ 通过
 # - measure_quality=inadequate → review_conclusion ≠ 通过
 # - completeness=insufficient → review_conclusion ≠ 通过
-# - compliance=non_compliant → review_conclusion ≠ 通过
+# 降级为 warning:
+# - photo_match_level=no_photos + 通过 → warning（文字可能具体可信）
+# - compliance=non_compliant + 通过 → warning（标准合规是参考维度）
 
 
 class RuleEngine:
@@ -181,11 +184,14 @@ class RuleEngine:
     ) -> None:
         """检查各维度之间的逻辑一致性。
 
-        核心规则：
-        - no_photos → 不能 通过
-        - inadequate → 不能 通过
-        - insufficient → 不能 通过
-        - non_compliant → 不能 通过
+        核心规则（硬性错误 — 无法消除隐患的情况）：
+        - unmatched → 不能 通过（照片显示隐患仍存在）
+        - inadequate → 不能 通过（无具体操作、逻辑上无法消除隐患）
+        - insufficient → 不能 通过（核心安全缺陷未处理）
+
+        降级为 warning（允许有一定灵活度）：
+        - no_photos + 通过 → warning（无照片但文字描述可能具体可信）
+        - non_compliant + 通过 → warning（标准合规是参考维度，轻微偏差不影响判定）
         """
         conclusion = _enum_value(output.review_conclusion)
         photo = _enum_value(output.photo_match_level)
@@ -194,35 +200,41 @@ class RuleEngine:
         compliance = _enum_value(output.standard_compliance_level)
 
         if conclusion == ReviewConclusion.PASS.value:
-            # 无照片不能通过
-            if photo == PhotoMatchLevel.NO_PHOTOS.value:
+            # 照片显示隐患仍存在 → 硬性不通过
+            if photo == PhotoMatchLevel.UNMATCHED.value:
                 errors.append(
-                    "无整改后图片时评审判定不能为 通过，必须为 不通过"
+                    "图片比对为 unmatched（缺陷仍存在或整改明显不到位）时评审判定不能为 通过"
                 )
 
-            # 措施不合格不能通过
+            # 措施无效（仅有空话）→ 硬性不通过
             if quality == MeasureQualityLevel.INADEQUATE.value:
                 errors.append(
-                    "措施质量不合格时评审判定不能为 通过"
+                    "措施有效性为 inadequate（无具体操作、逻辑上无法消除隐患）时评审判定不能为 通过"
                 )
 
-            # 完整性严重不足不能通过
+            # 核心缺陷未处理 → 硬性不通过
             if completeness == CompletenessLevel.INSUFFICIENT.value:
                 errors.append(
-                    "整改完整性严重不足时评审判定不能为 通过"
+                    "整改完整性为 insufficient（核心安全缺陷未处理）时评审判定不能为 通过"
                 )
 
-            # 不合规不能通过
+            # 无照片但文字描述可能具体可信 → 降级为 warning
+            if photo == PhotoMatchLevel.NO_PHOTOS.value:
+                warnings.append(
+                    "无整改后图片但判定为通过，请确认文字描述足够具体可信以支撑判定"
+                )
+
+            # 标准不合规但其他维度可接受 → 降级为 warning（标准合规是参考维度）
             if compliance == ComplianceLevel.NON_COMPLIANT.value:
-                errors.append(
-                    "标准不合规时评审判定不能为 通过"
+                warnings.append(
+                    "标准合规为 non_compliant 但判定为通过，请确认不合规项不构成安全底线问题"
                 )
 
-        # 如果图片匹配且措施质量良好但结论为不通过，给出 warning
+        # 如果图片匹配且措施有效但结论为不通过，给出 warning
         if photo == PhotoMatchLevel.MATCHED.value and conclusion == ReviewConclusion.FAIL.value:
             if quality == MeasureQualityLevel.ADEQUATE.value:
                 warnings.append(
-                    "图片匹配且措施质量良好但判定为不通过，请确认理由是否充分"
+                    "图片匹配且措施有效但判定为不通过，请确认驳回理由是否充分"
                 )
 
     def _check_relevance(
