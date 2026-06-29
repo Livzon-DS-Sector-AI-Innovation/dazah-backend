@@ -113,14 +113,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     asyncio.create_task(_run_safety_catch_up_diagnostic())
 
-    # ── 安全模块定时任务调度引擎 ──
-    from app.modules.safety.scheduler import (
-        scheduled_task_loop,
-        stop_scheduled_task_flag,
-    )
-
-    scheduler_task = asyncio.create_task(scheduled_task_loop())
-
     # ── 统一调度引擎（平台级，各模块可渐进迁移）──
     from app.platform.scheduler import SchedulerEngine, SchedulerRegistry
 
@@ -153,10 +145,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 停止安全模块 WebSocket
     await stop_ws()
     safety_ws_task.cancel()
-
-    # 停止定时任务调度引擎
-    stop_scheduled_task_flag.set()
-    scheduler_task.cancel()
 
     # ── 停止统一调度引擎 ──
     scheduler_engine.stop()

@@ -6,14 +6,16 @@ Supports backward compatibility with legacy local paths (uploads/safety/...).
 
 import logging
 import os
+import urllib.parse
 from io import BytesIO
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.storage import get_object, is_enabled as minio_enabled
+from app.core.storage import get_object
+from app.core.storage import is_enabled as minio_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,47 @@ def _guess_content_type(file_path: str) -> str:
     return _MIME_TYPES.get(ext, "application/octet-stream")
 
 
+def _resolve_local_path(file_path: str) -> str | None:
+    """Resolve a stored file path to an actual local filesystem path.
+
+    Handles three storage conventions:
+      1. Clean relative paths (new): ``safety/hazard/file.jpg``
+         → ``{cwd}/uploads/safety/hazard/file.jpg``
+      2. Legacy prefix paths (old): ``uploads/safety/hazard/file.jpg``
+         → ``{cwd}/uploads/safety/hazard/file.jpg`` (via stripping prefix
+         and rejoining with uploads base)
+      3. Absolute paths (very old / cross-drive): ``E:/.../uploads/...``
+         → used as-is if the file exists
+    """
+    cwd = os.path.abspath(".")
+    uploads_base = os.path.abspath("./uploads")
+
+    # 1. Try joining with uploads base (handles clean paths + legacy prefix paths)
+    #    If path starts with "uploads/", strip it to avoid double prefix:
+    #      uploads/safety/hazard/f.jpg  →  safety/hazard/f.jpg  →  OK
+    #      safety/hazard/f.jpg          →  safety/hazard/f.jpg  →  OK
+    if file_path.startswith("uploads/"):
+        relative = file_path[len("uploads/"):]
+    elif file_path.startswith("uploads\\"):
+        relative = file_path[len("uploads\\"):]
+    else:
+        relative = file_path
+    candidate = os.path.normpath(os.path.join(uploads_base, relative))
+    if os.path.isfile(candidate):
+        return candidate
+
+    # 2. Try the path directly (handles absolute paths and edge cases)
+    if os.path.isabs(file_path) and os.path.isfile(file_path):
+        return file_path
+
+    # 3. Try relative to cwd directly (for paths already anchored at cwd)
+    candidate = os.path.normpath(os.path.join(cwd, file_path))
+    if os.path.isfile(candidate):
+        return candidate
+
+    return None
+
+
 @files_router.get(
     "/files/{file_path:path}",
     summary="代理文件访问（MinIO / 本地双模式）",
@@ -58,6 +101,10 @@ async def serve_file(
 ):
     """Serve a file from MinIO or local disk. Supports legacy paths."""
 
+    # URL-decode in case the client encoded special characters (e.g. %2F from
+    # encodeURIComponent). In most cases this is a no-op on already-decoded paths.
+    file_path = urllib.parse.unquote(file_path)
+
     content_type = _guess_content_type(file_path)
 
     if minio_enabled():
@@ -69,26 +116,15 @@ async def serve_file(
                 BytesIO(data),
                 media_type=ct or content_type,
             )
-        # ── Fallback: try legacy local path ──
-        uploads_base = os.path.abspath("./uploads")
-        local_path = os.path.normpath(os.path.join(uploads_base, file_path))
-        if os.path.isfile(local_path):
+        # ── Fallback: try local paths (MinIO can be unreachable) ──
+        local_path = _resolve_local_path(file_path)
+        if local_path:
             return FileResponse(local_path, media_type=content_type)
-        # ── Fallback: file_path as absolute path ──
-        if os.path.isabs(file_path) and os.path.isfile(file_path):
-            return FileResponse(file_path, media_type=content_type)
-        # ── Not found ──
         raise HTTPException(status_code=404, detail="File not found")
 
     # ── Local mode ──
-    # Try as relative path first
-    uploads_base = os.path.abspath("./uploads")
-    local_path = os.path.normpath(os.path.join(uploads_base, file_path))
-    if os.path.isfile(local_path):
+    local_path = _resolve_local_path(file_path)
+    if local_path:
         return FileResponse(local_path, media_type=content_type)
-
-    # Try as absolute path (legacy data)
-    if os.path.isabs(file_path) and os.path.isfile(file_path):
-        return FileResponse(file_path, media_type=content_type)
 
     raise HTTPException(status_code=404, detail="File not found")

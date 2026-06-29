@@ -702,6 +702,12 @@ class SafetyService:
                 check_paths.append(p_str.replace("\\", "/"))
             elif "/" in p_str:
                 check_paths.append(p_str.replace("/", "\\"))
+            # Also try with ./uploads/ prefix (for clean paths stored without prefix)
+            uploads_base = os.path.abspath("./uploads")
+            for orig in list(check_paths):
+                candidate = os.path.normpath(os.path.join(uploads_base, orig))
+                if candidate not in check_paths:
+                    check_paths.append(candidate)
             found_path = None
             for cp in check_paths:
                 if cp and os.path.exists(cp):
@@ -2477,45 +2483,12 @@ async def _sync_rectification_status_to_bitable(
 
         已由 HazardIdentificationOrchestrator + 7 个独立 Plugin 替代。
         保留此方法作为 fallback，新代码请使用 Orchestrator。
-
-        优先从数据库 ai_workflow_configs 表读取对应模块的工作流配置，
-        fallback 到 prompts.py 的硬编码 WORKFLOW_STEP_CONFIG。
+        直接使用硬编码 SCRIPT_CONFIG。
         """
-        # 优先从数据库读取工作流配置
-        workflow_config = await self.repo.get_ai_workflow_config_by_module("hazard-identification")
-        if (
-            workflow_config
-            and workflow_config.is_enabled
-            and workflow_config.script_configs
-        ):
-            raw = workflow_config.script_configs
-            if isinstance(raw, list):
-                scripts = raw
-            elif isinstance(raw, dict):
-                scripts = raw.get("scripts", [])
-            else:
-                scripts = []
-            db_script = next(
-                (s for s in scripts if s.get("script_number") == script_number), None
-            )
-            if db_script and db_script.get("is_enabled", True):
-                prompt_template = build_prompt(db_script)
-                expected_keys = db_script.get("expected_keys", [])
-                logger.debug("使用数据库工作流配置: 步骤%d - %s", script_number, db_script.get("name"))
-            else:
-                # DB 中有 workflow 但没有对应步骤 → fallback
-                config = SCRIPT_CONFIG[script_number]
-                prompt_template = build_prompt(config)
-                expected_keys = config["expected_keys"]
-                logger.debug(
-                    "数据库工作流配置中未找到步骤 %d，fallback 到硬编码", script_number
-                )
-        else:
-            # DB 无配置 → fallback 到硬编码
-            config = SCRIPT_CONFIG[script_number]
-            prompt_template = build_prompt(config)
-            expected_keys = config["expected_keys"]
-            logger.debug("无数据库工作流配置，使用硬编码步骤 %d", script_number)
+        config = SCRIPT_CONFIG[script_number]
+        prompt_template = build_prompt(config)
+        expected_keys = config["expected_keys"]
+        logger.debug("使用硬编码工作流配置步骤 %d", script_number)
 
         context_text = self._build_context(script_number, item)
 

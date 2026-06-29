@@ -165,7 +165,9 @@ async def upload_hazard_photo(
         file_path = os.path.join(upload_dir, safe_name)
         with open(file_path, "wb") as f:
             f.write(content)
-        stored_path = file_path
+        # Store path relative to uploads/ to avoid double-prefix when serving
+        # (serve_file joins with ./uploads/ → ./uploads/safety/hazard/file.jpg)
+        stored_path = os.path.join("safety", "hazard", safe_name)
 
     service = SafetyService(db)
     item = await service.upload_hazard_photo(hazard_id, file.filename or "unknown", stored_path)
@@ -202,7 +204,8 @@ async def upload_rectification_photo(
         file_path = os.path.join(upload_dir, safe_name)
         with open(file_path, "wb") as f:
             f.write(content)
-        stored_path = file_path
+        # Store path relative to uploads/ to avoid double-prefix when serving
+        stored_path = os.path.join("safety", "hazard", safe_name)
 
     service = SafetyService(db)
     item = await service.upload_rectification_photo(hazard_id, stored_path)

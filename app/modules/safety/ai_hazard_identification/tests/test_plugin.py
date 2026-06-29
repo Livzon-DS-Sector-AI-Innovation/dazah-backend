@@ -178,6 +178,15 @@ class TestPrompts:
             assert len(rs["corrective"]) > 30
             assert len(rs["preventive"]) > 20
 
+    def test_fewshot_example1_demonstrates_shutdown_priority(self):
+        """示例1（防爆电箱堵头）应演示停产整改优先判定：加装堵头无需断电 → general。"""
+        ex1 = FEWSHOT_EXAMPLES[0]
+        assert ex1["output"]["hazard_level"] == "general", \
+            "示例1应判定为general（加装堵头无需设备断电，可直接在线操作）"
+        assert "无需设备断电" in ex1["output"]["rectification_suggestion"]["corrective"] or \
+               "无需断电" in ex1["output"]["rectification_suggestion"]["corrective"], \
+            "示例1的整改措施应明确标注加装堵头无需断电"
+
     def test_build_context_text(self):
         text = build_context_text(
             hazard_no="HZ-001",
@@ -458,14 +467,14 @@ class TestQualityBenchmarks:
         self.engine = RuleEngine()
 
     def test_example1_electric_box(self):
-        """示例1: 防爆电箱堵头 — 应通过所有规则。"""
+        """示例1: 防爆电箱堵头 — 停产整改判断为最高优先级（无需断电可直接操作）。"""
         output = HazardIdentificationOutput(
             key_defect="现场防爆电箱一处备用引入口未使用防爆堵头封堵，箱体内部积尘严重，存在粉尘进入电箱引发短路或爆炸的风险",
             hazard_type=HazardTypeEnum.UNSAFE_CONDITION,
             hazard_category=HazardCategoryEnum.INSTRUMENT_ELECTRICAL,
-            hazard_level=HazardLevelEnum.MAJOR,
+            hazard_level=HazardLevelEnum.GENERAL,
             rectification_suggestion=RectificationSuggestion(
-                corrective="对该电箱未封堵的引入口加装防爆堵头，使用防爆吸尘器清理箱内积尘（禁止使用压缩空气吹扫）；由电气工程师对责任区域内所有防爆电箱逐一排查，确保所有备用引入口封堵完好，3个工作日内完成",
+                corrective="对该电箱未封堵的引入口加装防爆堵头（安装堵头无需设备断电，可直接在线操作），使用防爆吸尘器清理箱内积尘，3个工作日内完成",
                 preventive="修订防爆电气设备巡检制度，将引入口封堵状态纳入每周例行检查项，建立防爆设备全生命周期台账",
             ),
             major_hazard_basis="《化工和危险化学品生产经营单位重大生产安全事故隐患判定标准》第十条：爆炸危险场所未按国家标准安装使用防爆电气设备；GB 3836.1-2010 第15章：电气设备引入装置的密封要求",

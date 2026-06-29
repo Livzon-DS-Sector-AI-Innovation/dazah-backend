@@ -7,6 +7,7 @@
 import asyncio
 import json
 import logging
+import os
 import ssl
 import time
 from typing import Any
@@ -27,9 +28,6 @@ logger = logging.getLogger(__name__)
 _handlers: dict[str, list] = {}
 _stop: asyncio.Event | None = None
 _ws_task: asyncio.Task | None = None
-
-# 长连接重试上限
-_MAX_RECONNECT_ATTEMPTS = 3
 
 # 飞书 endpoint
 FEISHU_DOMAIN = "https://open.feishu.cn"
@@ -403,11 +401,21 @@ async def _handle_binary_message(ws, message: bytes) -> None:
 async def start_ws() -> None:
     """启动安全模块飞书 WebSocket 连接。
 
-    3 次连接失败后自动退出。可通过 POST /api/v1/safety/feishu/ws/restart 手动恢复。
+    无限重连直到 stop_ws() 被调用。安全模块特有功能：
+    - Bitable 文档事件订阅
+    - 断线补偿拉取（事件游标 + Bitable 增量查询）
+    - card.action.trigger 同步卡片更新
+    设置 SAFETY_FEISHU_WS_ENABLED=false 可禁用事件订阅。
     """
     global _stop, _ws_task
     _stop = asyncio.Event()
     _ws_task = asyncio.current_task()
+
+    # 开关检查（与设备模块 EQUIPMENT_FEISHU_WS_ENABLED 模式一致）
+    ws_enabled = os.getenv("SAFETY_FEISHU_WS_ENABLED", "true").lower() not in ("false", "0", "no")
+    if not ws_enabled:
+        logger.info("安全飞书 WS 已禁用 (SAFETY_FEISHU_WS_ENABLED=false)，跳过事件订阅")
+        return
 
     if not SAFETY_FEISHU_APP_ID or not SAFETY_FEISHU_APP_SECRET:
         logger.warning(
@@ -415,22 +423,14 @@ async def start_ws() -> None:
         )
         return
 
-    logger.info(
-        "启动安全模块飞书事件订阅 (app_id=%s, 最大重试=%d)",
-        SAFETY_FEISHU_APP_ID, _MAX_RECONNECT_ATTEMPTS,
-    )
+    logger.info("启动安全模块飞书事件订阅 (app_id=%s)", SAFETY_FEISHU_APP_ID)
 
-    attempt = 0
-    while not _stop.is_set() and attempt < _MAX_RECONNECT_ATTEMPTS:
+    while not _stop.is_set():
         try:
             # 1. 获取 WebSocket URL + service_id
             ws_url, service_id = await _get_ws_url_and_config()
             if not ws_url:
-                attempt += 1
-                logger.error(
-                    "安全飞书无法获取 WebSocket URL，%d/%d 次重试",
-                    attempt, _MAX_RECONNECT_ATTEMPTS,
-                )
+                logger.error("安全飞书无法获取 WebSocket URL，10 秒后重试")
                 await asyncio.sleep(10)
                 continue
 
@@ -445,7 +445,6 @@ async def start_ws() -> None:
                 close_timeout=5,
             ) as ws:
                 logger.info("安全飞书 WebSocket 已连接 (service_id=%s)", service_id)
-                attempt = 0  # 连接成功，重置失败计数
 
                 # 3. 订阅 Bitable 文档事件（持久订阅，每次启动重试无害）
                 from app.modules.safety.feishu.bitable_handler import (
@@ -494,32 +493,18 @@ async def start_ws() -> None:
         except asyncio.CancelledError:
             break
         except websockets.exceptions.ConnectionClosed as e:
-            attempt += 1
-            logger.warning(
-                "安全飞书 WebSocket 连接关闭: %s，%d/%d 次重试",
-                e, attempt, _MAX_RECONNECT_ATTEMPTS,
-            )
+            logger.warning("安全飞书 WebSocket 连接关闭: %s，5 秒后重连", e)
+            await asyncio.sleep(5)
         except Exception:
-            attempt += 1
-            logger.exception(
-                "安全飞书 WebSocket 异常，%d/%d 次重试",
-                attempt, _MAX_RECONNECT_ATTEMPTS,
-            )
+            logger.exception("安全飞书 WebSocket 异常，10 秒后重连")
+            await asyncio.sleep(10)
 
-        if attempt < _MAX_RECONNECT_ATTEMPTS:
-            try:
-                await asyncio.wait_for(_stop.wait(), timeout=10)
-            except TimeoutError:
-                pass
+        try:
+            await asyncio.wait_for(_stop.wait(), timeout=5)
+        except TimeoutError:
+            pass
 
-    if attempt >= _MAX_RECONNECT_ATTEMPTS:
-        logger.error(
-            "安全飞书 WebSocket 重试次数已达上限 (%d/%d)，已停止。"
-            "可通过 POST /api/v1/safety/feishu/ws/restart 手动恢复",
-            attempt, _MAX_RECONNECT_ATTEMPTS,
-        )
-    else:
-        logger.info("安全飞书 WebSocket 客户端已停止")
+    logger.info("安全飞书 WebSocket 客户端已停止")
 
 
 async def _dispatch_event(event: dict[str, Any]) -> Any:
@@ -588,6 +573,5 @@ async def get_ws_status() -> dict:
     return {
         "connected": task_alive,
         "registered_events": list(_handlers.keys()),
-        "max_reconnect_attempts": _MAX_RECONNECT_ATTEMPTS,
         "frame_stats": _get_frame_stats(),
     }
