@@ -410,15 +410,12 @@ async def export_onboarding_evaluation_by_employee(
 
     try:
         buffer: BytesIO = generate_onboarding_evaluation(employee, factory)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         import traceback
         detail = traceback.format_exc()
         raise HTTPException(status_code=500, detail=f"生成文档失败: {str(e)}\n{detail}")
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    with open('d:/LivzonAI/api_success.log', 'w', encoding='utf-8') as f:
-        f.write(f"Buffer type: {type(buffer)}, size: {len(buffer.getvalue()) if buffer else 'None'}")
 
     def _iterfile():
         buffer.seek(0)
