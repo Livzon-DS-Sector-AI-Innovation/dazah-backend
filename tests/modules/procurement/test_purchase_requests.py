@@ -1,8 +1,10 @@
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
+from openpyxl import load_workbook
 
 from app.modules.procurement import service as procurement_service
 from app.modules.procurement.schemas import (
@@ -115,6 +117,40 @@ class FakePurchaseRequestRepository:
             ]
         return records[(page - 1) * page_size : page * page_size], len(records)
 
+    async def list_purchase_order_lines(
+        self,
+        *,
+        start_date,
+        end_date,
+        status,
+        category=None,
+        page=None,
+        page_size=None,
+    ):
+        rows = []
+        for request_id, request in self.requests.items():
+            if request.status != status:
+                continue
+            if not start_date <= request.request_date < end_date:
+                continue
+            if category and request.category != category:
+                continue
+            for item in self.items.get(request_id, []):
+                rows.append((request, item))
+
+        rows.sort(
+            key=lambda row: (
+                row[0].request_date,
+                row[0].category,
+                row[0].request_department,
+                row[1].sequence,
+            )
+        )
+        total = len(rows)
+        if page is not None and page_size is not None:
+            rows = rows[(page - 1) * page_size : page * page_size]
+        return rows, total
+
     async def replace_items(self, request_id, items):
         for item in items:
             item.id = uuid.uuid4()
@@ -161,6 +197,45 @@ def _create_payload() -> PurchaseRequestCreate:
                 remarks="申购人：郭娇",
             )
         ],
+    )
+
+
+def _create_payload_for(
+    *,
+    category: PurchaseRequestCategory = PurchaseRequestCategory.hardware,
+    request_department: str = "102一车间",
+    request_date: date = date(2026, 6, 28),
+    product_name: str = "碳鼓",
+) -> PurchaseRequestCreate:
+    payload = _create_payload()
+    payload.category = category
+    payload.request_department = request_department
+    payload.request_date = request_date
+    payload.items[0].product_name = product_name
+    return payload
+
+
+async def _approve_request(request_id: uuid.UUID) -> None:
+    await procurement_service.submit_purchase_request(FakeDb(), request_id)
+    await procurement_service.approve_purchase_request(
+        FakeDb(),
+        request_id,
+        PurchaseApprovalRequest(
+            approval_role=PurchaseApprovalRole.department_head,
+            approver_name="部门负责人",
+            opinion="同意",
+            result=PurchaseApprovalResult.approved,
+        ),
+    )
+    await procurement_service.approve_purchase_request(
+        FakeDb(),
+        request_id,
+        PurchaseApprovalRequest(
+            approval_role=PurchaseApprovalRole.responsible_leader,
+            approver_name="分管领导",
+            opinion="同意",
+            result=PurchaseApprovalResult.approved,
+        ),
     )
 
 
@@ -324,3 +399,148 @@ async def test_purchase_request_role_rejected_view() -> None:
     assert department_rejected[0].status == PurchaseRequestStatus.rejected
     assert leader_rejected_total == 0
     assert leader_rejected == []
+
+
+@pytest.mark.anyio
+async def test_purchase_order_lines_include_only_approved_requests_in_month() -> None:
+    approved = await procurement_service.create_purchase_request(
+        FakeDb(),
+        _create_payload_for(product_name="当月已通过"),
+    )
+    await _approve_request(approved.id)
+
+    draft = await procurement_service.create_purchase_request(
+        FakeDb(),
+        _create_payload_for(product_name="当月草稿"),
+    )
+    before_month = await procurement_service.create_purchase_request(
+        FakeDb(),
+        _create_payload_for(request_date=date(2026, 5, 31), product_name="上月"),
+    )
+    after_month = await procurement_service.create_purchase_request(
+        FakeDb(),
+        _create_payload_for(request_date=date(2026, 7, 1), product_name="下月"),
+    )
+    await _approve_request(before_month.id)
+    await _approve_request(after_month.id)
+
+    lines, total = await procurement_service.list_purchase_order_lines(
+        FakeDb(),
+        year=2026,
+        month=6,
+    )
+
+    assert total == 1
+    assert lines[0].request_id == approved.id
+    assert lines[0].product_name == "当月已通过"
+    assert draft.id not in {line.request_id for line in lines}
+
+
+@pytest.mark.anyio
+async def test_purchase_order_lines_filter_category_and_paginate() -> None:
+    hardware = await procurement_service.create_purchase_request(
+        FakeDb(),
+        _create_payload_for(
+            category=PurchaseRequestCategory.hardware,
+            product_name="五金材料",
+        ),
+    )
+    office = await procurement_service.create_purchase_request(
+        FakeDb(),
+        _create_payload_for(
+            category=PurchaseRequestCategory.office,
+            product_name="办公用品",
+        ),
+    )
+    await _approve_request(hardware.id)
+    await _approve_request(office.id)
+
+    all_lines, all_total = await procurement_service.list_purchase_order_lines(
+        FakeDb(),
+        year=2026,
+        month=6,
+        page=1,
+        page_size=1,
+    )
+    office_lines, office_total = await procurement_service.list_purchase_order_lines(
+        FakeDb(),
+        category=PurchaseRequestCategory.office.value,
+        year=2026,
+        month=6,
+    )
+
+    assert all_total == 2
+    assert len(all_lines) == 1
+    assert office_total == 1
+    assert office_lines[0].category == PurchaseRequestCategory.office
+    assert office_lines[0].category_label == "办公用品"
+
+
+@pytest.mark.anyio
+async def test_purchase_order_xlsx_export_uses_reference_layout() -> None:
+    created = await procurement_service.create_purchase_request(
+        FakeDb(),
+        _create_payload_for(
+            category=PurchaseRequestCategory.hardware,
+            request_department="102一车间",
+            product_name="碳鼓",
+        ),
+    )
+    other_department = await procurement_service.create_purchase_request(
+        FakeDb(),
+        _create_payload_for(
+            category=PurchaseRequestCategory.hardware,
+            request_department="103车间",
+            product_name="粉盒",
+        ),
+    )
+    await _approve_request(created.id)
+    await _approve_request(other_department.id)
+
+    xlsx_bytes = await procurement_service.export_purchase_order_lines_xlsx(
+        FakeDb(),
+        category=PurchaseRequestCategory.hardware.value,
+        year=2026,
+        month=6,
+    )
+
+    workbook = load_workbook(BytesIO(xlsx_bytes), data_only=False)
+    worksheet = workbook.active
+    merged_ranges = {str(cell_range) for cell_range in worksheet.merged_cells.ranges}
+
+    assert worksheet.title == "Sheet1"
+    assert "A2:K2" in merged_ranges
+    assert "A3:K3" in merged_ranges
+    assert worksheet["A2"].value == "丽珠集团（宁夏）制药有限公司"
+    assert worksheet["A3"].value == "2026年06月份五金材料申购单汇总"
+    assert worksheet["A4"].value == "申购部门：102一车间"
+    assert [worksheet.cell(5, column).value for column in range(1, 12)] == (
+        procurement_service.PURCHASE_ORDER_EXPORT_HEADERS
+    )
+    assert [worksheet.cell(6, column).value for column in range(1, 12)] == [
+        1,
+        "碳鼓",
+        "M1005",
+        "更换打印机碳鼓",
+        None,
+        "惠普",
+        2,
+        "个",
+        60.005,
+        120.01,
+        "申购人：郭娇",
+    ]
+    assert worksheet["A7"].value == "合计"
+    assert worksheet["J7"].value == "=SUM(J6:J6)"
+    assert worksheet["A8"].value == "申购部门：103车间"
+    assert worksheet["A12"].value == "总计"
+    assert worksheet["J12"].value == "=SUM(J7,J11)"
+    assert worksheet["A13"].value.startswith(" 总经理：")
+    assert "A13:K13" in merged_ranges
+    assert worksheet.column_dimensions["A"].width == 18
+    assert worksheet.column_dimensions["B"].width == 19.33
+    assert worksheet["A4"].fill.fgColor.rgb == "00D9E1F4"
+    assert worksheet["A4"].alignment.wrap_text is not True
+    assert worksheet["A5"].border.left.style == "thin"
+    assert worksheet["K6"].alignment.wrap_text is True
+    assert worksheet.page_setup.orientation == "landscape"

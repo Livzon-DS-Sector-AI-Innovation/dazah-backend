@@ -210,6 +210,33 @@ class PurchaseRequestListResponse(BaseModel):
     meta: dict[str, Any] | None = None
 
 
+class PurchaseOrderLineResponse(BaseModel):
+    request_id: UUID = Field(..., description="采购申请 ID")
+    category: PurchaseRequestCategory = Field(..., description="采购分类")
+    category_label: str = Field(..., description="采购分类名称")
+    request_department: str = Field(..., description="申购部门")
+    request_date: date = Field(..., description="申请日期")
+    item_id: UUID = Field(..., description="申请明细 ID")
+    item_sequence: int = Field(..., description="明细序号")
+    product_name: str = Field(..., description="商品名称")
+    specification: str = Field("", description="规格")
+    purpose: str = Field("", description="用途")
+    material: str = Field("", description="材质")
+    brand: str = Field("", description="品牌")
+    quantity: Decimal = Field(..., description="数量")
+    unit: str = Field("", description="单位")
+    unit_price: Decimal = Field(..., description="单价（元）")
+    total_amount: Decimal = Field(..., description="金额（元）")
+    remarks: str = Field("", description="备注")
+
+
+class PurchaseOrderListResponse(BaseModel):
+    code: int = Field(200, description="响应状态码")
+    message: str = Field("success", description="响应消息")
+    data: list[PurchaseOrderLineResponse]
+    meta: dict[str, Any] | None = None
+
+
 class ContractCategory(StrEnum):
     fixed_assets = "fixed-assets"
     consumables = "consumables"

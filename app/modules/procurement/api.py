@@ -1,7 +1,7 @@
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import Depends, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from app.modules.procurement.schemas import (
     PurchaseApprovalRequest,
     PurchaseApprovalRole,
     PurchaseApprovalView,
+    PurchaseOrderListResponse,
     PurchaseRequestApiResponse,
     PurchaseRequestCategory,
     PurchaseRequestCreate,
@@ -33,13 +34,16 @@ from app.modules.procurement.schemas import (
     PurchaseRequestUpdate,
 )
 from app.modules.procurement.service import (
+    PURCHASE_CATEGORY_LABELS,
     DuplicateInvoiceError,
     approve_purchase_request,
     batch_delete_invoice_recognition_records,
     create_purchase_request,
     delete_invoice_recognition_record,
+    export_purchase_order_lines_xlsx,
     get_purchase_request,
     list_invoice_recognition_records,
+    list_purchase_order_lines,
     list_purchase_requests,
     recognize_and_store_invoice_pdf,
     reject_purchase_request,
@@ -187,6 +191,67 @@ async def batch_delete_invoice_records(
             fail_count=max(0, len(payload.ids) - deleted_count),
         ).model_dump(mode="json"),
         message="识别记录删除成功",
+    )
+
+
+@router.get(
+    "/purchase-orders",
+    summary="查询采购订单月度汇总",
+    description="按采购分类、年份和月份汇总整月已审批通过的采购申请明细。",
+    response_model=PurchaseOrderListResponse,
+)
+async def list_purchase_order_records(
+    category: PurchaseRequestCategory | None = Query(None, description="采购分类"),
+    year: int = Query(..., ge=2000, le=2100, description="年份"),
+    month: int = Query(..., ge=1, le=12, description="月份"),
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=100, description="每页条数"),
+    db: AsyncSession = Depends(get_db),
+):
+    lines, total = await list_purchase_order_lines(
+        db,
+        category=category.value if category else None,
+        year=year,
+        month=month,
+        page=page,
+        page_size=page_size,
+    )
+    data = [line.model_dump(mode="json") for line in lines]
+    return paginated_response(data, page, page_size, total)
+
+
+@router.get(
+    "/purchase-orders/export",
+    summary="导出采购订单月度汇总 Excel",
+    description="按采购分类、年份和月份导出整月已审批通过的采购申请明细 Excel。",
+)
+async def export_purchase_order_records(
+    category: PurchaseRequestCategory | None = Query(None, description="采购分类"),
+    year: int = Query(..., ge=2000, le=2100, description="年份"),
+    month: int = Query(..., ge=1, le=12, description="月份"),
+    db: AsyncSession = Depends(get_db),
+):
+    xlsx_bytes = await export_purchase_order_lines_xlsx(
+        db,
+        category=category.value if category else None,
+        year=year,
+        month=month,
+    )
+    category_label = (
+        PURCHASE_CATEGORY_LABELS.get(category.value, category.value)
+        if category
+        else "全部类别"
+    )
+    filename = f"采购订单_{category_label}_{year}-{month:02d}.xlsx"
+    encoded_filename = quote(filename, safe="")
+    return Response(
+        content=xlsx_bytes,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"
+        },
     )
 
 
