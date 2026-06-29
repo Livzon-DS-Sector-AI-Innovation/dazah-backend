@@ -1,5 +1,6 @@
 """Procurement database queries live here."""
 
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import String, cast, func, or_, select, update
@@ -212,6 +213,57 @@ class PurchaseRequestRepository:
             .limit(page_size)
         )
         return list(result.scalars().all()), total
+
+    async def list_purchase_order_lines(
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        status: str,
+        category: str | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> tuple[list[tuple[PurchaseRequest, PurchaseRequestItem]], int]:
+        request_item_match = (
+            PurchaseRequestItem.purchase_request_id == cast(PurchaseRequest.id, String)
+        )
+        filters = [
+            PurchaseRequest.is_deleted.is_(False),
+            PurchaseRequestItem.is_deleted.is_(False),
+            PurchaseRequest.status == status,
+            PurchaseRequest.request_date >= start_date,
+            PurchaseRequest.request_date < end_date,
+        ]
+        if category:
+            filters.append(PurchaseRequest.category == category)
+
+        base_query = (
+            select(PurchaseRequest, PurchaseRequestItem)
+            .select_from(PurchaseRequest)
+            .join(PurchaseRequestItem, request_item_match)
+            .where(*filters)
+        )
+        count_query = (
+            select(func.count(PurchaseRequestItem.id))
+            .select_from(PurchaseRequest)
+            .join(PurchaseRequestItem, request_item_match)
+            .where(*filters)
+        )
+
+        total_result = await self.session.execute(count_query)
+        total = total_result.scalar() or 0
+
+        base_query = base_query.order_by(
+            PurchaseRequest.request_date.asc(),
+            PurchaseRequest.category.asc(),
+            PurchaseRequest.request_department.asc(),
+            PurchaseRequestItem.sequence.asc(),
+        )
+        if page is not None and page_size is not None:
+            base_query = base_query.offset((page - 1) * page_size).limit(page_size)
+
+        result = await self.session.execute(base_query)
+        return [(row[0], row[1]) for row in result.all()], total
 
     async def list_requests_by_approval(
         self,

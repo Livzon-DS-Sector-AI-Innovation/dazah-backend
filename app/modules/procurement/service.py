@@ -1,12 +1,16 @@
 """Procurement business workflows live here."""
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from hashlib import sha256
 from io import BytesIO
 from uuid import UUID
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.worksheet.page import PageMargins
+from openpyxl.worksheet.properties import PageSetupProperties
 from pypdf import PdfReader
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +31,7 @@ from app.modules.procurement.schemas import (
     PurchaseApprovalResult,
     PurchaseApprovalRole,
     PurchaseApprovalView,
+    PurchaseOrderLineResponse,
     PurchaseRequestCreate,
     PurchaseRequestResponse,
     PurchaseRequestStatus,
@@ -42,6 +47,44 @@ APPROVAL_ROLE_TO_PENDING_STATUS = {
     PurchaseApprovalRole.responsible_leader: (
         PurchaseRequestStatus.pending_responsible_leader
     ),
+}
+
+PURCHASE_CATEGORY_LABELS = {
+    "hardware": "五金材料",
+    "computer": "电脑材料",
+    "office": "办公用品",
+    "raw-auxiliary": "原辅料",
+    "chemical-glass": "化玻",
+    "electrical": "电器",
+    "labor-protection": "劳保",
+}
+
+PURCHASE_ORDER_EXPORT_HEADERS = [
+    "序号",
+    "商品名称",
+    "规格型号",
+    "用途",
+    "材质",
+    "品牌",
+    "数量",
+    "单位",
+    "单价（元）",
+    "总额（元）",
+    "备注",
+]
+
+PURCHASE_ORDER_EXPORT_COLUMN_WIDTHS = {
+    "A": 18,
+    "B": 19.33,
+    "C": 13.08,
+    "D": 17.83,
+    "E": 5.5,
+    "F": 9.5,
+    "G": 5.5,
+    "H": 10.25,
+    "I": 13,
+    "J": 11.58,
+    "K": 29.75,
 }
 
 
@@ -244,6 +287,57 @@ async def list_purchase_requests(
     return responses, total
 
 
+async def list_purchase_order_lines(
+    db: AsyncSession,
+    *,
+    category: str | None = None,
+    year: int,
+    month: int,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[PurchaseOrderLineResponse], int]:
+    repository = PurchaseRequestRepository(db)
+    start_date, end_date = _month_date_range(year, month)
+    rows, total = await repository.list_purchase_order_lines(
+        start_date=start_date,
+        end_date=end_date,
+        status=PurchaseRequestStatus.approved.value,
+        category=category,
+        page=page,
+        page_size=page_size,
+    )
+    return [_build_purchase_order_line(request, item) for request, item in rows], total
+
+
+async def export_purchase_order_lines_xlsx(
+    db: AsyncSession,
+    *,
+    category: str | None = None,
+    year: int,
+    month: int,
+) -> bytes:
+    repository = PurchaseRequestRepository(db)
+    start_date, end_date = _month_date_range(year, month)
+    rows, _ = await repository.list_purchase_order_lines(
+        start_date=start_date,
+        end_date=end_date,
+        status=PurchaseRequestStatus.approved.value,
+        category=category,
+    )
+    lines = [_build_purchase_order_line(request, item) for request, item in rows]
+    category_label = PURCHASE_CATEGORY_LABELS.get(category or "", "全部类别")
+    workbook = _build_purchase_order_workbook(
+        lines,
+        year=year,
+        month=month,
+        category_label=category_label,
+    )
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+
 async def submit_purchase_request(
     db: AsyncSession,
     request_id: UUID,
@@ -358,6 +452,274 @@ def _build_purchase_request_items(
 
 def _calculate_line_amount(quantity: Decimal, unit_price: Decimal) -> Decimal:
     return (quantity * unit_price).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _month_date_range(year: int, month: int) -> tuple[date, date]:
+    start_date = date(year, month, 1)
+    if month == 12:
+        return start_date, date(year + 1, 1, 1)
+    return start_date, date(year, month + 1, 1)
+
+
+def _build_purchase_order_line(
+    request: PurchaseRequest,
+    item: PurchaseRequestItem,
+) -> PurchaseOrderLineResponse:
+    category_label = PURCHASE_CATEGORY_LABELS.get(request.category, request.category)
+    return PurchaseOrderLineResponse.model_validate(
+        {
+            "request_id": request.id,
+            "category": request.category,
+            "category_label": category_label,
+            "request_department": request.request_department,
+            "request_date": request.request_date,
+            "item_id": item.id,
+            "item_sequence": item.sequence,
+            "product_name": item.product_name,
+            "specification": item.specification,
+            "purpose": item.purpose,
+            "material": item.material,
+            "brand": item.brand,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "unit_price": item.unit_price,
+            "total_amount": item.total_amount,
+            "remarks": item.remarks,
+        }
+    )
+
+
+def _build_purchase_order_workbook(
+    lines: list[PurchaseOrderLineResponse],
+    *,
+    year: int,
+    month: int,
+    category_label: str,
+) -> Workbook:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Sheet1"
+    _apply_purchase_order_sheet_setup(worksheet)
+
+    worksheet.row_dimensions[1].height = 9
+    _write_merged_title(
+        worksheet,
+        2,
+        "丽珠集团（宁夏）制药有限公司",
+    )
+    _write_merged_title(
+        worksheet,
+        3,
+        f"{year}年{month:02d}月份{category_label}申购单汇总",
+    )
+
+    row_index = 4
+    total_rows: list[int] = []
+    for department, department_lines in _group_purchase_order_lines_by_department(
+        lines
+    ):
+        _write_department_row(worksheet, row_index, department)
+        row_index += 1
+        _write_purchase_order_header_row(worksheet, row_index)
+        row_index += 1
+
+        first_detail_row = row_index
+        for index, line in enumerate(department_lines, start=1):
+            _write_purchase_order_detail_row(worksheet, row_index, index, line)
+            row_index += 1
+
+        total_row = row_index
+        total_rows.append(total_row)
+        _write_purchase_order_total_row(
+            worksheet,
+            total_row,
+            "合计",
+            f"=SUM(J{first_detail_row}:J{row_index - 1})",
+        )
+        row_index += 1
+
+    total_formula = (
+        f"=SUM({','.join(f'J{row}' for row in total_rows)})"
+        if total_rows
+        else "0"
+    )
+    _write_purchase_order_total_row(worksheet, row_index, "总计", total_formula)
+    row_index += 1
+    _write_signature_row(worksheet, row_index)
+    worksheet.print_area = f"A1:K{row_index}"
+    return workbook
+
+
+def _build_purchase_order_row_values(
+    index: int,
+    line: PurchaseOrderLineResponse,
+) -> list[str | int | Decimal]:
+    return [
+        index,
+        line.product_name,
+        line.specification,
+        line.purpose,
+        line.material,
+        line.brand,
+        line.quantity,
+        line.unit,
+        line.unit_price,
+        line.total_amount,
+        line.remarks,
+    ]
+
+
+def _group_purchase_order_lines_by_department(
+    lines: list[PurchaseOrderLineResponse],
+) -> list[tuple[str, list[PurchaseOrderLineResponse]]]:
+    groups: dict[str, list[PurchaseOrderLineResponse]] = {}
+    for line in sorted(
+        lines,
+        key=lambda item: (
+            item.request_department,
+            item.request_date,
+            item.category,
+            str(item.request_id),
+            item.item_sequence,
+        ),
+    ):
+        groups.setdefault(line.request_department, []).append(line)
+    return list(groups.items())
+
+
+def _apply_purchase_order_sheet_setup(worksheet) -> None:
+    for column_letter, width in PURCHASE_ORDER_EXPORT_COLUMN_WIDTHS.items():
+        worksheet.column_dimensions[column_letter].width = width
+    worksheet.page_setup.orientation = "landscape"
+    worksheet.page_setup.paperSize = worksheet.PAPERSIZE_A4
+    worksheet.page_setup.fitToWidth = 1
+    worksheet.page_setup.fitToHeight = 0
+    worksheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    worksheet.page_margins = PageMargins(
+        left=0.25,
+        right=0.25,
+        top=0.75,
+        bottom=0.75,
+        header=0.3,
+        footer=0.3,
+    )
+
+
+def _write_merged_title(worksheet, row_index: int, value: str) -> None:
+    worksheet.merge_cells(
+        start_row=row_index,
+        start_column=1,
+        end_row=row_index,
+        end_column=11,
+    )
+    worksheet.row_dimensions[row_index].height = 27
+    cell = worksheet.cell(row_index, 1, value)
+    cell.font = Font(name="宋体", size=12, bold=True)
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+
+
+def _write_department_row(worksheet, row_index: int, department: str) -> None:
+    worksheet.row_dimensions[row_index].height = 32.15
+    worksheet.cell(row_index, 1, f"申购部门：{department}")
+    fill = PatternFill("solid", fgColor="D9E1F4")
+    border = _purchase_order_border(top=True, bottom=True)
+    for cell in worksheet[row_index][0:11]:
+        cell.font = Font(name="宋体", size=12, bold=True)
+        cell.alignment = Alignment(
+            horizontal="left",
+            vertical="center",
+            wrap_text=False,
+        )
+        cell.fill = fill
+        cell.border = border
+
+
+def _write_purchase_order_header_row(worksheet, row_index: int) -> None:
+    worksheet.row_dimensions[row_index].height = 32.15
+    for column_index, header in enumerate(PURCHASE_ORDER_EXPORT_HEADERS, start=1):
+        cell = worksheet.cell(row_index, column_index, header)
+        cell.font = Font(name="宋体", size=12, bold=True)
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
+        )
+        cell.border = _purchase_order_border()
+
+
+def _write_purchase_order_detail_row(
+    worksheet,
+    row_index: int,
+    index: int,
+    line: PurchaseOrderLineResponse,
+) -> None:
+    worksheet.row_dimensions[row_index].height = 32.15
+    for column_index, value in enumerate(
+        _build_purchase_order_row_values(index, line),
+        start=1,
+    ):
+        cell = worksheet.cell(row_index, column_index, value)
+        cell.font = Font(name="宋体", size=12)
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
+        )
+        cell.border = _purchase_order_border()
+    for column_index in (2, 3, 4, 5, 6, 11):
+        worksheet.cell(row_index, column_index).alignment = Alignment(
+            horizontal="left",
+            vertical="center",
+            wrap_text=True,
+        )
+    worksheet.cell(row_index, 9).number_format = "0.00"
+    worksheet.cell(row_index, 10).number_format = "0.00"
+
+
+def _write_purchase_order_total_row(
+    worksheet,
+    row_index: int,
+    label: str,
+    total_formula: str,
+) -> None:
+    worksheet.row_dimensions[row_index].height = 32.15
+    worksheet.cell(row_index, 1, label)
+    worksheet.cell(row_index, 10, total_formula)
+    for cell in worksheet[row_index][0:11]:
+        cell.font = Font(name="宋体", size=12, bold=(label == "合计"))
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = _purchase_order_border(top=True, bottom=True)
+    worksheet.cell(row_index, 10).font = Font(name="宋体", size=12, bold=True)
+    worksheet.cell(row_index, 10).number_format = "0.00"
+
+
+def _write_signature_row(worksheet, row_index: int) -> None:
+    worksheet.merge_cells(
+        start_row=row_index,
+        start_column=1,
+        end_row=row_index,
+        end_column=11,
+    )
+    worksheet.row_dimensions[row_index].height = 32.15
+    cell = worksheet.cell(
+        row_index,
+        1,
+        " 总经理：                       财务总监："
+        "                          部门负责人："
+        "                       统计人：",
+    )
+    cell.font = Font(name="宋体", size=12)
+    cell.alignment = Alignment(horizontal="left", vertical="center")
+
+
+def _purchase_order_border(*, top: bool = True, bottom: bool = True) -> Border:
+    side = Side(style="thin", color="000000")
+    return Border(
+        left=side,
+        right=side,
+        top=side if top else Side(style=None),
+        bottom=side if bottom else Side(style=None),
+    )
 
 
 async def _get_purchase_request_response(
