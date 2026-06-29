@@ -8,7 +8,11 @@ Usage (CI): uv run python scripts/ci_create_tables.py
 """
 
 import asyncio
+import os
+import sys
 from importlib import import_module
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from sqlalchemy import text
 
