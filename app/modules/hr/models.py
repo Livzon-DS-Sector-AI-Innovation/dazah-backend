@@ -80,6 +80,9 @@ class Employee(BaseModel):
         String(32), nullable=True, comment="职类"
     )
     level: Mapped[str | None] = mapped_column(String(32), nullable=True, comment="级别")
+    concurrent_departments: Mapped[str | None] = mapped_column(
+        String(256), nullable=True, comment="兼任部门"
+    )
 
     # ─── Qualifications ───
     qualifications: Mapped[list[str] | None] = mapped_column(
@@ -244,6 +247,11 @@ class Employee(BaseModel):
         default="待审批",
         server_default="待审批",
         comment="状态: 在职, 离职, 试用期, 待审批",
+    )
+
+    # ─── Sort order ───
+    sort_order: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Excel行序号"
     )
 
     # ─── Feishu sync metadata ───
@@ -699,3 +707,41 @@ class AnnualTrainingPlanItem(BaseModel):
     plan: Mapped["AnnualTrainingPlan"] = relationship(
         "AnnualTrainingPlan", back_populates="items", lazy="select"
     )
+
+
+# ─── Trainer ───
+
+class HrTrainer(BaseModel):
+    __tablename__ = "trainers"
+    __table_args__ = (
+        Index("ix_trainers_department", "department"),
+        Index("ix_trainers_name", "name"),
+        {"schema": "hr"},
+    )
+
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    department: Mapped[str | None] = mapped_column(String(64))
+    trainable_departments: Mapped[str | None] = mapped_column(Text, comment="可培训部门")
+    qualification_scope: Mapped[str | None] = mapped_column(Text, comment="资格范围")
+    certification_date: Mapped[date | None] = mapped_column(Date)
+    confirmation_date: Mapped[date | None] = mapped_column(Date)
+    confirmation_reminder: Mapped[date | None] = mapped_column(Date)
+    remarks: Mapped[str | None] = mapped_column(Text)
+    is_primary_trainer: Mapped[bool] = mapped_column(default=False, server_default="false")
+    admin: Mapped[str | None] = mapped_column(String(64))
+
+
+# ─── SOP Catalog ───
+
+class SopCatalog(BaseModel):
+    __tablename__ = "sop_catalog"
+    __table_args__ = (
+        Index("ix_sop_catalog_department", "department"),
+        Index("ix_sop_catalog_category", "category"),
+        {"schema": "hr"},
+    )
+
+    file_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    sop_number: Mapped[str | None] = mapped_column(String(64))
+    category: Mapped[str | None] = mapped_column(String(128))
+    department: Mapped[str | None] = mapped_column(String(128))

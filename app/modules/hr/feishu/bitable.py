@@ -31,7 +31,7 @@ def _to_ms_timestamp(value: date | datetime | str | None) -> int | str:
 class BitableClient:
     def __init__(self, app_token: str | None = None) -> None:
         self.client = FeishuClient()
-        self.app_token = app_token or _settings.FEISHU_BITABLE_APP_TOKEN
+        self.app_token = app_token or _settings.HR_BITABLE_APP_TOKEN
 
     def _path(self, table_id: str, suffix: str = "") -> str:
         base = f"/bitable/v1/apps/{self.app_token}/tables/{table_id}"
@@ -105,10 +105,10 @@ class FeishuBitableSync:
 
     def __init__(self) -> None:
         self.bitable = BitableClient()
-        self.employee_table = _settings.FEISHU_BITABLE_EMPLOYEE_TABLE_ID
-        self.department_table = _settings.FEISHU_BITABLE_DEPARTMENT_TABLE_ID
-        self.offboarding_table = _settings.FEISHU_BITABLE_OFFBOARDING_TABLE_ID
-        self.approval_table = _settings.FEISHU_BITABLE_APPROVAL_TABLE_ID
+        self.employee_table = _settings.HR_BITABLE_EMPLOYEE_TABLE_ID
+        self.department_table = _settings.HR_BITABLE_DEPARTMENT_TABLE_ID
+        self.offboarding_table = _settings.HR_BITABLE_OFFBOARDING_TABLE_ID
+        self.approval_table = _settings.HR_BITABLE_APPROVAL_TABLE_ID
 
     def _is_enabled(self) -> bool:
         return bool(self.bitable.app_token)

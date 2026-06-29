@@ -17,8 +17,8 @@ def get_turnover_analysis_service(
 ) -> TurnoverAnalysisService:
     settings = get_settings()
     ai_service = AiChatService(
-        api_key=settings.MOONSHOT_API_KEY,
-        model=settings.AI_MODEL,
+        api_key=settings.HR_AI_API_KEY,
+        model=settings.HR_AI_MODEL,
     )
     return TurnoverAnalysisService(session, ai_service)
 

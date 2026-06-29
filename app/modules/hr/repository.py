@@ -68,8 +68,8 @@ class EmployeeRepository:
         work_start_date_before: date | None = None,
         page: int = 1,
         page_size: int = 20,
-        sort_by: str = "created_at",
-        sort_order: str = "desc",
+        sort_by: str = "sort_order",
+        sort_order: str = "asc",
     ) -> tuple[list[Employee], int]:
         stmt = select(Employee).where(Employee.is_deleted.is_(False))
 

@@ -1,6 +1,6 @@
-"""培训通知 Word 文档生成器."""
+"""培训通知 Word 文档生成器 — 基于表格模板."""
 
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -16,6 +16,8 @@ class TrainingNotificationInput(BaseModel):
     training_time_end: str | None = None
     location: str | None = None
     trainer: str | None = None
+    training_method: str | None = None
+    assessment_method: str | None = None
     content: str | None = None
     trainee_names: list[str] = []
     issuer_department: str | None = None
@@ -23,183 +25,117 @@ class TrainingNotificationInput(BaseModel):
 
 
 def _find_template() -> Path:
-    """Locate the docx template, trying several path candidates."""
     candidates = [
-        Path("员工培训教育管理规程/SOP-GN-2002 Q 培训通知.docx"),
-        Path("../员工培训教育管理规程/SOP-GN-2002 Q 培训通知.docx"),
+        Path("员工培训教育管理规程/7.4培训通知书.docx"),
+        Path("../员工培训教育管理规程/7.4培训通知书.docx"),
         Path(__file__).resolve().parent.parent.parent.parent
         / "员工培训教育管理规程"
-        / "SOP-GN-2002 Q 培训通知.docx",
+        / "7.4培训通知书.docx",
     ]
     for p in candidates:
         if p.exists():
             return p
-    raise FileNotFoundError("模板文件未找到: SOP-GN-2002 Q 培训通知.docx")
+    raise FileNotFoundError("模板文件未找到: 7.4培训通知书.docx")
 
 
-def _find_underlined_groups(paragraph) -> list[list[int]]:
-    """按连续段分组返回下划线 run 索引组."""
-    groups: list[list[int]] = []
-    current: list[int] = []
-    for i, r in enumerate(paragraph.runs):
-        if r.font.underline:
-            current.append(i)
-        else:
-            if current:
-                groups.append(current)
-                current = []
-    if current:
-        groups.append(current)
-    return groups
+def _set_cell(cell, text: str) -> None:
+    """Set cell text, preserving first run's formatting."""
+    first = None
+    for p in cell.paragraphs:
+        for r in p.runs:
+            if first is None:
+                first = r
+            r.text = ""
+    if first is not None:
+        first.text = str(text or "")
+    elif cell.paragraphs:
+        cell.paragraphs[0].add_run(str(text or ""))
 
 
-def _remove_empty_space_runs(paragraph) -> None:
-    """删除纯空格且无下划线的尾随空 run，避免干扰下划线显示."""
-    for r in paragraph.runs[:]:
-        if not r.font.underline and r.text and r.text.strip() == "":
-            paragraph._p.remove(r._r)
-
-
-def _fill_first_underlined_run(paragraph, text: str) -> None:
-    """在下划线区域填入内容：写入第一个下划线 run，删除其余下划线 runs 及多余空格 run."""
-    underlined = [r for r in paragraph.runs if r.font.underline]
-    if not underlined:
-        if not paragraph.runs:
-            run = paragraph.add_run(text)
-        else:
-            run = paragraph.runs[0]
-            run.text = text
-        run.font.underline = True
-        return
-
-    first = underlined[0]
-    # 如果原 run 以空格开头，保留一个空格前缀让排版自然
-    prefix = " " if first.text and first.text.startswith(" ") else ""
-    first.text = prefix + (text or "")
-    first.font.underline = True
-
-    # 删除其余下划线 runs
-    for r in underlined[1:]:
-        paragraph._p.remove(r._r)
-
-    # 删除纯空格且无下划线的尾随空 run
-    _remove_empty_space_runs(paragraph)
+def _compute_hours(start: str | None, end: str | None) -> str:
+    if not start or not end:
+        return ""
+    try:
+        s = datetime.strptime(start, "%H:%M")
+        e = datetime.strptime(end, "%H:%M")
+        diff = (e - s).total_seconds() / 3600
+        if diff <= 0:
+            return ""
+        rounded = round(diff * 2) / 2
+        if rounded == int(rounded):
+            return f"{int(rounded)}小时"
+        return f"{rounded}小时"
+    except ValueError:
+        return ""
 
 
 def generate_training_notification(data: TrainingNotificationInput) -> BytesIO:
-    """根据填写的培训信息生成培训通知 Word 文档."""
+    """Generate training notification docx from template."""
     template_path = _find_template()
     doc = Document(str(template_path))
+    table = doc.tables[0]
 
-    # ── P2: 部门 将于 年 月 日 举行 主题 的培训 ──
+    # ── Row 0: 培训内容 (label col0, value cols 1-3 merged) ──
+    topic_parts = [data.subject]
+    if data.content:
+        topic_parts.append(data.content)
+    _set_cell(table.rows[0].cells[1], " — ".join(topic_parts))
+
+    # ── Row 1: 培训日期 | value | 课时 | value ──
+    _set_cell(table.rows[1].cells[1], str(data.training_date) if data.training_date else "")
+    _set_cell(table.rows[1].cells[3], _compute_hours(data.training_time_start, data.training_time_end))
+
+    # ── Row 2: 培训方式 | value | 授课人 | value ──
+    _set_cell(table.rows[2].cells[1], data.training_method or "")
+    _set_cell(table.rows[2].cells[3], data.trainer or "")
+
+    # ── Row 3: 培训对象 (merged cols 1-3) ──
+    people = "、".join(data.trainee_names) if data.trainee_names else ""
+    _set_cell(table.rows[3].cells[1], people)
+
+    # ── Row 4: 培训地点 (merged cols 1-3) ──
+    _set_cell(table.rows[4].cells[1], data.location or "")
+
+    # ── Row 5: 考核方式 (merged cols 1-3) ──
+    _set_cell(table.rows[5].cells[1], data.assessment_method or "")
+
+    # ── Row 6: 注意事项 (merged cols 1-3) ──
+    _set_cell(table.rows[6].cells[1],
+        "1. 请培训人员自带笔记本、笔，做好笔记。\n"
+        "2. 请部门安排好参训人员的工作时间，做到培训工作两不误。\n"
+        "3. 不得无故缺席、迟到，到场签到，有特殊情况须提前请假。"
+    )
+
+    # ── Para 1: "部门/Dept：___多个空格___签发人/ Issued by：" ──
+    # Template uses spaces as fill-in blanks. Insert department name between the two
+    # labels, leaving the issuer blank for handwriting.
+    p1 = doc.paragraphs[1]
+    if p1.runs:
+        text = p1.runs[0].text
+        # Find the gap between "部门/Dept：" and "签发人"
+        prefix = "部门/Dept："
+        suffix = "签发人/ Issued by："
+        dept_name = data.issuer_department or data.department or ""
+        # Rebuild: prefix + dept_name + spaces + suffix
+        # Keep some space after dept name for visual separation
+        new_text = f"{prefix}{dept_name}          {suffix}"
+        p1.runs[0].text = new_text
+
+    # ── Para 2: "___spaces___年/Y    ___月/M    ___日/D" ──
+    # Remove /Y /M /D markers, fill with clean date
     p2 = doc.paragraphs[2]
-    groups2 = _find_underlined_groups(p2)
-    # groups2 = [[0,1], [3,4,5], [7,8,9], [11,12,13], [15,16,17], [19,20,21]]
-    # 对应: 段首缩进 | 部门 | 年 | 月 | 日 | 主题
-    if len(groups2) >= 6:
-        # 段首缩进 runs[0-1] 保留模板原样
-        # 先保存固定文字 run 引用，再删除下划线 runs，避免索引错位
-        # 固定文字: 主办部门(2) / 于(6) / 年(10) / 月(14) / 举行(18) / 培训(22)
-        run_dept_label = p2.runs[2]
-        run_yu = p2.runs[6]
-        run_nian = p2.runs[10]
-        run_yue = p2.runs[14]
-        run_juxing = p2.runs[18]
-        run_peixun = p2.runs[22]
+    runs = p2.runs
+    d = data.training_date
+    if len(runs) >= 7:
+        runs[0].text = str(d.year)            # year → "2026"
+        runs[1].text = "年"                    # keep "年"
+        runs[2].text = f"  {d.month:02d}  "   # replace "/Y    " with month
+        runs[3].text = "月"                    # keep "月"
+        runs[4].text = f"  {d.day:02d}  "     # replace "/M    " with day
+        runs[5].text = "日"                    # keep "日"
+        runs[6].text = ""                      # remove "/D"
 
-        # 修正固定文字
-        run_dept_label.text = ""
-        run_yu.text = "将于"
-        run_nian.text = "年"
-        run_yue.text = "月"
-        run_juxing.text = "日举行"
-        run_peixun.text = "的培训"
-
-        # 从后往前删除多余下划线 runs 并写入内容
-        # 主题
-        p2.runs[groups2[5][0]].text = data.subject or ""
-        p2.runs[groups2[5][0]].font.underline = True
-        for idx in reversed(groups2[5][1:]):
-            p2._p.remove(p2.runs[idx]._r)
-        # 日
-        p2.runs[groups2[4][0]].text = data.training_date.strftime("%d")
-        p2.runs[groups2[4][0]].font.underline = True
-        for idx in reversed(groups2[4][1:]):
-            p2._p.remove(p2.runs[idx]._r)
-        # 月
-        p2.runs[groups2[3][0]].text = data.training_date.strftime("%m")
-        p2.runs[groups2[3][0]].font.underline = True
-        for idx in reversed(groups2[3][1:]):
-            p2._p.remove(p2.runs[idx]._r)
-        # 年
-        p2.runs[groups2[2][0]].text = data.training_date.strftime("%Y")
-        p2.runs[groups2[2][0]].font.underline = True
-        for idx in reversed(groups2[2][1:]):
-            p2._p.remove(p2.runs[idx]._r)
-        # 部门
-        p2.runs[groups2[1][0]].text = data.department
-        p2.runs[groups2[1][0]].font.underline = True
-        for idx in reversed(groups2[1][1:]):
-            p2._p.remove(p2.runs[idx]._r)
-
-    # ── P3: 培训时间 ──
-    time_parts = []
-    if data.training_time_start:
-        time_parts.append(data.training_time_start)
-    if data.training_time_end:
-        time_parts.append(data.training_time_end)
-    time_str = " ~ ".join(time_parts) if len(time_parts) == 2 else (time_parts[0] if time_parts else "")
-    _fill_first_underlined_run(doc.paragraphs[3], time_str)
-
-    # ── P4: 培训地点 ──
-    _fill_first_underlined_run(doc.paragraphs[4], data.location or "")
-
-    # ── P5: 培训师 ──
-    _fill_first_underlined_run(doc.paragraphs[5], data.trainer or "")
-
-    # ── P6: 培训内容 ──
-    _fill_first_underlined_run(doc.paragraphs[6], data.content or "")
-
-    # ── P7: 培训人员 ──
-    people_str = "、".join(data.trainee_names) if data.trainee_names else ""
-    _fill_first_underlined_run(doc.paragraphs[7], people_str)
-
-    # ── P8-P10: 备注 — 固定内容，不动 ──
-    # 模板中备注是固定的，不根据表单 remarks 字段覆盖
-
-    # ── P12: 部门（落款） ──
-    issuer = data.issuer_department or data.department or ""
-    _fill_first_underlined_run(doc.paragraphs[12], issuer)
-
-    # ── P13: 日期（落款） ──
-    p13 = doc.paragraphs[13]
-    groups13 = _find_underlined_groups(p13)
-    # groups13 = [[1,2,3], [5,6,7], [9,10]] 对应 年 | 月 | 日
-    issue_date = data.issue_date or data.training_date
-    if len(groups13) >= 3:
-        # 先保存固定文字引用
-        run_nian2 = p13.runs[4]
-        run_yue2 = p13.runs[8]
-        run_ri2 = p13.runs[11]
-        run_nian2.text = "年"
-        run_yue2.text = "月"
-        run_ri2.text = "日"
-
-        # 从后往前删除多余下划线 runs
-        p13.runs[groups13[2][0]].text = issue_date.strftime("%d")
-        p13.runs[groups13[2][0]].font.underline = True
-        for idx in reversed(groups13[2][1:]):
-            p13._p.remove(p13.runs[idx]._r)
-        p13.runs[groups13[1][0]].text = issue_date.strftime("%m")
-        p13.runs[groups13[1][0]].font.underline = True
-        for idx in reversed(groups13[1][1:]):
-            p13._p.remove(p13.runs[idx]._r)
-        p13.runs[groups13[0][0]].text = issue_date.strftime("%Y")
-        p13.runs[groups13[0][0]].font.underline = True
-        for idx in reversed(groups13[0][1:]):
-            p13._p.remove(p13.runs[idx]._r)
-
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf

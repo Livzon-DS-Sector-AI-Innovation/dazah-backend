@@ -243,6 +243,143 @@ class EmployeeService:
 
         return result
 
+    # ── Excel 列名 → 模型字段名 映射 ──
+    _UPLOAD_COLUMN_MAP: dict[str, str] = {
+        "工号": "employee_number",
+        "姓名": "name",
+        "域账号": "domain_account",
+        "部门": "department",
+        "班组": "team",
+        "职位": "position",
+        "岗位类别": "job_category",
+        "级别": "level",
+        "兼任部门": "concurrent_departments",
+        "资格": "qualifications",
+        "资格类型": "qualification_type",
+        "性别": "gender",
+        "籍贯": "native_place",
+        "政治面貌": "political_status",
+        "婚姻状况": "marital_status",
+        "户籍类型": "household_type",
+        "用工性质": "status_category",
+        "出生年份": "birth_year",
+        "出生月份": "birth_month",
+        "出生日": "birth_day",
+        "年龄": "age",
+        "参加工作时间": "work_start_date",
+        "进厂时间": "factory_entry_date",
+        "进丽珠时间": "livo_entry_date",
+        "入职日期": "hire_date",
+        "毕业时间": "graduation_date",
+        "工龄": "work_years",
+        "厂龄": "factory_tenure",
+        "公司工龄": "company_tenure",
+        "学历": "education",
+        "分类": "classification",
+        "毕业学校": "school",
+        "专业": "major",
+        "身份证号": "id_card",
+        "身份证有效期": "id_card_expiry",
+        "身份证地址": "id_card_address",
+        "现居住地址": "current_address",
+        "合同类型": "contract_type",
+        "合同开始日期": "contract_start_date",
+        "合同结束日期": "contract_end_date",
+        "合同开始日期2": "contract_start_2",
+        "合同结束日期2": "contract_end_2",
+        "合同开始日期3": "contract_start_3",
+        "合同结束日期3": "contract_end_3",
+        "合同开始日期4": "contract_start_4",
+        "合同结束日期4": "contract_end_4",
+        "手机": "phone",
+        "邮箱": "email",
+        "紧急联系人": "emergency_contact_name",
+        "紧急联系人电话": "emergency_contact_phone",
+        "紧急联系人关系": "emergency_contact_relation",
+        "银行卡号": "bank_account",
+        "培训编号": "training_id",
+        "调动历史": "transfer_history",
+        "备注": "remarks",
+    }
+
+    _DATE_FIELDS: set[str] = {
+        "work_start_date", "factory_entry_date", "livo_entry_date",
+        "hire_date", "graduation_date", "id_card_expiry",
+        "contract_start_date", "contract_end_date",
+        "contract_start_2", "contract_end_2",
+        "contract_start_3", "contract_end_3",
+        "contract_start_4", "contract_end_4",
+    }
+
+    _INT_FIELDS: set[str] = {
+        "birth_year", "birth_month", "birth_day", "age", "work_years",
+    }
+
+    async def upload_employees(self, file_bytes: bytes) -> dict:
+        """从 Excel 文件批量导入员工，按工号 upsert。返回 {created, updated, errors}。"""
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        wb = load_workbook(BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            raise ValueError("文件为空")
+
+        header = [str(c).strip() if c else "" for c in rows[0]]
+        # 建立列索引
+        col_map: dict[int, str] = {}
+        for idx, col_name in enumerate(header):
+            field = self._UPLOAD_COLUMN_MAP.get(col_name)
+            if field:
+                col_map[idx] = field
+
+        if "employee_number" not in col_map.values():
+            raise ValueError("缺少「工号」列，无法导入")
+
+        created = 0
+        updated = 0
+        errors: list[str] = []
+
+        for row_idx, row in enumerate(rows[1:], start=2):
+            if all(c is None for c in row):
+                continue
+            try:
+                data: dict = {}
+                for col_idx, field_name in col_map.items():
+                    val = row[col_idx] if col_idx < len(row) else None
+                    if val is None or (isinstance(val, str) and val.strip() == ""):
+                        continue
+                    if isinstance(val, str):
+                        val = val.strip()
+                    if field_name in self._DATE_FIELDS and isinstance(val, str):
+                        val = date.fromisoformat(val)
+                    elif field_name in self._DATE_FIELDS and isinstance(val, datetime):
+                        val = val.date()
+                    elif field_name in self._INT_FIELDS:
+                        try:
+                            val = int(float(str(val)))
+                        except (ValueError, TypeError):
+                            continue
+                    elif field_name == "qualifications":
+                        val = [v.strip() for v in str(val).split(",") if v.strip()]
+                    data[field_name] = val
+
+                if "employee_number" not in data:
+                    errors.append(f"第{row_idx}行: 缺少工号")
+                    continue
+
+                existing = await self.repo.get_by_employee_number(data["employee_number"])
+                await self.repo.upsert_by_employee_number(data)
+                if existing:
+                    updated += 1
+                else:
+                    created += 1
+            except Exception as e:
+                errors.append(f"第{row_idx}行: {e}")
+
+        return {"created": created, "updated": updated, "errors": errors}
+
     async def approve_employee(self, employee_number: str) -> Employee:
         employee = await self.repo.get_by_employee_number(employee_number)
         if not employee:
@@ -302,8 +439,8 @@ class EmployeeService:
         keyword: str | None = None,
         page: int = 1,
         page_size: int = 20,
-        sort_by: str = "created_at",
-        sort_order: str = "desc",
+        sort_by: str = "sort_order",
+        sort_order: str = "asc",
     ) -> tuple[list[Employee], int]:
         return await self.repo.list_employees(
             department=department,
@@ -629,11 +766,23 @@ class DepartmentService:
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[HrDepartment], int]:
-        return await self.repo.list_departments(
+        departments, total = await self.repo.list_departments(
             keyword=keyword,
             page=page,
             page_size=page_size,
         )
+        # Attach employee count to each department
+        from sqlalchemy import select, func
+        from app.modules.hr.models import Employee
+        for dept in departments:
+            count = await self.repo.session.scalar(
+                select(func.count()).select_from(Employee).where(
+                    Employee.department == dept.name,
+                    Employee.is_deleted.is_(False),
+                )
+            )
+            dept.employee_count = count or 0
+        return departments, total
 
 
 class TeamService:
