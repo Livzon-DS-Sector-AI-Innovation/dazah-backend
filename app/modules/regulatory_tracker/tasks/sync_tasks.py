@@ -8,6 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.shared.config_reader import get_module_setting, get_module_setting_bool
 from app.core.database import async_session_factory
 from app.modules.regulatory_tracker import repository as repo
 from app.modules.regulatory_tracker.models import DataChannel, DataSource
@@ -39,7 +40,7 @@ async def daily_sync_job():
                 logger.info("数据源或栏目已禁用，跳过同步")
                 return
 
-            settings = get_settings()
+            headless = await get_module_setting_bool("regulatory_tracker", "CRAWLER_HEADLESS", True)
             result = await run_sync_job(
                 db=db,
                 source=source,
@@ -47,7 +48,7 @@ async def daily_sync_job():
                 job_type="daily_sync",
                 start_page=1,
                 end_page=3,
-                headless=settings.CRAWLER_HEADLESS,
+                headless=headless,
             )
 
             logger.info(
@@ -82,10 +83,9 @@ async def daily_ai_analysis_job():
     except Exception:
         logger.exception("❌ AI 分析任务异常")
 
-def start_scheduler():
+async def start_scheduler():
     """启动定时调度器。"""
-    settings = get_settings()
-    cron_expr = settings.DAILY_SYNC_CRON  # e.g. "0 2 * * *"
+    cron_expr = await get_module_setting("regulatory_tracker", "DAILY_SYNC_CRON", "0 2 * * *")
 
     parts = cron_expr.strip().split()
     if len(parts) != 5:

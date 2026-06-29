@@ -82,6 +82,24 @@ async def get_supplementary_reply(
     return success_response(data=reply.model_dump(mode="json"))
 
 
+@router.get("/{reply_id}/download-url", summary="获取发补回复文件下载URL")
+async def get_supplementary_reply_download_url(
+    reply_id: UUID,
+    service: SupplementaryReplyService = Depends(get_service),
+):
+    reply_model = await service.repo.get_by_id(reply_id)
+    if not reply_model:
+        raise NotFoundException("发补回复记录", str(reply_id))
+
+    file_path = service.get_output_file_path(reply_model)
+    if not file_path.exists():
+        raise NotFoundException("发补回复文件")
+
+    return success_response(
+        data={"url": f"/api/v1/registration/supplementary-replies/{reply_id}/download"}
+    )
+
+
 @router.get("/{reply_id}/download", summary="下载生成的发补回复文件")
 async def download_supplementary_reply(
     reply_id: UUID,

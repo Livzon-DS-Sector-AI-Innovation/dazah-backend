@@ -54,10 +54,60 @@ def include_name(
     return True
 
 
+
+def process_revision_directives(context, revision, directives):
+    """Auto-generate CREATE SCHEMA statements for new schemas.
+    
+    When autogenerate detects new tables in a schema that doesn't exist yet,
+    this hook prepends CREATE SCHEMA IF NOT EXISTS statements to the migration.
+    """
+    if not directives:
+        return
+    
+    migration_script = directives[0]
+    upgrade_ops = migration_script.upgrade_ops_list
+    
+    # Collect all schemas that need to be created
+    schemas_to_create = set()
+    
+    for op_list in upgrade_ops:
+        for op in op_list.ops:
+            # Check for create_table operations
+            if hasattr(op, 'table_name') and hasattr(op, 'schema'):
+                if op.schema and op.schema not in ('public', 'pg_catalog'):
+                    schemas_to_create.add(op.schema)
+    
+    # If we found new schemas, prepend CREATE SCHEMA statements
+    if schemas_to_create:
+        from alembic.operations import ops
+        create_schema_ops = []
+        
+        for schema in sorted(schemas_to_create):
+            # Check if CREATE SCHEMA already exists in the migration
+            has_create_schema = False
+            for op_list in upgrade_ops:
+                for op in op_list.ops:
+                    if hasattr(op, 'sql') and f'CREATE SCHEMA' in str(op.sql).upper():
+                        if schema in str(op.sql):
+                            has_create_schema = True
+                            break
+            
+            if not has_create_schema:
+                # Create a raw SQL operation for CREATE SCHEMA
+                create_schema_op = ops.ExecuteSQLOp(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+                create_schema_ops.append(create_schema_op)
+        
+        # Prepend CREATE SCHEMA operations to the first upgrade ops list
+        if create_schema_ops and upgrade_ops:
+            existing_ops = list(upgrade_ops[0].ops)
+            upgrade_ops[0].ops = create_schema_ops + existing_ops
+
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
+        process_revision_directives=process_revision_directives,
         target_metadata=target_metadata,
         include_schemas=True,
         include_name=include_name,
@@ -96,6 +146,7 @@ def run_migrations_online() -> None:
     with engine.connect() as connection:
         context.configure(
             connection=connection,
+            process_revision_directives=process_revision_directives,
             target_metadata=target_metadata,
             include_schemas=True,
             include_name=include_name,

@@ -13,6 +13,7 @@ from app.core.database import async_session_factory
 from app.modules.energy import repository as repo
 from app.modules.energy.adapters import ADAPTERS
 from app.modules.energy.models import EnergyDeviceConfig
+from app.shared.config_reader import get_module_setting_bool
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +144,7 @@ async def energy_collection_loop() -> None:
     每 TICK_INTERVAL 秒检查一次，对到达 collection_interval 的设备触发采集。
     支持补采：若设备上次采集时间距今超过 collection_interval，补采缺失的整点数据。
     """
-    settings = get_settings()
-    if not settings.ENERGY_AUTO_COLLECT_ENABLED:
+    if not await get_module_setting_bool("energy", "ENERGY_AUTO_COLLECT_ENABLED", False):
         logger.info(
             "能耗自动采集已通过配置关闭（ENERGY_AUTO_COLLECT_ENABLED=false），跳过启动"
         )
@@ -154,7 +154,7 @@ async def energy_collection_loop() -> None:
 
     while not stop_energy_collection_flag.is_set():
         # 每次 tick 重新读取配置，支持运行时动态开关
-        if not get_settings().ENERGY_AUTO_COLLECT_ENABLED:
+        if not await get_module_setting_bool("energy", "ENERGY_AUTO_COLLECT_ENABLED", False):
             logger.debug("能耗自动采集已关闭，跳过本轮 tick")
             try:
                 await asyncio.wait_for(

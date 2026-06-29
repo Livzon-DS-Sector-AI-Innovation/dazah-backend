@@ -18,12 +18,14 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import async_playwright
+from app.shared.config_reader import get_module_setting, get_module_setting_bool
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 # 浏览器配置（通过环境变量覆盖，默认使用 Playwright 标准安装路径）
-CRAWLER_HEADLESS = os.getenv("CRAWLER_HEADLESS", "true").lower() == "true"
-CRAWLER_BROWSERS_PATH = os.getenv("CRAWLER_BROWSERS_PATH", "")  # 空字符串 = Playwright 默认路径
+CRAWLER_HEADLESS = get_settings().CRAWLER_HEADLESS.lower() == "true"
+CRAWLER_BROWSERS_PATH = get_settings().CRAWLER_BROWSERS_PATH  # 空字符串 = Playwright 默认路径
 
 LAUNCH_ARGS = [
     "--no-sandbox",
@@ -61,9 +63,9 @@ class CdeDomesticGuidelineAdapter:
     3. 通过点击分页按钮触发翻页
     """
 
-    def __init__(self, headless: bool = True):
-        self.headless = headless
-        self.list_url = CDE_GUIDELINE_LIST_URL
+    def __init__(self, headless: bool | None = None):
+        self._headless_override = headless
+        self._list_url_override = None
         self._pw = None
         self._browser = None
         self._context = None
@@ -71,12 +73,27 @@ class CdeDomesticGuidelineAdapter:
 
     async def start(self):
         """启动浏览器"""
-        if CRAWLER_BROWSERS_PATH:
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = CRAWLER_BROWSERS_PATH
+        browsers_path = await get_module_setting("regulatory_tracker", "CRAWLER_BROWSERS_PATH", "")
+        if browsers_path:
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
 
         self._pw = await async_playwright().start()
+        # Read headless mode from database if not overridden
+        headless = self._headless_override
+        if headless is None:
+            headless = await get_module_setting_bool("regulatory_tracker", "CRAWLER_HEADLESS", True)
+        
+        # Read list URL from database if not overridden
+        list_url = self._list_url_override
+        if list_url is None:
+            list_url = await get_module_setting(
+                "regulatory_tracker",
+                "CDE_GUIDELINE_URL",
+                "https://www.cde.org.cn/zdyz/listpage/9cd8db3b7530c6fa0c86485e563f93c7"
+            )
+        
         launch_kwargs: dict[str, Any] = {
-            "headless": self.headless,
+            "headless": headless,
             "args": LAUNCH_ARGS,
             "ignore_default_args": ["--enable-automation"],
         }
@@ -182,7 +199,7 @@ class CdeDomesticGuidelineAdapter:
         self._page.on("response", on_response)
 
         try:
-            await self._page.goto(self.list_url, wait_until="networkidle", timeout=timeout_ms)
+            await self._page.goto(list_url, wait_until="networkidle", timeout=timeout_ms)
             # 等待响应被捕获
             try:
                 await asyncio.wait_for(event.wait(), timeout=timeout_ms / 1000)

@@ -102,6 +102,24 @@ async def get_authorization_letter(
     return success_response(data=letter.model_dump(mode="json"))
 
 
+@router.get("/{letter_id}/download-url", summary="获取授权书文件下载URL")
+async def get_authorization_letter_download_url(
+    letter_id: UUID,
+    service: AuthorizationLetterService = Depends(get_service),
+):
+    letter_model = await service.repo.get_by_id(letter_id)
+    if not letter_model:
+        raise NotFoundException("授权书记录", str(letter_id))
+
+    file_path = service.get_output_file_path(letter_model)
+    if not file_path.exists():
+        raise NotFoundException("授权书文件")
+
+    return success_response(
+        data={"url": f"/api/v1/registration/authorization-letters/{letter_id}/download"}
+    )
+
+
 @router.get("/{letter_id}/download", summary="下载生成的授权书文件")
 async def download_authorization_letter(
     letter_id: UUID,

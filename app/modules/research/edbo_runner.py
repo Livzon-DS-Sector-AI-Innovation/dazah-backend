@@ -1,7 +1,8 @@
 import httpx
 import os
+from app.core.config import get_settings
 
-EDBO_SERVICE_URL = os.getenv("EDBO_SERVICE_URL", "http://edbo-service:8000")
+EDBO_SERVICE_URL = get_settings().EDBO_SERVICE_URL
 
 async def run_edbo_optimization(
     csv_content: str,

@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
@@ -49,113 +50,67 @@ mcp_asgi = get_mcp_app(path="/", middleware=mcp_middleware)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan — auto-start all registered background workers."""
     logger.info("Starting %s (%s)", settings.APP_NAME, settings.APP_ENV)
-
-    from app.modules.energy.scheduler import (
-        energy_collection_loop,
-        stop_energy_collection_flag,
-    )
-    from app.modules.equipment.scheduler import (
-        maintenance_plan_loop,
-        stop_maintenance_plan_flag,
-        timeout_scan_loop,
-        stop_timeout_flag,
-    )
-    from app.platform.identity.scheduler import (
-        member_sync_loop,
-        stop_member_sync_flag,
-    )
-
-    start_scheduler()
-    energy_task = asyncio.ensure_future(energy_collection_loop())
-    maintenance_plan_task = asyncio.ensure_future(maintenance_plan_loop())
-    timeout_task = asyncio.ensure_future(timeout_scan_loop())
-    member_task = asyncio.ensure_future(member_sync_loop())
-
-    # ── 平台级飞书 WebSocket 长连接 ──
-    if settings.FEISHU_WS_ENABLED:
-        from app.platform.integrations.feishu.event_handler import set_main_loop
-        from app.platform.integrations.feishu.ws_client import start_ws_client
-
-        set_main_loop(asyncio.get_running_loop())
-        start_ws_client()
-
-    # ── 设备模块飞书 WebSocket 长连接（独立交互机器人，原生 WebSocket） ──
-    equipment_ws_task: asyncio.Task | None = None
-    if settings.EQUIPMENT_FEISHU_APP_ID and settings.EQUIPMENT_FEISHU_APP_SECRET:
-        from app.modules.equipment.feishu.ws_client import start_equipment_ws
-
-        equipment_ws_task = asyncio.create_task(start_equipment_ws())
-
-    # ── 安全模块专属飞书事件订阅（WebSocket 长连接，独立应用凭据）──
-    from app.modules.safety.feishu.event_client import start_ws, stop_ws
-
-    safety_ws_task = asyncio.create_task(start_ws())
-
-    # ── 安全模块定时任务调度引擎 ──
-    from app.modules.safety.scheduler import (
-        scheduled_task_loop,
-        stop_scheduled_task_flag,
-    )
-
-    scheduler_task = asyncio.create_task(scheduled_task_loop())
-
-    # ── 统一调度引擎（平台级，各模块可渐进迁移）──
+    
+    # Import all modules to trigger their __init__.py and register workers
+    import app.modules.safety  # noqa: F401
+    import app.modules.equipment  # noqa: F401
+    import app.modules.energy  # noqa: F401
+    import app.modules.regulatory_tracker  # noqa: F401
+    import app.platform.identity  # noqa: F401
+    import app.platform.integrations.feishu  # noqa: F401
+    
+    # Start all registered background workers
+    from app.shared.lifecycle import get_all_workers
+    
+    workers = get_all_workers()
+    tasks = []
+    
+    for worker in workers:
+        logger.info("Starting background worker: %s", worker.name)
+        task = asyncio.create_task(worker.start())
+        tasks.append((worker, task))
+    
+    # Start unified scheduler engine (for DB-driven generators)
     from app.platform.scheduler import SchedulerEngine, SchedulerRegistry
-
+    from app.modules.equipment.scheduled import InspectionScheduleGenerator
+    
     scheduler_registry = SchedulerRegistry()
-    scheduler_engine = SchedulerEngine(scheduler_registry)
-
-    from app.modules.equipment.scheduled import (
-        InspectionScheduleGenerator,
-    )
     scheduler_registry.register_generator(InspectionScheduleGenerator())
-
+    scheduler_engine = SchedulerEngine(scheduler_registry)
     scheduler_engine_task = asyncio.create_task(scheduler_engine.run())
-
-    logger.info("Background tasks started")
-
+    
+    logger.info("Background tasks started (%d workers, %d generators)", 
+                len(workers), len(scheduler_registry.generators))
+    
     yield
-
-    stop_scheduler()
-    stop_energy_collection_flag.set()
-    stop_maintenance_plan_flag.set()
-    stop_timeout_flag.set()
-    stop_member_sync_flag.set()
-
-    # 停止安全模块 WebSocket
-    await stop_ws()
-    safety_ws_task.cancel()
-
-    # 停止定时任务调度引擎
-    stop_scheduled_task_flag.set()
-    scheduler_task.cancel()
-
-    # ── 停止统一调度引擎 ──
+    
+    # Shutdown: stop all workers in reverse order
+    logger.info("Shutting down %s", settings.APP_NAME)
+    
+    # Stop unified scheduler engine
     scheduler_engine.stop()
     try:
         await asyncio.wait_for(scheduler_engine_task, timeout=10)
     except (TimeoutError, asyncio.CancelledError):
         pass
+    
+    # Stop all background workers
+    for worker, task in reversed(tasks):
+        logger.info("Stopping background worker: %s", worker.name)
+        if worker.stop:
+            try:
+                result = worker.stop()
+                # Check if it's an awaitable (async function)
+                if asyncio.iscoroutine(result):
+                    await asyncio.wait_for(result, timeout=5)
+            except (TimeoutError, asyncio.CancelledError):
+                logger.warning("Worker %s stop timed out", worker.name)
+        task.cancel()
+    
+    logger.info("Shutdown complete")
 
-    # 停止设备模块 WebSocket
-    if equipment_ws_task:
-        from app.modules.equipment.feishu.ws_client import stop_equipment_ws
-
-        await stop_equipment_ws()
-        equipment_ws_task.cancel()
-
-    energy_task.cancel()
-    maintenance_plan_task.cancel()
-    timeout_task.cancel()
-    member_task.cancel()
-
-    # 停止平台级飞书 WebSocket
-    from app.platform.integrations.feishu.ws_client import stop_ws_client
-
-    stop_ws_client()
-
-    logger.info("Shutting down %s", settings.APP_NAME)
 
 
 from fastmcp.utilities.lifespan import combine_lifespans  # noqa: E402
@@ -220,6 +175,25 @@ async def validation_exception_handler(
         message="请求参数校验失败",
         detail=detail,
         status_code=422,
+    )
+
+
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    msg = str(exc.orig) if hasattr(exc, 'orig') else str(exc)
+    # Extract constraint info for a user-friendly message
+    if 'duplicate key' in msg or 'unique constraint' in msg:
+        return error_response(
+            message="数据重复，该记录已存在",
+            detail=msg,
+            status_code=409,
+        )
+    return error_response(
+        message="数据完整性错误",
+        detail=msg,
+        status_code=400,
     )
 
 

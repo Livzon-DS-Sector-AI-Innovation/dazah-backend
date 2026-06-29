@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.shared.config_reader import get_module_setting
 from app.core.database import get_db
 from app.core.response import success_response
 from app.modules.hr.ai_service import AiChatService
@@ -12,13 +13,14 @@ from app.modules.hr.analysis_service import TurnoverAnalysisService
 router = APIRouter(prefix="/turnover-analysis", tags=["HR人员流动分析"])
 
 
-def get_turnover_analysis_service(
+async def get_turnover_analysis_service(
     session: AsyncSession = Depends(get_db),
 ) -> TurnoverAnalysisService:
     settings = get_settings()
+    model = await get_module_setting("hr", "AI_MODEL", "kimi-k2.5")
     ai_service = AiChatService(
         api_key=settings.MOONSHOT_API_KEY,
-        model=settings.AI_MODEL,
+        model=model,
     )
     return TurnoverAnalysisService(session, ai_service)
 

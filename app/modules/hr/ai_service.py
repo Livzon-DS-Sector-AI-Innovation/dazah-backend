@@ -6,6 +6,7 @@ Uses core.llm for streaming completions.
 from collections.abc import AsyncGenerator
 from app.core.llm import llm_client
 from app.core.config import get_settings
+from app.shared.config_reader import get_module_setting
 
 
 class AiChatService:
@@ -35,10 +36,13 @@ class AiChatService:
             yield chunk
 
     @staticmethod
-    def build_system_prompt(page: str | None = None) -> str:
+    async def build_system_prompt(page: str | None = None) -> str:
         """Build the system prompt for the HR assistant."""
-        settings = get_settings()
-        prompt = settings.AI_SYSTEM_PROMPT
+        prompt = await get_module_setting(
+            "hr", 
+            "AI_SYSTEM_PROMPT", 
+            "你是「小H」，原料药工厂人事管理助手。只基于查询结果回答人事问题，禁止编造。回答极其简洁，只陈述事实，不分析、不解释、不推理。"
+        )
 
         if page:
             prompt += f"\n当前页面：{page}"

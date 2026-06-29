@@ -912,11 +912,15 @@ class AnnualTrainingPlanItemRepository:
         return item
 
     async def delete(self, item: AnnualTrainingPlanItem) -> None:
-        await self.session.delete(item)
+        item.is_deleted = True
         await self.session.flush()
 
     async def delete_by_plan_id(self, plan_id: UUID) -> None:
+        from sqlalchemy import update
         await self.session.execute(
-            delete(AnnualTrainingPlanItem).where(AnnualTrainingPlanItem.plan_id == plan_id)
+            update(AnnualTrainingPlanItem)
+            .where(AnnualTrainingPlanItem.plan_id == plan_id)
+            .where(AnnualTrainingPlanItem.is_deleted == False)
+            .values(is_deleted=True)
         )
         await self.session.flush()

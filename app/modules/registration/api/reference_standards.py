@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,7 @@ def get_service(session: AsyncSession = Depends(get_db)) -> ReferenceStandardSer
 
 @router.post("/parse-coa", summary="解析COA文件提取信息")
 async def parse_coa_file(
-    coa: UploadFile,
+    coa: UploadFile = File(...),
 ):
     """解析COA PDF文件，自动提取关键信息"""
     coa_data = await coa.read()
@@ -110,6 +110,24 @@ async def get_reference_standard(
 ):
     record = await service.get_record(record_id)
     return success_response(data=record.model_dump(mode="json"))
+
+
+@router.get("/{record_id}/download-url", summary="获取说明表文件下载URL")
+async def get_reference_standard_download_url(
+    record_id: UUID,
+    service: ReferenceStandardService = Depends(get_service),
+):
+    record_model = await service.repo.get_by_id(record_id)
+    if not record_model:
+        raise NotFoundException("对照物质说明表记录", str(record_id))
+
+    file_path = service.get_output_file_path(record_model)
+    if not file_path.exists():
+        raise NotFoundException("说明表文件")
+
+    return success_response(
+        data={"url": f"/api/v1/registration/reference-standards/{record_id}/download"}
+    )
 
 
 @router.get("/{record_id}/download", summary="下载生成的说明表文件")

@@ -8,10 +8,9 @@
 
 用法:
     from app.modules.safety.ai_hazard_identification import AIHazardIdentifier
-    from app.platform.integrations.ai.client import AIService
+    from app.modules.safety.ai_hazard_identification.schemas import HazardIdentificationInput
 
-    ai_service = AIService(api_key="...", base_url="...", model="...")
-    plugin = AIHazardIdentifier(ai_service)
+    plugin = AIHazardIdentifier()
 
     input_data = HazardIdentificationInput(
         description="防爆电箱堵头缺失",
@@ -220,8 +219,8 @@ class AIHazardIdentifier:
 
         try:
             # 检查 AI 服务是否支持 vision
-            if hasattr(self.ai_service, "chat_vision_parsed"):
-                return await llm_client.chat_vision_json(
+            # llm_client supports vision via chat_vision_json
+            return await llm_client.chat_vision_json(
                     text_prompt=build_full_prompt(
                         context, vision_mode=True, include_fewshot=True
                     ),
@@ -229,25 +228,6 @@ class AIHazardIdentifier:
                     expected_keys=expected_keys,
                     temperature=self.config.temperature,
                 )
-
-            # Fallback: 将图片信息嵌入文本 prompt
-            logger.warning("AI 服务不支持 vision，降级为纯文本模式")
-            fallback_desc = input_data.description
-            if input_data.defect_photos:
-                fallback_desc += (
-                    f"\n（附缺陷照片 {len(input_data.defect_photos)} 张，"
-                    f"因当前模型不支持视觉分析，请基于文本描述进行判断）"
-                )
-            fallback_input = HazardIdentificationInput(
-                hazard_no=input_data.hazard_no,
-                description=fallback_desc,
-                department=input_data.department,
-                location=input_data.location,
-                discovered_by_name=input_data.discovered_by_name,
-                discovered_at=input_data.discovered_at,
-                defect_photos=[],  # 清空图片，走纯文本
-            )
-            return await self._call_text_ai(fallback_input)
 
         except Exception as e:
             logger.error("多模态 AI 调用失败: %s", e)

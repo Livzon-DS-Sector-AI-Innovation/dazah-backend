@@ -2,59 +2,71 @@
 
 原料药事业部工厂数字化基座后端服务。
 
-## Tech Stack
+## 技术栈
 
-- **Python 3.12+** with FastAPI
-- **PostgreSQL 17** + **Redis**
-- **SQLAlchemy 2.0** (async) + **Alembic** (migrations)
+- **Python 3.12+** + FastAPI
+- **PostgreSQL 17** + Redis + MinIO
+- **SQLAlchemy 2.0** (async) + Alembic (migrations)
 - **Pydantic v2** for validation
 - **uv** for package management
 
-## Quick Start
+## 快速开始
 
-### Prerequisites
+### 环境要求
 
 - Python >= 3.12
-- PostgreSQL 17
-- Redis
-- [uv](https://docs.astral.sh/uv/)
+- Docker + Docker Compose（推荐）
+- 或本地安装：PostgreSQL 17、Redis、[uv](https://docs.astral.sh/uv/)
 
-### Setup
+### Docker 部署（推荐）
 
 ```bash
-# 1. Install dependencies
+# 启动基础设施（数据库、Redis、MinIO）
+docker compose up -d
+
+# 启动后端应用
+docker compose --profile app up -d
+
+# 查看日志
+docker compose logs -f app
+```
+
+访问 API 文档：http://localhost:8000/docs
+
+### 本地开发
+
+```bash
+# 1. 安装依赖
 uv sync
 
-# 2. Install Playwright (required for regulatory tracker crawler)
+# 2. 安装 Playwright（法规追踪爬虫需要）
 playwright install chromium
 
-# 3. Configure environment
+# 3. 配置环境变量
 cp .env.example .env
-# Edit .env with your database and Redis credentials
+# 编辑 .env，填入数据库和 Redis 连接信息
 
-# 4. Database migrations
+# 4. 数据库迁移
 alembic upgrade head
 
-# 5. Seed initial data (regulatory tracker)
+# 5. 初始化数据（法规追踪模块）
 python scripts/seed_regulatory_tracker.py
 python scripts/seed_regulatory_documents.py
 
-# 6. Start the server
+# 6. 启动服务
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Access the API docs at http://localhost:8000/docs
+## 架构概览
 
-## Architecture
-
-Modular monolith with clear boundaries:
+模块化单体架构，各业务模块独立演进，共享平台基础设施：
 
 ```
 app/
-├── core/              # Infrastructure (config, database, security, exceptions)
-├── shared/            # Cross-module contracts (base models, module registry)
-├── platform/          # Platform capabilities (audit, identity, integrations)
-├── modules/           # Business modules
+├── core/              # 基础设施（配置、数据库、Redis、异常、响应）
+├── shared/            # 跨模块契约（ORM 基类、模块注册表）
+├── platform/          # 平台能力（审计、身份、外部集成）
+├── modules/           # 业务模块
 │   ├── production/    # 生产管理
 │   ├── equipment/     # 设备管理
 │   ├── safety/        # 安全管理
@@ -64,94 +76,65 @@ app/
 │   ├── registration/  # 注册管理
 │   ├── research/      # 研发管理
 │   └── ...
-└── api/               # Global router
+└── api/router.py      # 全局路由
 ```
 
-Each module maintains its own API routes, schemas, services, repositories, and models.
+每个模块维护自己的 API 路由、Schema、Service、Repository 和 Model。
 
-## Business Modules
+## 业务模块
 
-| Module | Description |
-|--------|-------------|
-| **Production** | Batch management, process records, material balance |
-| **Equipment** | Asset registry, maintenance, inspection, spare parts |
-| **Safety** | Hazard identification, risk management, special operations |
-| **Energy** | Device monitoring, alerts, collection logs |
-| **Quality** | Deviations, CAPA, CPV (process validation) |
-| **HR** | Employee profiles, onboarding, training, attendance |
-| **Registration** | Dossier writing, regulatory tracking, supplementary replies |
-| **Research** | Experiments, Bayesian optimization, ICH analysis |
+| 模块 | 说明 |
+|------|------|
+| **Production** | 批次管理、工序记录、物料平衡 |
+| **Equipment** | 设备台账、保养维修、巡检、备件 |
+| **Safety** | 隐患辨识、风险管控、特种作业 |
+| **Energy** | 设备监控、告警、采集日志 |
+| **Quality** | 偏差管理、CAPA、工艺验证 |
+| **HR** | 员工档案、入职培训、考勤 |
+| **Registration** |  dossier 编写、法规追踪、补充答复 |
+| **Research** | 实验管理、贝叶斯优化、ICH 分析 |
 
-## Development
+## 开发指南
 
 ```bash
-# Run tests
+# 运行测试
 uv run pytest
 
-# Code quality
+# 代码检查
 uv run ruff check .
 uv run mypy app/
 
-# Format code
+# 代码格式化
 uv run ruff format .
 ```
 
-### Database Migrations
+### 数据库迁移
 
 ```bash
-# Create migration (after modifying models)
+# 创建迁移（修改模型后）
 alembic revision --autogenerate -m "description"
 
-# Apply migrations
+# 应用迁移
 alembic upgrade head
 
-# Rollback
+# 回滚
 alembic downgrade -1
 ```
 
-**Important**: When adding a new schema, manually add `CREATE SCHEMA IF NOT EXISTS` at the start of `upgrade()` — Alembic won't generate it automatically.
+## 前端集成
 
-## Docker Deployment
+前端（`dazah-frontend/`）是 Next.js 应用，通过反向代理连接后端：
 
-```bash
-# Start database and Redis
-docker compose --profile db up -d
+- **开发环境**：Next.js 代理转发 `/api/v1/*` 到后端
+- **生产环境**：nginx 反向代理处理路由
+- **API 路径**：所有端点在 `/api/v1/<module>/<resource>` 下
 
-# Run migrations
-docker compose run --rm app uv run alembic upgrade head
-
-# Seed data
-docker compose run --rm app uv run python scripts/seed_regulatory_tracker.py
-docker compose run --rm app uv run python scripts/seed_regulatory_documents.py
-
-# Install Playwright in container
-docker compose run --rm app uv run playwright install chromium
-
-# Start application
-docker compose --profile app up -d
-```
-
-## Environment Variables
-
-Key variables in `.env`:
-
-- `APP_DATABASE_URL` — PostgreSQL connection string
-- `APP_REDIS_URL` — Redis connection string
-- `SECRET_KEY` — JWT secret (change in production)
-- `API_BASE_URL` — Backend URL for frontend server-side requests
-
-See `.env.example` for the full list.
-
-## Frontend Integration
-
-The frontend (`dazah-frontend/`) is a Next.js application that connects to this backend:
-
-- **Development**: Next.js proxy forwards `/api/v1/*` requests to backend
-- **Production**: nginx reverse proxy handles routing
-- **API path**: All endpoints under `/api/v1/<module>/<resource>`
-
-## Health Check
+## 健康检查
 
 ```bash
 curl http://localhost:8000/health
 ```
+
+## 编码规范
+
+详见 [AGENTS.md](AGENTS.md) — AI 编码助手必须遵守的规则。

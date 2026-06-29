@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+from app.core.config import get_settings
 import uuid as _uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -1430,8 +1431,8 @@ async def push_hazard_to_bitable(hazard: Any) -> bool:
 # 我们使用 record_changed_v1 为主，field_changed_v1 作为补充。
 
 # Bitable 目标凭证（模块级缓存，避免每次 os.getenv）
-_TARGET_FILE_TOKEN = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
-_TARGET_TABLE_ID = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
+_TARGET_FILE_TOKEN = get_settings().SAFETY_FEISHU_BITABLE_APP_TOKEN
+_TARGET_TABLE_ID = get_settings().SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID
 
 # field_id → field_name 缓存（用于解析 action_list 中的 after_value）
 _field_name_cache: dict[str, str] | None = None

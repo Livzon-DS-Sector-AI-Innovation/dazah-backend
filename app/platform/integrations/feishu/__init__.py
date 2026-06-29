@@ -12,6 +12,7 @@ from app.platform.integrations.feishu.ws_client import (
     start_ws_client,
     stop_ws_client,
 )
+from app.shared.lifecycle import register_background_worker
 
 __all__ = [
     "FeishuClient",
@@ -24,3 +25,28 @@ __all__ = [
     "start_ws_client",
     "stop_ws_client",
 ]
+
+
+# ── Background worker registration ────────────────────────────
+
+async def _start_platform_ws():
+    """Start platform-level Feishu WebSocket client."""
+    from app.platform.integrations.feishu.ws_client import start_ws_client
+    from app.platform.integrations.feishu.event_handler import set_main_loop
+    import asyncio
+    
+    set_main_loop(asyncio.get_running_loop())
+    await start_ws_client()
+
+
+def _stop_platform_ws():
+    """Stop platform-level Feishu WebSocket client."""
+    from app.platform.integrations.feishu.ws_client import stop_ws_client
+    stop_ws_client()
+
+
+register_background_worker(
+    name="platform.feishu_ws",
+    start=_start_platform_ws,
+    stop=_stop_platform_ws,
+)

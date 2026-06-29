@@ -327,9 +327,9 @@ async def auto_compare_video(
     }
 
     # 初始化 AI 服务（使用视觉模型）
-    ai_api_key = os.getenv("AI_API_KEY", "")
-    ai_base_url = os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
-    ai_vision_model = os.getenv("AI_VISION_MODEL", "gpt-4o")
+    ai_api_key = get_settings().AI_API_KEY
+    ai_base_url = get_settings().AI_BASE_URL
+    ai_vision_model = get_settings().AI_VISION_MODEL
 
     # 使用统一的 LLM 客户端（视觉模型）
 

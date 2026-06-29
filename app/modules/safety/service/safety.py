@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+from app.core.config import get_settings
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -720,8 +721,8 @@ async def _build_verify_card_content(
     level_labels = {1: "（部门负责人）", 2: "（分管领导）", 3: "（检查人员）"}
     level_text = level_labels.get(level, f"{level}级")
 
-    bitable_file_token = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
-    bitable_table_id = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
+    bitable_file_token = get_settings().SAFETY_FEISHU_BITABLE_APP_TOKEN
+    bitable_table_id = get_settings().SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID
     bitable_url = (
         f"https://www.feishu.cn/base/{bitable_file_token}"
         f"?table={bitable_table_id}&record={hazard.feishu_record_id}"
@@ -1003,8 +1004,8 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
                 hazard.hazard_no, person.name, person.user_id, person.open_id,
             )
 
-        bitable_file_token = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
-        bitable_table_id = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
+        bitable_file_token = get_settings().SAFETY_FEISHU_BITABLE_APP_TOKEN
+        bitable_table_id = get_settings().SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID
         bitable_url = (
             f"https://www.feishu.cn/base/{bitable_file_token}"
             f"?table={bitable_table_id}&record={hazard.feishu_record_id}"

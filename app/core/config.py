@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     # Feishu 安全模块机器人（独立应用凭证）
     SAFETY_FEISHU_APP_ID: str = ""
     SAFETY_FEISHU_APP_SECRET: str = ""
+    SAFETY_FEISHU_BITABLE_APP_TOKEN: str = ""
+    SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID: str = ""
 
     # Feishu 设备模块交互机器人（独立应用凭证）
     EQUIPMENT_FEISHU_APP_ID: str = ""
@@ -101,10 +103,8 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool = False
 
     # Energy
-    ENERGY_AUTO_COLLECT_ENABLED: bool = False
 
     # Maintenance Plan — 自动生成工单
-    MAINTENANCE_PLAN_AUTO_ENABLED: bool = True
 
     # JWT
     JWT_EXPIRE_SECONDS: int = 86400  # 24 hours
@@ -125,19 +125,13 @@ class Settings(BaseSettings):
 
     # AI — HR 离职分析
     MOONSHOT_API_KEY: str = ""
-    AI_MODEL: str = "kimi-k2.5"
-    AI_SYSTEM_PROMPT: str = (
-        "你是「小H」，原料药工厂人事管理助手。"
-        "只基于查询结果回答人事问题，禁止编造。"
-        "回答极其简洁，只陈述事实，不分析、不解释、不推理。"
-        "禁止出现'根据规则'、'依据以上信息'等元话语。"
-    )
 
     # Regulatory Tracker — 定时同步
-    DAILY_SYNC_CRON: str = "0 2 * * *"
-    CRAWLER_HEADLESS: bool = True
-    CRAWLER_BROWSERS_PATH: str = ""  # 空字符串 = Playwright 默认路径
-    CDE_GUIDELINE_URL: str = "https://www.cde.org.cn/zdyz/listpage/9cd8db3b7530c6fa0c86485e563f93c7"
+    CRAWLER_HEADLESS: str = "true"
+    CRAWLER_BROWSERS_PATH: str = ""
+
+    # Research — EDBO 服务
+    EDBO_SERVICE_URL: str = "http://edbo-service:8000"
 
     # Storage
     STORAGE_ROOT: str = "./storage"

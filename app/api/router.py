@@ -61,3 +61,5 @@ api_router.include_router(
 )
 from app.core.llm.api import router as llm_router
 api_router.include_router(llm_router, tags=["LLM配置"])
+from app.core.config_api import router as module_settings_router
+api_router.include_router(module_settings_router, tags=["模块配置"])

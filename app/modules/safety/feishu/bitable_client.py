@@ -6,6 +6,7 @@
 
 import logging
 import os
+from app.core.config import get_settings
 from pathlib import Path
 from typing import Any
 
@@ -18,13 +19,13 @@ logger = logging.getLogger(__name__)
 
 # 安全模块独立读取 .env 中的 Bitable 配置（不经过全局 config.py）
 _env_dir = Path(__file__).resolve().parent.parent.parent.parent.parent
-_app_env = os.getenv("APP_ENV", "development")
+_app_env = get_settings().APP_ENV
 _env_path = _env_dir / f".env.{_app_env}"
 if _env_path.exists():
     load_dotenv(_env_path)
 
-SAFETY_BITABLE_APP_TOKEN = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
-SAFETY_BITABLE_HAZARD_TABLE_ID = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
+SAFETY_BITABLE_APP_TOKEN = get_settings().SAFETY_FEISHU_BITABLE_APP_TOKEN
+SAFETY_BITABLE_HAZARD_TABLE_ID = get_settings().SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID
 
 BITABLE_BASE = "https://open.feishu.cn/open-apis/bitable/v1"
 

@@ -35451,6 +35451,48 @@
         }
       }
     },
+    "/api/v1/registration/authorization-letters/{letter_id}/download-url": {
+      "get": {
+        "tags": [
+          "\u6ce8\u518c\u7ba1\u7406",
+          "\u6388\u6743\u4e66\u7ba1\u7406"
+        ],
+        "summary": "\u83b7\u53d6\u6388\u6743\u4e66\u6587\u4ef6\u4e0b\u8f7dURL",
+        "operationId": "get_authorization_letter_download_url_api_v1_registration_authorization_letters__letter_id__download_url_get",
+        "parameters": [
+          {
+            "name": "letter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Letter Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/registration/authorization-letters/{letter_id}/download": {
       "get": {
         "tags": [
@@ -35924,6 +35966,48 @@
         }
       }
     },
+    "/api/v1/registration/reference-standards/{record_id}/download-url": {
+      "get": {
+        "tags": [
+          "\u6ce8\u518c\u7ba1\u7406",
+          "\u5bf9\u7167\u7269\u8d28\u8bf4\u660e\u8868"
+        ],
+        "summary": "\u83b7\u53d6\u8bf4\u660e\u8868\u6587\u4ef6\u4e0b\u8f7dURL",
+        "operationId": "get_reference_standard_download_url_api_v1_registration_reference_standards__record_id__download_url_get",
+        "parameters": [
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Record Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/registration/reference-standards/{record_id}/download": {
       "get": {
         "tags": [
@@ -36127,6 +36211,48 @@
         ],
         "summary": "\u5220\u9664\u53d1\u8865\u56de\u590d\u8bb0\u5f55",
         "operationId": "delete_supplementary_reply_api_v1_registration_supplementary_replies__reply_id__delete",
+        "parameters": [
+          {
+            "name": "reply_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Reply Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/registration/supplementary-replies/{reply_id}/download-url": {
+      "get": {
+        "tags": [
+          "\u6ce8\u518c\u7ba1\u7406",
+          "\u53d1\u8865\u56de\u590d"
+        ],
+        "summary": "\u83b7\u53d6\u53d1\u8865\u56de\u590d\u6587\u4ef6\u4e0b\u8f7dURL",
+        "operationId": "get_supplementary_reply_download_url_api_v1_registration_supplementary_replies__reply_id__download_url_get",
         "parameters": [
           {
             "name": "reply_id",
@@ -42992,6 +43118,347 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/module-settings": {
+      "get": {
+        "tags": [
+          "\u6a21\u5757\u914d\u7f6e",
+          "Module Settings"
+        ],
+        "summary": "List Settings",
+        "description": "List all module settings, optionally filtered by module.",
+        "operationId": "list_settings_api_v1_module_settings_get",
+        "parameters": [
+          {
+            "name": "module",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by module name",
+              "title": "Module"
+            },
+            "description": "Filter by module name"
+          },
+          {
+            "name": "auth_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "\u6a21\u5757\u914d\u7f6e",
+          "Module Settings"
+        ],
+        "summary": "Create Setting",
+        "description": "Create a new module setting.",
+        "operationId": "create_setting_api_v1_module_settings_post",
+        "parameters": [
+          {
+            "name": "auth_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleSettingCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/module-settings/{module}/{key}": {
+      "get": {
+        "tags": [
+          "\u6a21\u5757\u914d\u7f6e",
+          "Module Settings"
+        ],
+        "summary": "Get Setting",
+        "description": "Get a specific setting by module and key.",
+        "operationId": "get_setting_api_v1_module_settings__module___key__get",
+        "parameters": [
+          {
+            "name": "module",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Module"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "auth_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "\u6a21\u5757\u914d\u7f6e",
+          "Module Settings"
+        ],
+        "summary": "Update Setting",
+        "description": "Update a setting value.",
+        "operationId": "update_setting_api_v1_module_settings__module___key__put",
+        "parameters": [
+          {
+            "name": "module",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Module"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "auth_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleSettingUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "\u6a21\u5757\u914d\u7f6e",
+          "Module Settings"
+        ],
+        "summary": "Delete Setting",
+        "description": "Soft delete a module setting.",
+        "operationId": "delete_setting_api_v1_module_settings__module___key__delete",
+        "parameters": [
+          {
+            "name": "module",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Module"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "auth_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
               }
             }
           },
@@ -57746,6 +58213,67 @@
         ],
         "title": "MaterialConsumeRequest",
         "description": "\u9886\u6599\u8bf7\u6c42"
+      },
+      "ModuleSettingCreate": {
+        "properties": {
+          "module": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Module",
+            "description": "Module name"
+          },
+          "key": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Key",
+            "description": "Setting key"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value",
+            "description": "Setting value"
+          },
+          "value_type": {
+            "type": "string",
+            "pattern": "^(string|int|bool|json)$",
+            "title": "Value Type",
+            "default": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "module",
+          "key",
+          "value"
+        ],
+        "title": "ModuleSettingCreate",
+        "description": "Request schema for creating a new setting."
+      },
+      "ModuleSettingUpdate": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value",
+            "description": "New value (as string)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "ModuleSettingUpdate",
+        "description": "Request schema for updating a setting value."
       },
       "OffboardingRecordCreate": {
         "properties": {
