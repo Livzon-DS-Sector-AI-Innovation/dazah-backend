@@ -142,6 +142,75 @@ Key variables in `.env`:
 
 See `.env.example` for the full list.
 
+### Feishu Module Boundaries and Utilities
+
+Feishu credentials are owned by each business module. The platform integration
+layer only provides stateless helpers for parsing Bitable URLs, requesting
+tenant tokens from explicit credentials, and testing Bitable connectivity.
+Do not add a global Feishu credential store unless a separate requirement
+explicitly asks for one.
+
+Platform app, shared by SSO, organization sync, common IM and common Bitable:
+
+```env
+FEISHU_APP_ID=cli_xxx
+FEISHU_APP_SECRET=your_feishu_app_secret
+FEISHU_REDIRECT_URI=http://localhost:8000/api/v1/identity/auth/callback
+FRONTEND_URL=http://localhost:3000
+FEISHU_SCOPES=contact:contact.base:readonly contact:user.base:readonly
+FEISHU_WS_ENABLED=true
+```
+
+HR Bitable tables use the platform app credentials plus these table settings:
+
+```env
+FEISHU_BITABLE_APP_TOKEN=base_or_wiki_converted_app_token
+FEISHU_BITABLE_EMPLOYEE_TABLE_ID=tblEmployee
+FEISHU_BITABLE_DEPARTMENT_TABLE_ID=tblDepartment
+FEISHU_BITABLE_OFFBOARDING_TABLE_ID=tblOffboarding
+FEISHU_BITABLE_ONBOARDING_TABLE_ID=tblOnboarding
+FEISHU_BITABLE_DEPARTURE_TABLE_ID=tblDeparture
+FEISHU_BITABLE_APPROVAL_TABLE_ID=tblApproval
+```
+
+Other modules can either reuse the platform app with their own Bitable IDs:
+
+```env
+FEISHU_BITABLE_PRODUCT_APP_TOKEN=base_or_wiki_converted_app_token
+FEISHU_BITABLE_PRODUCT_TABLE_ID=tblProduct
+```
+
+or use an explicitly independent Feishu app when the module owns a separate bot:
+
+```env
+SAFETY_FEISHU_APP_ID=cli_xxx
+SAFETY_FEISHU_APP_SECRET=your_safety_app_secret
+SAFETY_FEISHU_BITABLE_APP_TOKEN=base_or_wiki_converted_app_token
+SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID=tblHazard
+EQUIPMENT_FEISHU_APP_ID=cli_xxx
+EQUIPMENT_FEISHU_APP_SECRET=your_equipment_app_secret
+```
+
+Warehouse Feishu settings are managed by the warehouse module itself through
+`/api/v1/warehouse/feishu-config`. The warehouse module stores its own app
+credentials and Bitable table IDs; it calls platform Feishu helpers only for
+parsing and connectivity checks.
+
+Module boundary rules:
+
+- `app/platform/integrations/feishu` contains generic Feishu utilities only.
+- `app/modules/<module>/feishu` contains module-specific Feishu business flows.
+- Modules must not import another module's Feishu business integration package.
+
+Operational checks:
+
+- SSO login: `GET /api/v1/identity/auth/login`
+- Organization sync: `POST /api/v1/identity/sync/departments` and `POST /api/v1/identity/sync/members`
+- HR sync: `POST /api/v1/hr/employees/sync-from-feishu`
+- Onboarding sync: `POST /api/v1/hr/onboarding-records/sync-from-feishu`
+- Departure sync: `POST /api/v1/hr/departure-records/sync-from-feishu`
+- Product sync: `POST /api/v1/product/products/sync-from-feishu`
+
 ## Frontend Integration
 
 The frontend (`dazah-frontend/`) is a Next.js application that connects to this backend:

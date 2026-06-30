@@ -11,16 +11,19 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import app.platform.audit.models  # noqa: F401
+
+# Ensure platform models are registered in SQLAlchemy metadata
+import app.platform.identity.models  # noqa: F401
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.response import error_response
+from app.modules.regulatory_tracker.tasks.sync_tasks import (
+    start_scheduler,
+    stop_scheduler,
+)
 from app.platform.audit import AuditMiddleware
-from app.modules.regulatory_tracker.tasks.sync_tasks import start_scheduler, stop_scheduler
-
-# Ensure platform models are registered in SQLAlchemy metadata
-import app.platform.identity.models  # noqa: F401
-import app.platform.audit.models  # noqa: F401
 
 settings = get_settings()
 
@@ -51,6 +54,10 @@ mcp_asgi = get_mcp_app(path="/", middleware=mcp_middleware)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting %s (%s)", settings.APP_NAME, settings.APP_ENV)
 
+    from app.modules.warehouse.feishu_events import register_feishu_event_handlers
+
+    register_feishu_event_handlers()
+
     from app.modules.energy.scheduler import (
         energy_collection_loop,
         stop_energy_collection_flag,
@@ -58,8 +65,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.modules.equipment.scheduler import (
         maintenance_plan_loop,
         stop_maintenance_plan_flag,
-        timeout_scan_loop,
         stop_timeout_flag,
+        timeout_scan_loop,
     )
     from app.platform.identity.scheduler import (
         member_sync_loop,
@@ -79,6 +86,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         set_main_loop(asyncio.get_running_loop())
         start_ws_client()
+
+    # ── 仓储模块飞书 WebSocket 长连接（模块独立应用凭据） ──
+    from app.modules.warehouse.ws_client import (
+        set_main_loop as set_warehouse_ws_main_loop,
+    )
+    from app.modules.warehouse.ws_client import (
+        start_ws_from_db as start_warehouse_ws,
+    )
+
+    set_warehouse_ws_main_loop(asyncio.get_running_loop())
+    await start_warehouse_ws()
 
     # ── 设备模块飞书 WebSocket 长连接（独立交互机器人，原生 WebSocket） ──
     equipment_ws_task: asyncio.Task | None = None
@@ -144,6 +162,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         await stop_equipment_ws()
         equipment_ws_task.cancel()
+
+    from app.modules.warehouse.ws_client import stop_ws as stop_warehouse_ws
+
+    await stop_warehouse_ws()
 
     energy_task.cancel()
     maintenance_plan_task.cancel()

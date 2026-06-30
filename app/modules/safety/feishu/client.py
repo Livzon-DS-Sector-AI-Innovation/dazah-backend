@@ -30,7 +30,8 @@ async def get_safety_feishu_client() -> lark.Client:
     """获取安全模块专属的飞书客户端。"""
     if not SAFETY_FEISHU_APP_ID or not SAFETY_FEISHU_APP_SECRET:
         raise RuntimeError(
-            "安全模块飞书配置缺失：请设置 SAFETY_FEISHU_APP_ID 和 SAFETY_FEISHU_APP_SECRET 环境变量"
+            "安全模块飞书配置缺失：请设置 SAFETY_FEISHU_APP_ID "
+            "和 SAFETY_FEISHU_APP_SECRET 环境变量"
         )
     return (
         lark.Client.builder()

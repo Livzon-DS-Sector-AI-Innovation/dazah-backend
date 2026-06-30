@@ -10,9 +10,12 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # dazah-backend/
 
 
 def _get_env_file() -> str:
-    """根据 APP_ENV 选择对应的 .env 文件，默认为 development。"""
+    """根据 APP_ENV 选择 .env 文件；缺省环境文件不存在时回退到 .env。"""
     app_env = os.getenv("APP_ENV", "development")
-    env_file = str(_PROJECT_ROOT / f".env.{app_env}")
+    env_path = _PROJECT_ROOT / f".env.{app_env}"
+    if not env_path.exists():
+        env_path = _PROJECT_ROOT / ".env"
+    env_file = str(env_path)
     print(f"Loading environment variables from: {env_file}")
     return env_file
 
@@ -43,6 +46,7 @@ class Settings(BaseSettings):
         return bool(v)
 
     SECRET_KEY: str = "change-me-in-production"
+    ENCRYPTION_KEY: str | None = None
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/dazah"
@@ -61,7 +65,7 @@ class Settings(BaseSettings):
     # Audit
     AUDIT_RETENTION_DAYS: int = 7
 
-    # Feishu SSO — 全部从 .env 读取，不设默认值，避免部署时漏配
+    # Feishu / Lark — platform app shared by SSO, org sync, IM and common Bitable access.
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
     FEISHU_REDIRECT_URI: str = ""
@@ -71,6 +75,7 @@ class Settings(BaseSettings):
     # Feishu 设备部
     FEISHU_EQUIPMENT_DEPT_ID: str = ""
     FEISHU_EQUIPMENT_CHAT_ID: str = "oc_ba1a54a70a0d611315f29581621c50b5"
+    FEISHU_SAFETY_CHAT_ID: str = ""
 
     # Feishu 组织架构同步
     FEISHU_SYNC_ROOT_DEPT_ID: str = ""  # 部门同步的根部门 ID（API 触发）
@@ -82,6 +87,8 @@ class Settings(BaseSettings):
     # Feishu 安全模块机器人（独立应用凭证）
     SAFETY_FEISHU_APP_ID: str = ""
     SAFETY_FEISHU_APP_SECRET: str = ""
+    SAFETY_FEISHU_BITABLE_APP_TOKEN: str = ""
+    SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID: str = ""
 
     # Feishu 设备模块交互机器人（独立应用凭证）
     EQUIPMENT_FEISHU_APP_ID: str = ""
@@ -118,6 +125,10 @@ class Settings(BaseSettings):
     FEISHU_BITABLE_ONBOARDING_TABLE_ID: str = ""
     FEISHU_BITABLE_DEPARTURE_TABLE_ID: str = ""
     FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
+
+    # Feishu Bitable — 产品模块
+    FEISHU_BITABLE_PRODUCT_APP_TOKEN: str = ""
+    FEISHU_BITABLE_PRODUCT_TABLE_ID: str = ""
 
     # Training Notification Bitable
     FEISHU_BITABLE_TRAINING_NOTIFICATION_APP_TOKEN: str = ""
