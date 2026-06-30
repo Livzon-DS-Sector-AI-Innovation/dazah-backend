@@ -1,12 +1,10 @@
 """AI解析API路由"""
 
-import os
+import json
 import tempfile
 from fastapi import APIRouter, File, UploadFile, HTTPException, Body
-from fastapi.responses import JSONResponse
 from app.core.response import success_response
-from app.modules.research.llm_service import LLMConfig
-import json
+from app.core.llm import llm_client
 
 router = APIRouter()
 
@@ -38,11 +36,6 @@ async def parse_experiment_record(
             text_content = f"[图片文件: {file.filename}，需要OCR识别]"
         else:
             text_content = content.decode('utf-8', errors='ignore')
-        
-        # 调用LLM解析
-        llm_config = LLMConfig()
-        if not llm_config.api_key:
-            raise HTTPException(status_code=500, detail="LLM未配置")
         
         # 构建提示词
         if parse_type == 'lab_confirmation':
@@ -89,39 +82,13 @@ async def parse_experiment_record(
 
 请只返回JSON，不要包含其他说明文字。"""
         
-        # 调用LLM
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(
-            api_key=llm_config.api_key,
-            base_url=llm_config.base_url
-        )
+        # 调用LLM - 使用 core.llm 统一客户端
+        result = await llm_client.chat_json([
+            {"role": "system", "content": "你是一个专业的制药工艺数据提取助手，擅长从实验记录中提取关键信息。"},
+            {"role": "user", "content": prompt}
+        ])
         
-        response = await client.chat.completions.create(
-            model=llm_config.model,
-            messages=[
-                {"role": "system", "content": "你是一个专业的制药工艺数据提取助手，擅长从实验记录中提取关键信息。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
-        # 尝试解析JSON
-        try:
-            # 移除可能的markdown代码块标记
-            if result_text.startswith('```'):
-                lines = result_text.split('\n')
-                result_text = '\n'.join(lines[1:-1])
-            
-            parsed_data = json.loads(result_text)
-            return success_response(data=parsed_data)
-        except json.JSONDecodeError as e:
-            # 如果解析失败，返回原始文本
-            return success_response(data={
-                "raw_text": result_text,
-                "parse_error": str(e)
-            })
+        return success_response(data=result)
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"解析失败: {str(e)}")
@@ -137,11 +104,6 @@ async def parse_process_parameters(
     从文本内容中提取工艺参数
     """
     try:
-        # 调用LLM解析
-        llm_config = LLMConfig()
-        if not llm_config.api_key:
-            raise HTTPException(status_code=500, detail="LLM未配置")
-        
         # 构建提示词（与文件解析类似）
         if parse_type == 'lab_confirmation':
             prompt = f"""请从以下文本中提取小试工艺确认的关键信息，返回JSON格式：
@@ -187,39 +149,13 @@ async def parse_process_parameters(
 
 请只返回JSON，不要包含其他说明文字。"""
         
-        # 调用LLM
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(
-            api_key=llm_config.api_key,
-            base_url=llm_config.base_url
-        )
+        # 调用LLM - 使用 core.llm 统一客户端
+        result = await llm_client.chat_json([
+            {"role": "system", "content": "你是一个专业的制药工艺数据提取助手，擅长从文本中提取关键信息。"},
+            {"role": "user", "content": prompt}
+        ])
         
-        response = await client.chat.completions.create(
-            model=llm_config.model,
-            messages=[
-                {"role": "system", "content": "你是一个专业的制药工艺数据提取助手，擅长从文本中提取关键信息。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
-        # 尝试解析JSON
-        try:
-            # 移除可能的markdown代码块标记
-            if result_text.startswith('```'):
-                lines = result_text.split('\n')
-                result_text = '\n'.join(lines[1:-1])
-            
-            parsed_data = json.loads(result_text)
-            return success_response(data=parsed_data)
-        except json.JSONDecodeError as e:
-            # 如果解析失败，返回原始文本
-            return success_response(data={
-                "raw_text": result_text,
-                "parse_error": str(e)
-            })
+        return success_response(data=result)
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"解析失败: {str(e)}")
