@@ -599,3 +599,189 @@ async def update_alert_record(
         )
     )
     return result.scalar_one_or_none()
+
+
+# ── 车间管理 ──
+
+
+async def create_workshop(
+    db: AsyncSession, data: dict[str, Any]
+) -> "EnergyWorkshop":
+    from app.modules.energy.models import EnergyWorkshop
+    obj = EnergyWorkshop(**data)
+    db.add(obj)
+    await db.flush()
+    return obj
+
+
+async def get_workshop_by_id(
+    db: AsyncSession, workshop_id: UUID
+) -> "EnergyWorkshop | None":
+    from app.modules.energy.models import EnergyWorkshop
+    result = await db.execute(
+        select(EnergyWorkshop).where(
+            EnergyWorkshop.id == workshop_id,
+            EnergyWorkshop.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_workshop_by_code(
+    db: AsyncSession, code: str
+) -> "EnergyWorkshop | None":
+    from app.modules.energy.models import EnergyWorkshop
+    result = await db.execute(
+        select(EnergyWorkshop).where(
+            EnergyWorkshop.code == code,
+            EnergyWorkshop.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+
+
+async def get_workshop_by_name(
+    db: AsyncSession, name: str
+) -> "EnergyWorkshop | None":
+    from app.modules.energy.models import EnergyWorkshop
+    result = await db.execute(
+        select(EnergyWorkshop).where(
+            EnergyWorkshop.name == name,
+            EnergyWorkshop.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+async def list_workshops(
+    db: AsyncSession,
+    *,
+    category: str | None = None,
+    is_active: bool | None = None,
+    page: int = 1,
+    page_size: int = 100,
+) -> tuple[list["EnergyWorkshop"], int]:
+    from app.modules.energy.models import EnergyWorkshop
+    query = select(EnergyWorkshop).where(
+        EnergyWorkshop.is_deleted == False  # noqa: E712
+    )
+    if category:
+        query = query.where(EnergyWorkshop.category == category)
+    if is_active is not None:
+        query = query.where(EnergyWorkshop.is_active == is_active)
+
+    count_query = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_query)).scalar() or 0
+
+    query = query.order_by(EnergyWorkshop.sort_order, EnergyWorkshop.code)
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    return list(result.scalars().all()), total
+
+
+async def update_workshop(
+    db: AsyncSession, workshop_id: UUID, data: dict[str, Any]
+) -> "EnergyWorkshop | None":
+    from app.modules.energy.models import EnergyWorkshop
+    obj = await get_workshop_by_id(db, workshop_id)
+    if obj is None:
+        return None
+    for key, value in data.items():
+        setattr(obj, key, value)
+    await db.flush()
+    result = await db.execute(
+        select(EnergyWorkshop).where(
+            EnergyWorkshop.id == workshop_id,
+            EnergyWorkshop.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def delete_workshop(db: AsyncSession, workshop_id: UUID) -> bool:
+    from app.modules.energy.models import EnergyWorkshop
+    obj = await get_workshop_by_id(db, workshop_id)
+    if obj is None:
+        return False
+    obj.is_deleted = True
+    await db.flush()
+    return True
+
+
+# ── 月度记录 ──
+
+
+async def create_monthly_record(
+    db: AsyncSession, data: dict[str, Any]
+) -> "EnergyMonthlyRecord":
+    from app.modules.energy.models import EnergyMonthlyRecord
+    obj = EnergyMonthlyRecord(**data)
+    db.add(obj)
+    await db.flush()
+    return obj
+
+
+async def batch_create_monthly_records(
+    db: AsyncSession, records: list[dict[str, Any]]
+) -> list["EnergyMonthlyRecord"]:
+    from app.modules.energy.models import EnergyMonthlyRecord
+    objs = [EnergyMonthlyRecord(**r) for r in records]
+    db.add_all(objs)
+    await db.flush()
+    return objs
+
+
+async def list_monthly_records(
+    db: AsyncSession,
+    *,
+    workshop_id: UUID | None = None,
+    energy_type: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    page: int = 1,
+    page_size: int = 100,
+) -> tuple[list["EnergyMonthlyRecord"], int]:
+    from app.modules.energy.models import EnergyMonthlyRecord
+    query = select(EnergyMonthlyRecord).where(
+        EnergyMonthlyRecord.is_deleted == False  # noqa: E712
+    )
+    if workshop_id:
+        query = query.where(EnergyMonthlyRecord.workshop_id == workshop_id)
+    if energy_type:
+        query = query.where(EnergyMonthlyRecord.energy_type == energy_type)
+    if start_date:
+        query = query.where(EnergyMonthlyRecord.record_date >= start_date)
+    if end_date:
+        query = query.where(EnergyMonthlyRecord.record_date <= end_date)
+
+    count_query = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_query)).scalar() or 0
+
+    query = query.order_by(EnergyMonthlyRecord.record_date.desc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    return list(result.scalars().all()), total
+
+
+async def get_monthly_record_by_id(
+    db: AsyncSession, record_id: UUID
+) -> "EnergyMonthlyRecord | None":
+    from app.modules.energy.models import EnergyMonthlyRecord
+    result = await db.execute(
+        select(EnergyMonthlyRecord).where(
+            EnergyMonthlyRecord.id == record_id,
+            EnergyMonthlyRecord.is_deleted == False,  # noqa: E712
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def delete_monthly_record(db: AsyncSession, record_id: UUID) -> bool:
+    from app.modules.energy.models import EnergyMonthlyRecord
+    obj = await get_monthly_record_by_id(db, record_id)
+    if obj is None:
+        return False
+    obj.is_deleted = True
+    await db.flush()
+    return True

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID as UUIDType
@@ -11,6 +11,7 @@ from uuid import UUID as UUIDType
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -30,6 +31,7 @@ class EnergyType(enum.StrEnum):
     ELECTRICITY = "electricity"
     WATER = "water"
     GAS = "gas"
+    STEAM = "steam"
 
 
 class MonitorLevel(enum.StrEnum):
@@ -44,6 +46,45 @@ class CollectStatus(enum.StrEnum):
     FAILED = "failed"
 
 
+class WorkshopCategory(enum.StrEnum):
+    WORKSHOP = "workshop"      # 生产车间
+    POSITION = "position"      # 岗位
+    SUPPORT = "support"        # 辅助部门
+    UTILITY = "utility"        # 动力设施
+
+
+class EnergyWorkshop(BaseModel):
+    """车间/部门配置表"""
+
+    __tablename__ = "energy_workshops"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_energy_workshop_code"),
+        {"schema": "energy"},
+    )
+
+    code: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="车间编码"
+    )
+    name: Mapped[str] = mapped_column(
+        String(100), nullable=False, comment="车间名称"
+    )
+    category: Mapped[str] = mapped_column(
+        String(20), nullable=False, comment="分类: workshop/position/support/utility"
+    )
+    parent_id: Mapped[UUIDType | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("energy.energy_workshops.id"),
+        nullable=True,
+        comment="父级车间ID",
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="排序"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, comment="是否启用"
+    )
+
+
 class EnergyDeviceConfig(BaseModel):
     """三方平台设备配置表"""
 
@@ -56,7 +97,7 @@ class EnergyDeviceConfig(BaseModel):
             name="uq_energy_device_config_platform_device",
         ),
         CheckConstraint(
-            "energy_type IN ('electricity', 'water', 'gas')",
+            "energy_type IN ('electricity', 'water', 'gas', 'steam')",
             name="ck_energy_device_config_energy_type",
         ),
         CheckConstraint(
@@ -80,7 +121,7 @@ class EnergyDeviceConfig(BaseModel):
         String(200), nullable=False, comment="设备名称"
     )
     energy_type: Mapped[str] = mapped_column(
-        String(20), nullable=False, comment="能源类型: electricity/water/gas"
+        String(20), nullable=False, comment="能源类型: electricity/water/gas/steam"
     )
     api_endpoint: Mapped[str] = mapped_column(
         String(500), nullable=False, comment="API 路径"
@@ -148,6 +189,53 @@ class EnergyData(BaseModel):
     )
 
 
+class EnergyMonthlyRecord(BaseModel):
+    """月度能耗记录表（用于存储飞书导入的数据）"""
+
+    __tablename__ = "energy_monthly_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "workshop_id",
+            "energy_type",
+            "record_date",
+            name="uq_energy_monthly_record",
+        ),
+        CheckConstraint(
+            "energy_type IN ('electricity', 'water', 'gas', 'steam')",
+            name="ck_energy_monthly_record_energy_type",
+        ),
+        {"schema": "energy"},
+    )
+
+    workshop_id: Mapped[UUIDType] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("energy.energy_workshops.id"),
+        nullable=False,
+        comment="车间ID",
+    )
+    energy_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, comment="能源类型"
+    )
+    record_date: Mapped[date] = mapped_column(
+        Date, nullable=False, comment="记录日期"
+    )
+    date_range_end: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="日期范围结束（多日汇总时使用）"
+    )
+    value: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, comment="能耗值"
+    )
+    unit: Mapped[str] = mapped_column(
+        String(20), nullable=False, comment="计量单位"
+    )
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="feishu", comment="数据来源"
+    )
+    remark: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="备注"
+    )
+
+
 class EnergyCollectLog(BaseModel):
     """采集日志表"""
 
@@ -169,59 +257,20 @@ class EnergyCollectLog(BaseModel):
         Integer, nullable=False, comment="应采集设备数"
     )
     success_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, comment="成功条数"
+        Integer, nullable=False, comment="成功采集数"
     )
     error_message: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="错误信息"
     )
 
 
-# ── 预警系统 ──
-
-
-class AlertLevel(enum.StrEnum):
-    INFO = "info"
-    WARNING = "warning"
-    CRITICAL = "critical"
-    EMERGENCY = "emergency"
-
-
-class MonitorMetric(enum.StrEnum):
-    INSTANT = "instant"
-    DAILY_TOTAL = "daily_total"
-    MONTHLY_TOTAL = "monthly_total"
-
-
-class ThresholdType(enum.StrEnum):
-    GREATER_THAN = "greater_than"
-    LESS_THAN = "less_than"
-    EQUAL = "equal"
-
-
-class NotifyFrequency(enum.StrEnum):
-    FIRST = "first"
-    EVERY = "every"
-    DAILY_SUMMARY = "daily_summary"
-
-
-class EffectiveTimeType(enum.StrEnum):
-    ALL_DAY = "all_day"
-    CUSTOM = "custom"
-
-
-class AlertRecordStatus(enum.StrEnum):
-    PENDING = "pending"
-    PROCESSED = "processed"
-    IGNORED = "ignored"
-
-
 class EnergyAlertRule(BaseModel):
-    """能耗预警规则表"""
+    """预警规则表"""
 
     __tablename__ = "energy_alert_rules"
     __table_args__ = (
         CheckConstraint(
-            "energy_type IN ('electricity', 'water', 'gas')",
+            "energy_type IN ('electricity', 'water', 'gas', 'steam')",
             name="ck_energy_alert_rule_energy_type",
         ),
         CheckConstraint(
