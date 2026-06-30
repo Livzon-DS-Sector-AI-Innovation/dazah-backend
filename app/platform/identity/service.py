@@ -30,37 +30,37 @@ class IdentityService:
     async def handle_callback(
         self, session: AsyncSession, code: str,
     ) -> str:
-        """Exchange code → upsert user → enrich department/position → return JWT."""
-        resp = await self._feishu.exchange_code(code)
-        if not resp.success():
+        """Exchange code → get user info → upsert user → enrich department/position → return JWT."""
+        # Step 1: Exchange authorization code for user_access_token
+        token_resp = await self._feishu.exchange_code(code)
+        if not token_resp.success():
             raise RuntimeError(
-                f"Feishu token exchange failed: code={resp.code}, msg={resp.msg}",
+                f"Feishu token exchange failed: code={token_resp.code}, msg={token_resp.msg}",
             )
 
-        body = resp.data
-        if not body:
-            raise RuntimeError("Feishu token response has no data")
-
-        feishu_open_id = body.open_id or ""
-        feishu_user_id = getattr(body, "user_id", "") or ""
+        # Step 2: Get user info using user_access_token
+        user_info = await self._feishu.get_user_info(token_resp.access_token)
+        
+        feishu_open_id = user_info.open_id
+        feishu_user_id = user_info.user_id
 
         user = await self._user_repo.get_by_feishu_open_id(session, feishu_open_id)
         if user is None:
             user = await self._user_repo.create(
                 session,
-                name=body.name or "",
+                name=user_info.name or "",
                 feishu_user_id=feishu_user_id,
                 feishu_open_id=feishu_open_id,
-                employee_no=getattr(body, "employee_no", None),
-                email=getattr(body, "email", None),
-                mobile=getattr(body, "mobile", None),
-                avatar_url=getattr(body, "avatar_url", None),
+                employee_no=user_info.employee_no or None,
+                email=user_info.email or None,
+                mobile=user_info.mobile or None,
+                avatar_url=user_info.avatar_url or None,
             )
         else:
-            user.name = body.name or user.name
-            user.email = getattr(body, "email", None) or user.email
-            user.mobile = getattr(body, "mobile", None) or user.mobile
-            user.avatar_url = getattr(body, "avatar_url", None) or user.avatar_url
+            user.name = user_info.name or user.name
+            user.email = user_info.email or user.email
+            user.mobile = user_info.mobile or user.mobile
+            user.avatar_url = user_info.avatar_url or user.avatar_url
 
         # ── 补全部门/职位信息 ──
         if feishu_user_id and (
