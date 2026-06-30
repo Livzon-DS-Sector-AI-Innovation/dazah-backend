@@ -32,6 +32,7 @@ class User(BaseModel):
         Text, nullable=True, comment="飞书部门ID列表，JSON数组"
     )
     external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    role: Mapped[str] = mapped_column(String(50), default="member", comment="角色: admin/manager/member/viewer")
 
 
 class Department(BaseModel):

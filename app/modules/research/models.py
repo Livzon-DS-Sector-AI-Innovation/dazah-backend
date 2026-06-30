@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, Integer, JSON, String, Text, ForeignKey
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Float, Integer, JSON, String, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -209,16 +209,20 @@ class ProcessOptimization(BaseModel):
     __tablename__ = "process_optimizations"
     __table_args__ = {"schema": "research"}
 
-    # Override id from BaseModel to use String (DB column is varchar)
     id: Mapped[str] = mapped_column(
         String(50), primary_key=True, comment="主键ID"
     )
-
     project_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, comment="所属研发项目ID"
     )
-    route_id: Mapped[str | None] = mapped_column(
+    optimization_no: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="优化任务编号"
+    )
+    source_route_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, comment="来源路线ID"
+    )
+    source_route_name: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, comment="来源路线名称"
     )
     name: Mapped[str] = mapped_column(
         String(200), comment="优化任务名称"
@@ -234,11 +238,8 @@ class ProcessOptimization(BaseModel):
         String(20), default="doe",
         comment="当前工作流阶段: doe/impurity/crystal/quality/scaleup/report"
     )
-    doe_design: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="DOE实验设计数据"
-    )
-    doe_results: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="DOE实验结果数据"
+    doe_experiment: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="DOE实验数据"
     )
     impurity_study: Mapped[dict | None] = mapped_column(
         JSON, nullable=True, comment="杂质研究数据"
@@ -246,14 +247,11 @@ class ProcessOptimization(BaseModel):
     crystal_form_study: Mapped[dict | None] = mapped_column(
         JSON, nullable=True, comment="晶型研究数据"
     )
-    quality_standards: Mapped[dict | None] = mapped_column(
+    quality_standard_set: Mapped[dict | None] = mapped_column(
         JSON, nullable=True, comment="质量标准数据"
     )
     scale_up_study: Mapped[dict | None] = mapped_column(
         JSON, nullable=True, comment="公斤级放大数据"
-    )
-    final_report: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="最终报告数据"
     )
     start_date: Mapped[date | None] = mapped_column(
         Date, nullable=True, comment="开始日期"
@@ -592,5 +590,234 @@ class RdResearchFinding(BaseModel):
     conclusion: Mapped[str | None] = mapped_column(Text, nullable=True, comment="结论")
     confidence: Mapped[str] = mapped_column(String(50), default="preliminary", comment="preliminary/confirmed/final")
     
+    # 实验条件（结构化）
+    experiment_date: Mapped[date | None] = mapped_column(Date, nullable=True, comment="实验日期")
+    operator: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="操作人")
+    experiment_conditions: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="实验条件（温度、溶剂、时间等）")
+    materials_used: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="使用物料")
+    equipment_used: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="使用设备")
+    # 图谱与检测
+    spectra_refs: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="图谱引用（HPLC/NMR/XRD等）")
+    analytical_results: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="检测结果")
+    # 其他
+    observations: Mapped[str | None] = mapped_column(Text, nullable=True, comment="实验现象/观察")
     attachments: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="附件列表")
     version: Mapped[int] = mapped_column(Integer, default=1, comment="版本号")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class RdPilotStudy(BaseModel):
+    """中试研究"""
+    __tablename__ = "rd_pilot_studies"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_projects.id"), comment="项目ID"
+    )
+    stage_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_stage_records.id"), nullable=True, comment="关联阶段记录"
+    )
+    batch_no: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="批次号")
+    batch_size: Mapped[float | None] = mapped_column(Float, nullable=True, comment="批次规模(kg)")
+    status: Mapped[str] = mapped_column(String(50), default="draft", comment="draft/in_progress/completed")
+    material_balance: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="物料衡算")
+    equipment_selection: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="设备选型")
+    engineering_calc: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="工程计算")
+    ehs_assessment: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="EHS评估")
+    scale_up_effect: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="放大效应")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class RdProcessValidation(BaseModel):
+    """工艺验证"""
+    __tablename__ = "rd_process_validations"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_projects.id"), comment="项目ID"
+    )
+    stage_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_stage_records.id"), nullable=True, comment="关联阶段记录"
+    )
+    status: Mapped[str] = mapped_column(String(50), default="draft", comment="draft/in_progress/completed")
+    validation_protocol: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="验证方案")
+    validation_batches: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="验证批次")
+    statistical_analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="统计分析")
+    validation_conclusion: Mapped[str | None] = mapped_column(Text, nullable=True, comment="验证结论")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class RdRegistrationFiling(BaseModel):
+    """申报资料"""
+    __tablename__ = "rd_registration_filings"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_projects.id"), comment="项目ID"
+    )
+    stage_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_stage_records.id"), nullable=True, comment="关联阶段记录"
+    )
+    status: Mapped[str] = mapped_column(String(50), default="draft", comment="draft/in_progress/completed")
+    ctd_structure: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="CTD文档结构")
+    filing_progress: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="申报进度")
+    supplementary_docs: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="补充资料")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class RdStageDeliverable(BaseModel):
+    """阶段交付物"""
+    __tablename__ = "rd_stage_deliverables"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_projects.id"), comment="项目ID"
+    )
+    stage: Mapped[str] = mapped_column(String(50), comment="initiation/route_dev/optimization/pilot/validation/filing")
+    deliverable_type: Mapped[str] = mapped_column(String(100), comment="交付物类型")
+    title: Mapped[str] = mapped_column(String(500), comment="标题")
+    status: Mapped[str] = mapped_column(String(50), default="draft", comment="draft/in_progress/completed/approved")
+    version: Mapped[str] = mapped_column(String(50), default="v1.0", comment="版本号")
+    file_url: Mapped[str | None] = mapped_column(String(1000), nullable=True, comment="附件URL")
+    file_name: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="文件名")
+    file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True, comment="文件大小(字节)")
+    content: Mapped[str | None] = mapped_column(Text, nullable=True, comment="内容(富文本)")
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="负责人"
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class RdExperimentLog(BaseModel):
+    """实验记录"""
+    __tablename__ = "rd_experiment_logs"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_projects.id"), comment="项目ID"
+    )
+    stage_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_stage_records.id"), nullable=True, comment="关联阶段记录"
+    )
+    title: Mapped[str] = mapped_column(String(300), comment="实验标题")
+    experiment_type: Mapped[str] = mapped_column(
+        String(50), comment="实验类型: reaction/crystallization/purification/analysis/stability/other"
+    )
+    experiment_date: Mapped[date | None] = mapped_column(Date, nullable=True, comment="实验日期")
+    operator: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="操作人")
+    status: Mapped[str] = mapped_column(String(50), default="planned", comment="planned/in_progress/completed/failed")
+    objective: Mapped[str | None] = mapped_column(Text, nullable=True, comment="实验目的")
+    materials: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="原辅料信息")
+    equipment: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="设备信息")
+    procedure: Mapped[str | None] = mapped_column(Text, nullable=True, comment="实验步骤")
+    process_params: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="工艺参数")
+    observations: Mapped[str | None] = mapped_column(Text, nullable=True, comment="实验现象/观察")
+    results: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="实验结果")
+    conclusion: Mapped[str | None] = mapped_column(Text, nullable=True, comment="实验结论")
+    issues: Mapped[str | None] = mapped_column(Text, nullable=True, comment="问题与讨论")
+    next_steps: Mapped[str | None] = mapped_column(Text, nullable=True, comment="后续计划")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class RdReport(BaseModel):
+    """研发报告"""
+    __tablename__ = "rd_reports"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_projects.id"), comment="项目ID"
+    )
+    title: Mapped[str] = mapped_column(String(500), comment="报告标题")
+    report_type: Mapped[str] = mapped_column(
+        String(50), comment="报告类型: summary/stage/annual/final/custom"
+    )
+    stage: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="关联阶段")
+    status: Mapped[str] = mapped_column(String(50), default="draft", comment="draft/in_progress/reviewed/approved")
+    version: Mapped[str] = mapped_column(String(50), default="v1.0", comment="版本号")
+    content: Mapped[str | None] = mapped_column(Text, nullable=True, comment="报告内容(富文本)")
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True, comment="摘要")
+    key_findings: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="关键发现")
+    recommendations: Mapped[str | None] = mapped_column(Text, nullable=True, comment="建议与结论")
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="作者"
+    )
+    reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="审核人"
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="审核时间")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class RdInitiation(BaseModel):
+    """立项申请"""
+    __tablename__ = "rd_initiations"
+    __table_args__ = {"schema": "research"}
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_projects.id"), comment="项目ID"
+    )
+    # 立项申请信息
+    project_background: Mapped[str | None] = mapped_column(Text, nullable=True, comment="项目背景")
+    market_analysis: Mapped[str | None] = mapped_column(Text, nullable=True, comment="市场分析")
+    technical_feasibility: Mapped[str | None] = mapped_column(Text, nullable=True, comment="技术可行性分析")
+    resource_requirements: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="资源需求（人员、设备、预算）")
+    timeline_plan: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="时间计划")
+    risk_assessment: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="风险评估")
+    expected_outcomes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="预期成果")
+    applicant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="申请人"
+    )
+    application_date: Mapped[date | None] = mapped_column(Date, nullable=True, comment="申请日期")
+    # 评审信息
+    review_status: Mapped[str] = mapped_column(String(50), default="pending", comment="评审状态: pending/approved/rejected")
+    reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="评审人"
+    )
+    review_date: Mapped[date | None] = mapped_column(Date, nullable=True, comment="评审日期")
+    review_comments: Mapped[str | None] = mapped_column(Text, nullable=True, comment="评审意见")
+    review_score: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="评审评分(1-10)")
+    # 批准信息
+    approval_status: Mapped[str] = mapped_column(String(50), default="pending", comment="批准状态: pending/approved/rejected")
+    approver_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="批准人"
+    )
+    approval_date: Mapped[date | None] = mapped_column(Date, nullable=True, comment="批准日期")
+    approval_comments: Mapped[str | None] = mapped_column(Text, nullable=True, comment="批准意见")
+    # 其他
+    attachments: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="附件列表")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class RdTrackConclusionVersion(BaseModel):
+    """研究项结论版本历史"""
+    __tablename__ = "rd_track_conclusion_versions"
+    __table_args__ = {"schema": "research"}
+
+    track_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("research.rd_research_tracks.id"), comment="研究项ID"
+    )
+    version: Mapped[int] = mapped_column(Integer, comment="版本号")
+    conclusion: Mapped[str | None] = mapped_column(Text, nullable=True, comment="结论文本")
+    confidence: Mapped[str] = mapped_column(String(50), default="preliminary", comment="preliminary/confirmed/final")
+    change_summary: Mapped[str | None] = mapped_column(Text, nullable=True, comment="变更说明")
+    evidence_refs: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="支撑证据引用")
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="作者"
+    )
+
+
+class RdDeliverableTemplate(BaseModel):
+    """交付物模板"""
+    __tablename__ = "rd_deliverable_templates"
+    __table_args__ = {"schema": "research"}
+
+    name: Mapped[str] = mapped_column(String(200), comment="模板名称")
+    deliverable_type: Mapped[str] = mapped_column(String(50), comment="交付物类型")
+    stage: Mapped[str] = mapped_column(String(50), comment="所属阶段")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="模板描述")
+    template_content: Mapped[str | None] = mapped_column(Text, nullable=True, comment="模板内容")
+    template_structure: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="模板结构定义")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, comment="是否启用")
+    creator_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identity.users.id"), nullable=True, comment="创建者"
+    )
