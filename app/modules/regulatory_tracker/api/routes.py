@@ -1,4 +1,4 @@
-"""Regulatory Tracker API routes V2 - 原料药企业影响评估。"""
+"""Regulatory Tracker API routes V4 - 系统分类支持。"""
 
 import uuid
 from datetime import date
@@ -9,13 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.modules.regulatory_tracker import repository as repo
-from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_new_documents, analyze_and_update
 from app.modules.regulatory_tracker.utils.excel_export import generate_regulatory_excel
 from app.modules.regulatory_tracker.schemas import (
     RegulatoryDocumentRead,
     SyncJobRead,
     SyncTriggerRequest,
     BatchReadRequest,
+)
+from app.modules.regulatory_tracker.services.classification_service import (
+    get_category_display_name,
 )
 
 router = APIRouter()
@@ -55,93 +57,76 @@ def _extract_impact_data(doc) -> dict:
 
 # ============ Dashboard ============
 
-@router.get("/regulatory-tracker/dashboard", summary="Dashboard 统计数据")
+@router.get("/regulatory-tracker/dashboard", summary="Dashboard 工作台数据")
 async def get_dashboard(db: AsyncSession = Depends(get_db)):
     """
-    返回 Dashboard 完整数据：
-    - 今日/本周新增、未读、AI 已分析数量
-    - 高/中影响法规数量、未分析法规数量
-    - 近 7 天趋势
-    - 分类统计
-    - 数据来源状态
-    - 今日新增法规列表
-    - 重点关注法规列表（high/medium impact）
+    返回 Dashboard 工作台数据：
+    - 今日新增统计（总数、高影响数、一般法规数）
+    - 重点关注数量
+    - 近 7 天动态（总数、高影响数）
+    - 数据源状态
+    - 今日值得关注（最多 5 条 attention 法规）
+    - 近 7 天趋势（二级信息）
+    - 分类统计（二级信息）
     """
-    stats = await repo.get_dashboard_stats(db)
+    # 核心数据
+    today_stats = await repo.get_today_new_stats(db)
+    attention_count = await repo.get_attention_count(db)
+    week_stats = await repo.get_week_stats(db)
+    source_status = await repo.get_source_status_v2(db)
+    priority_docs = await repo.get_priority_documents_v2(db, limit=10)
+    
+    # 二级信息
     trend = await repo.get_7day_trend(db)
     classification = await repo.get_classification_stats(db)
-    source_status = await repo.get_source_status(db)
-    today_docs = await repo.get_today_new_documents(db, limit=10)
     
-    # 获取影响等级统计
-    impact_stats = await repo.get_impact_stats(db)
-    
-    # 获取重点关注法规（high/medium impact）
-    priority_docs = await repo.get_priority_documents(db, limit=10)
-
-    # 格式化今日新增文档
-    today_new_documents = []
-    for doc in today_docs:
-        source = await repo.get_data_source_by_id(db, doc.source_id)
-        channel = await repo.get_channel_by_id(db, doc.channel_id)
-        impact_data = _extract_impact_data(doc)
-        today_new_documents.append({
-            "id": str(doc.id),
-            "title": doc.title,
-            "publishDate": doc.publish_date.isoformat() if doc.publish_date else None,
-            "classification": doc.classification,
-            "statusText": doc.status_text,
-            "sourceName": source.name if source else None,
-            "channelName": channel.name if channel else None,
-            "isNew": doc.is_new,
-            "aiRelevanceScore": doc.ai_relevance_score,
-            "impact_level": impact_data["impact_level"],
-            "impact_score": impact_data["impact_score"],
-        })
-
-    # 格式化重点关注法规
+    # 格式化今日值得关注法规
     priority_documents = []
     for doc in priority_docs:
         source = await repo.get_data_source_by_id(db, doc.source_id)
-        channel = await repo.get_channel_by_id(db, doc.channel_id)
         impact_data = _extract_impact_data(doc)
+        
+        # 从 ai_key_points 提取法规类型
+        key_points = doc.ai_key_points or {}
+        regulation_type = key_points.get("regulation_type", "") if isinstance(key_points, dict) else ""
+        
         priority_documents.append({
             "id": str(doc.id),
             "title": doc.title,
-            "publishDate": doc.publish_date.isoformat() if doc.publish_date else None,
-            "classification": doc.classification,
-            "statusText": doc.status_text,
             "sourceName": source.name if source else None,
-            "channelName": channel.name if channel else None,
-            "impact_level": impact_data["impact_level"],
-            "impact_score": impact_data["impact_score"],
-            "lifecycle_impact": [
-                lp.get("area", "") for lp in impact_data["lifecycle_impacts"]
-                if isinstance(lp, dict) and lp.get("affected")
-            ],
-            "departments": impact_data["departments"],
-            "recommended_actions": impact_data["recommended_actions"],
-            "ai_summary": doc.ai_summary,
+            "regulationType": regulation_type,
+            "publishDate": doc.publish_date.isoformat() if doc.publish_date else None,
+            "aiSummary": doc.ai_summary,
+            "aiRelevanceScore": doc.ai_relevance_score,
+            "aiKeyPoints": doc.ai_key_points,
+            "documentCategory": doc.document_category,
+            "documentCategoryName": get_category_display_name(doc.document_category or "general"),
+            "originalUrl": doc.original_url,
+            "impactLevel": impact_data["impact_level"],
         })
-
+    
     return {
         "code": 200,
         "message": "success",
         "data": {
-            **stats,
-            "highImpactCount": impact_stats.get("high", 0),
-            "mediumImpactCount": impact_stats.get("medium", 0),
-            "unanalyzedCount": impact_stats.get("unanalyzed", 0),
+            # 四张卡片
+            "todayNewCount": today_stats["total"],
+            "todayNewHighImpact": today_stats["high"],
+            "todayNewGeneralCount": today_stats["general"],
+            "attentionCount": attention_count,
+            "weekTotal": week_stats["total"],
+            "weekHighImpact": week_stats["high_impact"],
+            "sourceStatus": source_status,
+            # 今日值得关注
+            "priorityDocuments": priority_documents,
+            # 二级信息
             "trend7Days": trend,
             "byClassification": classification,
-            "sourceStatus": source_status,
-            "todayNewDocuments": today_new_documents,
-            "priorityDocuments": priority_documents,
         },
     }
 
 
-# ============ 统计摘要（保留） ============
+# ============ 法规文档统计摘要 ============
 
 @router.get("/regulatory-tracker/summary", summary="法规追踪统计摘要")
 async def get_summary(db: AsyncSession = Depends(get_db)):
@@ -164,9 +149,13 @@ async def list_documents(
     classification: str | None = Query(None, description="分类筛选"),
     isNew: bool | None = Query(None, description="是否新增"),
     impactLevel: str | None = Query(None, description="影响等级筛选: high/medium/low/none/unanalyzed"),
+    documentCategory: str | None = Query(None, description="系统分类筛选: attention/general/archive/failed"),
     notificationRequired: bool | None = Query(None, description="是否需要通知"),
     sourceId: uuid.UUID | None = Query(None, description="数据源 ID"),
     channelId: uuid.UUID | None = Query(None, description="栏目 ID"),
+    firstFoundFrom: date | None = Query(None, description="首次发现日期起始"),
+    firstFoundTo: date | None = Query(None, description="首次发现日期截止"),
+    regulationType: str | None = Query(None, description="法规类型筛选"),
     sortBy: str = Query("publish_date", description="排序字段"),
     sortOrder: str = Query("desc", description="排序方向"),
     page: int = Query(1, ge=1, description="页码"),
@@ -183,9 +172,13 @@ async def list_documents(
         classification=classification,
         is_new=isNew,
         impact_level=impactLevel,
+        document_category=documentCategory,
         notification_required=notificationRequired,
         source_id=sourceId,
         channel_id=channelId,
+        first_found_from=firstFoundFrom,
+        first_found_to=firstFoundTo,
+        regulation_type=regulationType,
         sort_by=sortBy,
         sort_order=sortOrder,
         page=page,
@@ -218,6 +211,8 @@ async def list_documents(
             "impact_level": impact_data["impact_level"],
             "impact_score": impact_data["impact_score"],
             "notification_required": impact_data["notification_required"],
+            "documentCategory": doc.document_category,
+            "documentCategoryName": get_category_display_name(doc.document_category or "general"),
         })
 
     return {
@@ -238,40 +233,51 @@ async def list_documents(
 @router.get("/regulatory-documents/{doc_id}/detail", summary="法规文档详情")
 async def get_document_detail(doc_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """获取法规文档详情，包含来源和栏目名称。"""
-    detail = await repo.get_document_detail(db, doc_id)
-    if not detail:
+    doc_detail = await repo.get_document_detail(db, doc_id)
+    if not doc_detail:
         return {"code": 404, "message": "文档不存在", "data": None}
 
     # 获取相关法规
+    from app.modules.regulatory_tracker.models.regulatory_document import RegulatoryDocument
     doc = await repo.get_document_by_id(db, doc_id)
     related_docs = []
     if doc:
         related = await repo.get_related_documents(db, doc, limit=5)
-        for rdoc in related:
-            related_docs.append({
-                "id": str(rdoc.id),
-                "title": rdoc.title,
-                "publishDate": rdoc.publish_date.isoformat() if rdoc.publish_date else None,
-                "classification": rdoc.classification,
-            })
-    detail["relatedDocuments"] = related_docs
+        related_docs = [
+            {
+                "id": str(r.id),
+                "title": r.title,
+                "publishDate": r.publish_date.isoformat() if r.publish_date else None,
+                "classification": r.classification,
+            }
+            for r in related
+        ]
 
-    return {"code": 200, "message": "success", "data": detail}
+    doc_detail["relatedDocuments"] = related_docs
+    
+    # 添加系统分类显示名称
+    doc_detail["documentCategoryName"] = get_category_display_name(
+        doc_detail.get("documentCategory") or "general"
+    )
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": doc_detail,
+    }
 
 
-# ============ Excel 导出 ============
+# ============ 法规文档导出 ============
 
 @router.get("/regulatory-documents/export", summary="导出法规文档为 Excel")
 async def export_documents(
-    format: str = Query("xlsx", description="导出格式"),
+    format: str = Query("xlsx", description="导出格式: xlsx"),
     keyword: str | None = Query(None),
     publishDateFrom: date | None = Query(None),
     publishDateTo: date | None = Query(None),
     statusText: str | None = Query(None),
     classification: str | None = Query(None),
     isNew: bool | None = Query(None),
-    sourceId: uuid.UUID | None = Query(None),
-    channelId: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """导出法规文档为 Excel 文件。"""
@@ -283,22 +289,22 @@ async def export_documents(
         status_text=statusText,
         classification=classification,
         is_new=isNew,
-        source_id=sourceId,
-        channel_id=channelId,
         page=1,
-        page_size=10000,
+        page_size=10000,  # 导出全部
     )
 
-    excel_file = generate_regulatory_excel(documents)
+    if format == "xlsx":
+        excel_file = await generate_regulatory_excel(documents)
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=regulatory_documents.xlsx"},
+        )
+    else:
+        return {"code": 400, "message": "不支持的导出格式", "data": None}
 
-    return StreamingResponse(
-        excel_file,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=regulatory_documents.xlsx"},
-    )
 
-
-# ============ 标记已读 ============
+# ============ 标记文档为已读 ============
 
 @router.patch("/regulatory-documents/{doc_id}/read", summary="标记文档为已读")
 async def mark_document_read(doc_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
@@ -309,10 +315,8 @@ async def mark_document_read(doc_id: uuid.UUID, db: AsyncSession = Depends(get_d
 
     await repo.update_document(db, doc_id, {"is_new": False, "is_read": True})
     await db.commit()
-    return {"code": 200, "message": "success", "data": {"id": str(doc_id)}}
+    return {"code": 200, "message": "success", "data": {"id": str(doc_id), "marked": True}}
 
-
-# ============ 批量标记已读 ============
 
 @router.post("/regulatory-documents/batch-read", summary="批量标记文档已读")
 async def batch_mark_read(request: BatchReadRequest, db: AsyncSession = Depends(get_db)):
@@ -322,7 +326,7 @@ async def batch_mark_read(request: BatchReadRequest, db: AsyncSession = Depends(
     return {"code": 200, "message": "success", "data": {"updatedCount": count}}
 
 
-# ============ 手动触发同步 ============
+# ============ 同步任务触发 ============
 
 @router.post("/sync-jobs/trigger", summary="手动触发同步任务")
 async def trigger_sync_job(
@@ -330,7 +334,7 @@ async def trigger_sync_job(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """手动触发数据源同步任务（后台异步执行）"""
+    """手动触发数据源同步任务（后台异步执行，含自动 AI 分析）"""
     source = await repo.get_data_source_by_code(db, request.sourceCode)
     if not source:
         return {"code": 404, "message": f"数据源 {request.sourceCode} 不存在", "data": None}
@@ -352,12 +356,13 @@ async def trigger_sync_job(
     await db.commit()
 
     # 后台执行同步（不阻塞响应）
+    # AI 分析现在在 sync_service 中自动执行
     from app.modules.regulatory_tracker.services.sync_service import run_sync_job
 
     async def _run_sync():
         from app.core.database import async_session_factory
         async with async_session_factory() as session:
-            new_docs = await run_sync_job(
+            await run_sync_job(
                 db=session,
                 source=source,
                 channel=channel,
@@ -365,31 +370,17 @@ async def trigger_sync_job(
                 start_page=request.startPage,
                 end_page=request.endPage,
             )
-            
-            # 如果 autoAnalyze=true，自动分析新增法规（限前 5 条）
-            if request.autoAnalyze:
-                sync_result = new_docs  # new_docs 现在是 run_sync_job 的返回值
-                new_doc_list = sync_result.get("new_docs", []) if isinstance(sync_result, dict) else []
-                docs_to_analyze = new_doc_list[:5]
-                for doc in docs_to_analyze:
-                    try:
-                        await analyze_and_update(session, doc)
-                    except Exception as e:
-                        # 分析失败不影响法规入库
-                        import logging
-                        logging.getLogger(__name__).error(f"自动分析失败 [{doc.document_id}]: {e}")
 
     background_tasks.add_task(_run_sync)
 
     return {
         "code": 200,
-        "message": "同步任务已创建",
+        "message": "同步任务已创建（将自动分析新增法规）",
         "data": {
             "jobId": str(job.id),
             "status": "pending",
             "sourceCode": request.sourceCode,
             "channelCode": request.channelCode,
-            "autoAnalyze": request.autoAnalyze,
         },
     }
 
@@ -434,26 +425,3 @@ async def list_sync_jobs(
             "totalPages": (total + pageSize - 1) // pageSize if pageSize > 0 else 0,
         },
     }
-
-
-# ============ AI 分析 ============
-
-@router.post("/regulatory-documents/analyze", summary="触发 AI 分析")
-async def trigger_ai_analysis(
-    limit: int = Query(10, ge=1, le=50),
-    db: AsyncSession = Depends(get_db),
-):
-    """触发 AI 分析未处理的文档"""
-    stats = await analyze_new_documents(db, limit=limit)
-    return {"code": 200, "message": "success", "data": stats}
-
-
-@router.post("/regulatory-documents/{doc_id}/analyze", summary="分析单个文档")
-async def analyze_single_document(doc_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """对单个文档执行 AI 分析"""
-    doc = await repo.get_document_by_id(db, doc_id)
-    if not doc:
-        return {"code": 404, "message": "文档不存在", "data": None}
-
-    success = await analyze_and_update(db, doc)
-    return {"code": 200, "message": "success" if success else "failed", "data": {"id": str(doc_id), "analyzed": success}}

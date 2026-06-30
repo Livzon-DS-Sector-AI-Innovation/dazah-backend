@@ -68,6 +68,13 @@ class RegulatoryDocument(BaseModel):
     ai_analysis_status: Mapped[str | None] = mapped_column(
         String(50), nullable=True, comment="AI 分析状态: pending/completed/failed"
     )
+    # System-computed document category
+    document_category: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, 
+        comment="系统分类: attention/general/archive/failed",
+        default="general",
+        server_default="general"
+    )
     raw_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relationships

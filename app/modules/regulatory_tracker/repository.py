@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, date
 from typing import Any
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.regulatory_tracker.models import (
@@ -246,9 +246,13 @@ async def get_documents_with_filters(
     classification: str | None = None,
     is_new: bool | None = None,
     impact_level: str | None = None,
+    document_category: str | None = None,
     notification_required: bool | None = None,
     source_id: uuid.UUID | None = None,
     channel_id: uuid.UUID | None = None,
+    first_found_from: "date | None" = None,
+    first_found_to: "date | None" = None,
+    regulation_type: "str | None" = None,
     sort_by: str = "publish_date",
     sort_order: str = "desc",
     page: int = 1,
@@ -303,6 +307,23 @@ async def get_documents_with_filters(
         query = query.where(channel_filter)
         count_query = count_query.where(channel_filter)
 
+    # 首次发现日期筛选
+    if first_found_from:
+        ff_filter = RegulatoryDocument.first_found_at >= func.date(first_found_from)
+        query = query.where(ff_filter)
+        count_query = count_query.where(ff_filter)
+
+    if first_found_to:
+        ff_filter = RegulatoryDocument.first_found_at < func.date(first_found_to) + text("INTERVAL '1 day'")
+        query = query.where(ff_filter)
+        count_query = count_query.where(ff_filter)
+
+    # 法规类型筛选（基于 ai_key_points JSONB）
+    if regulation_type:
+        rt_filter = RegulatoryDocument.ai_key_points["regulation_type"].astext == regulation_type
+        query = query.where(rt_filter)
+        count_query = count_query.where(rt_filter)
+
     # 影响等级筛选（基于 ai_relevance_score）
     if impact_level:
         if impact_level == "unanalyzed":
@@ -329,6 +350,12 @@ async def get_documents_with_filters(
             query = query.where(level_filter)
             count_query = count_query.where(level_filter)
 
+    # 系统分类筛选
+    if document_category:
+        category_filter = RegulatoryDocument.document_category == document_category
+        query = query.where(category_filter)
+        count_query = count_query.where(category_filter)
+
     # 是否需要通知筛选（基于 ai_key_points JSONB）
     if notification_required is not None:
         if notification_required:
@@ -349,9 +376,9 @@ async def get_documents_with_filters(
     # 排序
     sort_column = getattr(RegulatoryDocument, sort_by, RegulatoryDocument.publish_date)
     if sort_order == "asc":
-        query = query.order_by(sort_column.asc())
+        query = query.order_by(sort_column.asc().nulls_last())
     else:
-        query = query.order_by(sort_column.desc())
+        query = query.order_by(sort_column.desc().nulls_last())
 
     # 分页
     offset = (page - 1) * page_size
@@ -609,6 +636,7 @@ async def get_document_detail(db: AsyncSession, doc_id: uuid.UUID) -> dict[str, 
         "documentId": doc.document_id,
         "isNew": doc.is_new,
         "isRead": doc.is_read,
+        "documentCategory": doc.document_category,
     }
 
 
@@ -698,3 +726,114 @@ async def get_priority_documents(db: AsyncSession, limit: int = 10) -> list[Regu
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+# ============ Dashboard V2 查询 ============
+
+async def get_today_new_stats(db: AsyncSession) -> dict[str, int]:
+    """Get today's new document counts by impact level."""
+    today_start = datetime.combine(date.today(), datetime.min.time())
+    
+    # Total today new
+    total_result = await db.execute(
+        select(func.count(RegulatoryDocument.id)).where(
+            RegulatoryDocument.is_deleted == False,  # noqa: E712
+            RegulatoryDocument.first_found_at >= today_start,
+        )
+    )
+    total = total_result.scalar() or 0
+    
+    # High impact today (attention category)
+    high_result = await db.execute(
+        select(func.count(RegulatoryDocument.id)).where(
+            RegulatoryDocument.is_deleted == False,  # noqa: E712
+            RegulatoryDocument.first_found_at >= today_start,
+            RegulatoryDocument.document_category == 'attention',
+        )
+    )
+    high = high_result.scalar() or 0
+    
+    # General today (non-attention)
+    general = total - high
+    
+    return {
+        "total": total,
+        "high": high,
+        "general": general,
+    }
+
+
+async def get_attention_count(db: AsyncSession) -> int:
+    """Get count of documents with document_category='attention'."""
+    result = await db.execute(
+        select(func.count(RegulatoryDocument.id)).where(
+            RegulatoryDocument.is_deleted == False,  # noqa: E712
+            RegulatoryDocument.document_category == 'attention',
+        )
+    )
+    return result.scalar() or 0
+
+
+async def get_priority_documents_v2(db: AsyncSession, limit: int = 5) -> list[RegulatoryDocument]:
+    """Get top priority documents: attention category, sorted by relevance score."""
+    result = await db.execute(
+        select(RegulatoryDocument)
+        .where(
+            RegulatoryDocument.is_deleted == False,  # noqa: E712
+            RegulatoryDocument.document_category == 'attention',
+            RegulatoryDocument.ai_analysis_status == 'completed',
+        )
+        .order_by(
+            RegulatoryDocument.ai_relevance_score.desc().nullslast(),
+            RegulatoryDocument.first_found_at.desc(),
+        )
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_source_status_v2(db: AsyncSession) -> list[dict[str, Any]]:
+    """Get simplified source status for dashboard."""
+    sources_result = await db.execute(
+        select(DataSource).where(
+            DataSource.is_deleted == False  # noqa: E712
+        ).order_by(DataSource.code)
+    )
+    sources = sources_result.scalars().all()
+    
+    status_list = []
+    for source in sources:
+        # Get latest sync job
+        sync_result = await db.execute(
+            select(SyncJob)
+            .where(
+                SyncJob.source_id == source.id,
+                SyncJob.finished_at.isnot(None),
+            )
+            .order_by(SyncJob.finished_at.desc())
+            .limit(1)
+        )
+        last_sync = sync_result.scalar_one_or_none()
+        
+        status_list.append({
+            "code": source.code,
+            "name": source.name,
+            "lastSyncTime": last_sync.finished_at.isoformat() if last_sync and last_sync.finished_at else None,
+            "lastSyncStatus": last_sync.status if last_sync else None,
+        })
+    
+    return status_list
+
+
+async def get_week_stats(db: AsyncSession) -> dict[str, int]:
+    """近 7 天新增法规统计"""
+    result = await db.execute(text("""
+        SELECT 
+            COUNT(*) as total,
+            COUNT(CASE WHEN document_category = 'attention' THEN 1 END) as high_impact
+        FROM regulatory_tracker.regulatory_documents
+        WHERE is_deleted = false
+          AND first_found_at >= CURRENT_DATE - INTERVAL '6 days'
+    """))
+    row = result.fetchone()
+    return {"total": row[0], "high_impact": row[1]}

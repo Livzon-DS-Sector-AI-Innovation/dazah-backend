@@ -1,6 +1,7 @@
-"""同步服务 - 处理采集数据入库逻辑。"""
+"""同步服务 - 处理采集数据入库逻辑（与 AI 分析解耦）。"""
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -11,7 +12,7 @@ from app.modules.regulatory_tracker import repository as repo
 from app.modules.regulatory_tracker.crawler.cde_crawler import CdeDomesticGuidelineAdapter
 from app.modules.regulatory_tracker.crawler.nmpa_crawler import NmpaRecordAdapter
 from app.modules.regulatory_tracker.models import DataChannel, DataSource
-from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_and_update
+from app.modules.regulatory_tracker.services.ai_workflow import get_ai_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ async def upsert_document(
     """插入或更新文档。
 
     Returns:
-        ("created", doc_id) | ("updated", doc_id) | ("skipped", doc_id)
+        ("created", doc) | ("updated", doc_id) | ("skipped", doc_id)
     """
     document_id = normalized["document_id"]
     if not document_id:
@@ -50,6 +51,7 @@ async def upsert_document(
 
     if existing:
         # 已存在：更新 last_checked_at，标记为非新文档
+        logger.debug(f"法规已存在，更新: {existing.title[:40]}...")
         await repo.update_document(db, existing.id, {
             "last_checked_at": datetime.now(timezone.utc),
             "is_new": False,
@@ -62,6 +64,7 @@ async def upsert_document(
         return ("updated", existing.id)
 
     # 不存在：新增
+    logger.info(f"法规入库: {normalized.get('title', '')[:40]}...")
     doc = await repo.create_document(db, {
         "source_id": source_id,
         "channel_id": channel_id,
@@ -91,9 +94,9 @@ async def sync_page_to_db(
     """同步单页数据到数据库。
 
     Returns:
-        {"checked": int, "new": int, "updated": int, "failed": int, "new_docs": list}
+        {"checked": int, "new": int, "updated": int, "failed": int, "new_doc_ids": list}
     """
-    stats = {"checked": 0, "new": 0, "updated": 0, "failed": 0, "new_docs": []}
+    stats = {"checked": 0, "new": 0, "updated": 0, "failed": 0, "new_doc_ids": []}
 
     # 记录分页开始
     page_record = await repo.create_sync_job_page(db, {
@@ -107,6 +110,7 @@ async def sync_page_to_db(
     })
 
     try:
+        logger.info(f"开始同步第 {page_num} 页...")
         result = await adapter.sync_page(page_num)
 
         if not result.get("success"):
@@ -135,8 +139,8 @@ async def sync_page_to_db(
                 if action == "created":
                     stats["new"] += 1
                     new_on_page += 1
-                    # 收集新增文档（用于后续自动分析）
-                    stats["new_docs"].append(result)
+                    # 收集新增文档 ID（用于后续提交 AI 分析）
+                    stats["new_doc_ids"].append(result.id)
                 elif action == "updated":
                     stats["updated"] += 1
             except Exception as e:
@@ -169,7 +173,10 @@ async def run_sync_job(
     end_page: int | None = None,
     headless: bool = True,
 ) -> dict[str, Any]:
-    """执行同步任务。
+    """执行同步任务（与 AI 分析解耦）。
+
+    同步完成后，将新增文档提交到 AI 工作流进行后台分析。
+    同步任务本身不等待 AI 分析完成。
 
     Args:
         db: 数据库会话
@@ -183,6 +190,9 @@ async def run_sync_job(
     Returns:
         同步结果摘要
     """
+    sync_start_time = time.time()
+    logger.info(f"===== 同步任务开始: {source.code}/{channel.code} =====")
+    
     # 创建同步任务
     job = await repo.create_sync_job(db, {
         "source_id": source.id,
@@ -193,7 +203,7 @@ async def run_sync_job(
     })
 
     total_stats = {"checked": 0, "new": 0, "updated": 0, "failed": 0}
-    new_docs_list = []  # 收集所有新增文档
+    new_doc_ids = []  # 收集所有新增文档 ID
     error_message = None
 
     try:
@@ -217,7 +227,7 @@ async def run_sync_job(
                 total_stats["new"] += stats["new"]
                 total_stats["updated"] += stats["updated"]
                 total_stats["failed"] += stats["failed"]
-                new_docs_list.extend(stats.get("new_docs", []))
+                new_doc_ids.extend(stats.get("new_doc_ids", []))
 
                 # 每页提交一次
                 await db.commit()
@@ -247,6 +257,29 @@ async def run_sync_job(
     })
     await db.commit()
 
+    sync_elapsed = time.time() - sync_start_time
+    logger.info(
+        f"数据同步完成: 检查={total_stats['checked']} 新增={total_stats['new']} "
+        f"更新={total_stats['updated']} 失败={total_stats['failed']} 耗时={sync_elapsed:.1f}s"
+    )
+
+    # ===== 提交 AI 分析（后台异步，不阻塞同步任务） =====
+    if new_doc_ids and status == "success":
+        logger.info(f"提交 {len(new_doc_ids)} 条新增法规到 AI 工作流")
+        try:
+            workflow = get_ai_workflow()
+            # 注意：这里不 await，让 AI 分析在后台执行
+            # 在实际部署中，这应该是一个独立的后台任务或队列
+            import asyncio
+            asyncio.create_task(workflow.submit_documents(new_doc_ids))
+        except Exception as e:
+            logger.error(f"提交 AI 工作流失败: {e}", exc_info=True)
+
+    logger.info(
+        f"===== 同步任务完成: {source.code}/{channel.code} | "
+        f"耗时={sync_elapsed:.1f}s | 新增={total_stats['new']} ====="
+    )
+
     return {
         "job_id": str(job.id),
         "status": status,
@@ -255,5 +288,5 @@ async def run_sync_job(
         "updated": total_stats["updated"],
         "failed": total_stats["failed"],
         "error": error_message,
-        "new_docs": new_docs_list,  # 新增文档列表
+        "new_doc_ids": new_doc_ids,
     }
