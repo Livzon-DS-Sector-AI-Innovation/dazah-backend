@@ -62,7 +62,7 @@ class AiChatService:
     def build_system_prompt(page: str | None = None) -> str:
         """Build the system prompt for the HR assistant."""
         settings = get_settings()
-        prompt = settings.AI_SYSTEM_PROMPT
+        prompt = settings.HR_AI_SYSTEM_PROMPT
 
         if page:
             prompt += f"\n当前页面：{page}"

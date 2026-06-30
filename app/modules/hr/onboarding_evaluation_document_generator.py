@@ -68,7 +68,7 @@ def generate_onboarding_evaluation(data: OnboardingEvaluationInput) -> BytesIO:
 
     # R2: 公司名称
     ws.merge_cells("A2:F2")
-    ws["A2"] = "丽珠集团新北江制药股份有限公司"
+    ws["A2"] = "丽珠集团福州福兴医药有限公司"
     ws["A2"].font = Font(name="宋体", size=14, bold=True)
     ws["A2"].alignment = _center_align()
     ws.row_dimensions[2].height = 28

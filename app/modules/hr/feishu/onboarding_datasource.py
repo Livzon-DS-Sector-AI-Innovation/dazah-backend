@@ -93,8 +93,8 @@ class OnboardingBitableDataSource:
 
     def __init__(self) -> None:
         self.client = BitableClient()
-        self.client.app_token = _settings.FEISHU_BITABLE_APP_TOKEN or "KHLsboPBGaah6Vs3EpgcpvzsnuH"
-        self.table_id = _settings.FEISHU_BITABLE_ONBOARDING_TABLE_ID or "tblb7CpwKUW25ONC"
+        self.client.app_token = _settings.HR_BITABLE_APP_TOKEN or "KHLsboPBGaah6Vs3EpgcpvzsnuH"
+        self.table_id = _settings.HR_BITABLE_ONBOARDING_TABLE_ID or "tblb7CpwKUW25ONC"
 
     def _is_enabled(self) -> bool:
         return bool(self.client.app_token and self.table_id)

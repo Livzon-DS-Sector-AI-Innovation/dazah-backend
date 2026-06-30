@@ -88,24 +88,19 @@ class Settings(BaseSettings):
     # Permission System
     ADMIN_EMPLOYEE_NOS: list[str] = []
 
-    # Feishu Bitable — HR 模块多维表格同步
-    FEISHU_BOT_NAME: str = ""
-    FEISHU_BITABLE_APP_TOKEN: str = ""
-    FEISHU_BITABLE_EMPLOYEE_TABLE_ID: str = ""
-    FEISHU_BITABLE_DEPARTMENT_TABLE_ID: str = ""
-    FEISHU_BITABLE_OFFBOARDING_TABLE_ID: str = ""
-    FEISHU_BITABLE_ONBOARDING_TABLE_ID: str = ""
-    FEISHU_BITABLE_DEPARTURE_TABLE_ID: str = ""
-    FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
+    # HR 模块 — 飞书多维表格同步
+    HR_BITABLE_APP_TOKEN: str = ""
+    HR_BITABLE_EMPLOYEE_TABLE_ID: str = ""
+    HR_BITABLE_DEPARTMENT_TABLE_ID: str = ""
+    HR_BITABLE_OFFBOARDING_TABLE_ID: str = ""
+    HR_BITABLE_ONBOARDING_TABLE_ID: str = ""
+    HR_BITABLE_DEPARTURE_TABLE_ID: str = ""
+    HR_BITABLE_APPROVAL_TABLE_ID: str = ""
 
-    # Training Notification Bitable
-    FEISHU_BITABLE_TRAINING_NOTIFICATION_APP_TOKEN: str = ""
-    FEISHU_BITABLE_TRAINING_NOTIFICATION_TABLE_ID: str = ""
-
-    # AI — HR 离职分析
-    MOONSHOT_API_KEY: str = ""
-    AI_MODEL: str = "kimi-k2.5"
-    AI_SYSTEM_PROMPT: str = (
+    # HR 模块 — AI 离职分析
+    HR_AI_API_KEY: str = ""
+    HR_AI_MODEL: str = "deepseek-chat"
+    HR_AI_SYSTEM_PROMPT: str = (
         "你是「小H」，原料药工厂人事管理助手。"
         "只基于查询结果回答人事问题，禁止编造。"
         "回答极其简洁，只陈述事实，不分析、不解释、不推理。"
