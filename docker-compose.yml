@@ -19,6 +19,9 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       EDBO_SERVICE_URL: http://edbo-service:8000
       JWT_EXPIRE_SECONDS: ${JWT_EXPIRE_SECONDS:-86400}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
     depends_on:
       db:
         condition: service_healthy
