@@ -4,6 +4,7 @@ import logging
 from datetime import date, datetime
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import DuplicateException, NotFoundException
@@ -701,6 +702,82 @@ class EmployeeService:
 
         return fields
 
+    # ── SOP 目录上传 ──
+
+    _SOP_COLUMN_MAP: dict[str, str] = {
+        "文件名": "file_name",
+        "SOP编号": "sop_number",
+        "类别": "category",
+        "部门": "department",
+    }
+
+    async def upload_sop_catalog(self, file_bytes: bytes) -> dict:
+        """从 Excel 批量导入 SOP 目录，按 SOP编号 upsert。"""
+        from io import BytesIO
+        from openpyxl import load_workbook
+        from app.modules.hr.models import SopCatalog
+
+        wb = load_workbook(BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            raise ValueError("文件为空")
+
+        header = [str(c).strip() if c else "" for c in rows[0]]
+        col_map: dict[int, str] = {}
+        for idx, col_name in enumerate(header):
+            field = self._SOP_COLUMN_MAP.get(col_name)
+            if field:
+                col_map[idx] = field
+
+        created = 0
+        updated = 0
+        errors: list[str] = []
+
+        for row_idx, row in enumerate(rows[1:], start=2):
+            if all(c is None for c in row):
+                continue
+            try:
+                data: dict = {}
+                for col_idx, field_name in col_map.items():
+                    val = row[col_idx] if col_idx < len(row) else None
+                    if val is None or (isinstance(val, str) and val.strip() == ""):
+                        continue
+                    if isinstance(val, str):
+                        val = val.strip()
+                    data[field_name] = val
+
+                if "file_name" not in data:
+                    errors.append(f"第{row_idx}行: 缺少文件名")
+                    continue
+
+                sop_num = data.get("sop_number")
+                existing = None
+                if sop_num:
+                    existing = await self.repo.session.execute(
+                        select(SopCatalog).where(
+                            SopCatalog.sop_number == sop_num,
+                            SopCatalog.is_deleted == False,  # noqa: E712
+                        )
+                    )
+                    existing = existing.scalar_one_or_none()
+
+                if existing:
+                    for k, v in data.items():
+                        if v is not None:
+                            setattr(existing, k, v)
+                    await self.repo.session.flush()
+                    updated += 1
+                else:
+                    new_sop = SopCatalog(**data)
+                    self.repo.session.add(new_sop)
+                    await self.repo.session.flush()
+                    created += 1
+            except Exception as e:
+                errors.append(f"第{row_idx}行: {e}")
+
+        return {"created": created, "updated": updated, "errors": errors}
+
 
 class DepartmentService:
     def __init__(self, session: AsyncSession) -> None:
@@ -913,7 +990,6 @@ class OffboardingRecordService:
             page=page,
             page_size=page_size,
         )
-
 
 class OnboardingRecordService:
     def __init__(self, session: AsyncSession) -> None:

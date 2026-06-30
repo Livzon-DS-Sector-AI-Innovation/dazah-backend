@@ -65,11 +65,16 @@ def require_permission(*codes: str) -> Callable:
 async def require_admin(
     user: User = Depends(require_user),
     settings: Settings = Depends(get_settings),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
-    """要求用户是配置文件中指定的管理员。"""
-    if user.employee_no not in settings.ADMIN_EMPLOYEE_NOS:
-        raise ForbiddenException("仅管理员可操作")
-    return user
+    """要求用户是管理员（配置文件指定 或 拥有 super_admin 角色）。"""
+    if user.employee_no in settings.ADMIN_EMPLOYEE_NOS:
+        return user
+    # 也检查是否被分配了 super_admin 角色
+    user_perms = await get_user_permissions(str(user.id), db)
+    if "permission:role:manage" in user_perms:
+        return user
+    raise ForbiddenException("仅管理员可操作")
 
 
 RequireAdmin = Annotated[User, Depends(require_admin)]

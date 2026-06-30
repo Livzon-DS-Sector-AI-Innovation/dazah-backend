@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
+from pydantic import BaseModel
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -300,17 +301,58 @@ async def feishu_approval_webhook(
 
 
 @router.get(
-    "/employees/{employee_id}/onboarding-training-record",
+    "/employees/{employee_number}/onboarding-training-record",
     summary="导出员工入职培训记录",
 )
 async def export_onboarding_training_record(
-    employee_id: UUID,
+    employee_number: str,
     service: EmployeeService = Depends(get_employee_service),
 ):
-    """根据员工数据自动生成并下载入职培训记录 Word 文档。"""
-    employee = await service.get_employee(employee_id)
+    """根据员工工号自动生成并下载入职培训记录 Word 文档。"""
+    employee = await service.get_employee_by_number(employee_number)
     try:
         buffer: BytesIO = generate_onboarding_training_record(employee)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    def _iterfile():
+        buffer.seek(0)
+        yield buffer.read()
+
+    filename = f"onboarding_training_record_{employee.employee_number}.docx"
+    return StreamingResponse(
+        _iterfile(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class TrainingItem(BaseModel):
+    sop_number: str = ""
+    file_name: str = ""
+    content: str = ""
+    method: str = ""
+    trainer: str = ""
+
+
+class TrainingExportRequest(BaseModel):
+    training_items: list[TrainingItem] = []
+
+
+@router.post(
+    "/employees/{employee_number}/onboarding-training-record",
+    summary="导出员工入职培训记录（带培训项）",
+)
+async def export_onboarding_training_record_with_items(
+    employee_number: str,
+    body: TrainingExportRequest,
+    service: EmployeeService = Depends(get_employee_service),
+):
+    """根据员工工号和前端选中的培训项，生成入职培训记录 Word 文档。"""
+    employee = await service.get_employee_by_number(employee_number)
+    items = [it.model_dump() for it in body.training_items]
+    try:
+        buffer: BytesIO = generate_onboarding_training_record(employee, training_items=items)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1504,6 +1546,22 @@ async def list_trainers(
 
 
 # ─── SOP Catalog Routes ───
+
+@router.post("/sop-catalog/upload", summary="上传SOP目录")
+async def upload_sop_catalog(
+    file: UploadFile,
+    service: EmployeeService = Depends(get_employee_service),
+):
+    """上传 Excel SOP 目录，按 SOP编号 自动新增或更新。"""
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "仅支持 .xlsx / .xls 格式")
+    try:
+        content = await file.read()
+        result = await service.upload_sop_catalog(content)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return success_response(data=result, message=f"新增 {result['created']}，更新 {result['updated']}")
+
 
 @router.get("/sop-catalog", summary="SOP目录列表", response_model=SopCatalogListResponse)
 async def list_sop_catalog(
