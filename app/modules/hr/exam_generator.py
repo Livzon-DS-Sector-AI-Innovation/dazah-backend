@@ -1,4 +1,8 @@
-"""AI 出题：根据文件内容生成题目，并导出试卷 Word 文档."""
+"""AI 出题：根据文件内容生成题目，并导出试卷 Word 文档.
+
+Moved from app/platform/ai/exam_generator.py to comply with the rule:
+"业务功能代码（prompt、业务逻辑、错误处理）必须在模块内部，不得放到全局层"
+"""
 
 from io import BytesIO
 
@@ -6,9 +10,40 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
+from pydantic import BaseModel
 
-from app.platform.ai.schemas import ChoiceQuestion, ExamExportRequest, TrueFalseQuestion
 
+# ─── Pydantic schemas (previously in app/platform/ai/schemas.py) ───
+
+
+class ChoiceOption(BaseModel):
+    label: str
+    text: str
+
+
+class ChoiceQuestion(BaseModel):
+    number: int
+    question: str
+    options: list[ChoiceOption]
+    answer: str | None = None
+
+
+class TrueFalseQuestion(BaseModel):
+    number: int
+    question: str
+    answer: str | None = None
+
+
+class ExamExportRequest(BaseModel):
+    title: str
+    examiner: str = ""
+    exam_date: str = ""
+    assessment_date: str = ""
+    choice_questions: list[ChoiceQuestion] = []
+    true_false_questions: list[TrueFalseQuestion] = []
+
+
+# ─── Prompt template ───
 
 _PROMPT_TEMPLATE = """你是一位专业的培训考核出题专家。请根据以下文件内容，生成一份新员工入职培训考核试卷。
 
