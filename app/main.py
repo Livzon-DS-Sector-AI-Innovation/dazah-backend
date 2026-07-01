@@ -30,7 +30,6 @@ from app.shared.ocr_service import init_ocr
 # Ensure platform models are registered in SQLAlchemy metadata
 import app.platform.identity.models  # noqa: F401
 import app.platform.audit.models  # noqa: F401
->>>>>>> origin/dev/livzon-nx
 
 settings = get_settings()
 
