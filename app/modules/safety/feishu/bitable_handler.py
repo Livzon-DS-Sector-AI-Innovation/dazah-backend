@@ -28,6 +28,7 @@ from app.modules.safety.service.hazard import (
 )
 
 logger = logging.getLogger(__name__)
+from app.core.tasks import spawn_task
 
 # ── 调试文件日志：追踪通知流程的完整调用链 ──
 _debug_log_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "debug_notify.log")
@@ -1215,7 +1216,7 @@ async def _create_hazard_from_bitable(
             f"CREATE_DISPATCH_RECTIFY: record_id={record_id} hazard_no={item.hazard_no} "
             f"resp_name={item.rectification_responsible_person_name} dept={item.department}"
         )
-        _asyncio.create_task(_send_rectification_notification(item))
+        spawn_task(_send_rectification_notification(item), name="rectification-notification")
 
         _debug_log(
             f"CREATE_DONE: record_id={record_id} hazard_no={item.hazard_no} "
@@ -1587,23 +1588,21 @@ async def _update_hazard_from_bitable(
                     f"UPDATE_NOTIFY_DISPATCH: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
                     f"→ run_rectification_review(hazard)"
                 )
-                asyncio.create_task(service.hazard.run_rectification_review(hazard.id))
+                spawn_task(service.hazard.run_rectification_review(hazard.id), name="rectification-review")
             elif new_status == "replied":
                 _debug_log(
                     f"UPDATE_NOTIFY_DISPATCH: record_id={record_id} hazard_no={getattr(hazard, 'hazard_no', '?')} "
                     f"→ run_rectification_review(hazard)"
                 )
-                asyncio.create_task(service.hazard.run_rectification_review(hazard.id))
+                spawn_task(service.hazard.run_rectification_review(hazard.id), name="rectification-review")
             elif new_status == "level1_approved":
                 # 一般隐患：L2（分管领导）无需复核，自动设为「无需复核」并跳至 L3
                 if getattr(hazard, "hazard_level", None) == "general":
-                    asyncio.create_task(
-                        _auto_skip_level2_for_general_hazard(hazard, record_id)
-                    )
+                    spawn_task(_auto_skip_level2_for_general_hazard(hazard, record_id), name="auto-skip-level2")
                 else:
-                    asyncio.create_task(_send_verify_notification(hazard, 2))
+                    spawn_task(_send_verify_notification(hazard, 2), name="verify-notification")
             elif new_status == "level2_approved":
-                asyncio.create_task(_send_verify_notification(hazard, 3))
+                spawn_task(_send_verify_notification(hazard, 3), name="verify-notification")
 
             # ── 回写整改状态到 Bitable（跳过 ai_reviewing 中间态，AI 完成后会同步最终状态）──
             if new_status != "ai_reviewing":
@@ -2277,7 +2276,7 @@ async def _auto_skip_level2_for_general_hazard(hazard: Any, record_id: str) -> N
     # 更新内存对象以便通知使用最新状态
     hazard.verify_level_2_status = "no_review_needed"
     hazard.rectification_status = "level2_approved"
-    asyncio.create_task(_send_verify_notification(hazard, 3))
+    spawn_task(_send_verify_notification(hazard, 3), name="verify-notification")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2365,18 +2364,16 @@ async def handle_card_action(event: dict) -> dict | None:
     # ── 第二步：Bitable 更新 + PATCH 卡片放入后台异步执行 ──
     open_message_id = event.get("context", {}).get("open_message_id", "")
     hazard_no = getattr(hazard, "hazard_no", "") if hazard else ""
-    asyncio.create_task(
-        _handle_approve_background(
-            record_id=record_id,
-            bt_field=bt_field,
-            bt_value=bt_value,
-            level=level,
-            button_state=button_state,
-            open_message_id=open_message_id,
-            updated_card=updated_card,
-            hazard_no=hazard_no,
-        )
-    )
+    spawn_task(_handle_approve_background(
+        record_id=record_id,
+        bt_field=bt_field,
+        bt_value=bt_value,
+        level=level,
+        button_state=button_state,
+        open_message_id=open_message_id,
+        updated_card=updated_card,
+        hazard_no=hazard_no,
+    ), name="handle-approve-background")
 
     # ── 第三步：ACK 立即返回卡片更新（防止超时回滚）──
     if updated_card:
