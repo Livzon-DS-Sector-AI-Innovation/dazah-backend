@@ -9,9 +9,6 @@ from app.modules.hr import router as hr_router
 from app.modules.product import router as product_router
 from app.modules.procurement import router as procurement_router
 from app.modules.production import router as production_router
-from app.modules.production.label_verification_api import (
-    router as label_verification_router,
-)
 from app.modules.production.product_api import router as workshop_product_router
 from app.modules.production.product_output_api import router as product_output_router
 from app.modules.quality import router as quality_router
