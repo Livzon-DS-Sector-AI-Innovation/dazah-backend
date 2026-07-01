@@ -32,6 +32,7 @@ class UserResponse(BaseModel):
     feishu_open_id: str | None = None
     feishu_union_id: str | None = None
     tenant_key: str | None = None
+    role: str = "member"
 
     model_config = {"from_attributes": True}
 
@@ -99,6 +100,7 @@ class PersonnelItem(BaseModel):
     avatar_middle: str | None = None
     avatar_big: str | None = None
     tenant_key: str | None = None
+    role: str = "member"
     feishu_department_ids: list[str] | None = None
 
     @field_validator("feishu_department_ids", mode="before")
