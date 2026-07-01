@@ -826,7 +826,6 @@ class DossierService:
         # 加载种子数据
         from scripts.seed_s6_ai_config import S6_FIELD_MAPPINGS, S6_ASSET_CATEGORIES
 
-logger = logging.getLogger(__name__)
         
         # 只处理指定章节的配置
         field_configs = [c for c in S6_FIELD_MAPPINGS if c.get("chapter_code") == chapter_code]
