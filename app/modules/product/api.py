@@ -4,6 +4,7 @@ from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import CurrentUser
 from app.core.response import paginated_response, success_response
 from app.modules.product.schemas import (
     ProductCreate,
@@ -26,6 +27,7 @@ def get_product_service(session: AsyncSession = Depends(get_db)) -> ProductServi
 
 @router.get("/products", summary="产品列表")
 async def list_products(
+    current_user: CurrentUser,
     name: str | None = Query(None, description="产品名称筛选"),
     category: str | None = Query(None, description="产品大类筛选"),
     product_type: str | None = Query(None, description="产品类别筛选"),
@@ -55,6 +57,7 @@ async def list_products(
 
 @router.post("/products", summary="创建产品")
 async def create_product(
+    current_user: CurrentUser,
     payload: ProductCreate,
     service: ProductService = Depends(get_product_service),
 ):
@@ -68,6 +71,7 @@ async def create_product(
 
 @router.get("/products/{product_id}", summary="产品详情")
 async def get_product(
+    current_user: CurrentUser,
     product_id: UUID,
     service: ProductService = Depends(get_product_service),
 ):
@@ -79,6 +83,7 @@ async def get_product(
 
 @router.put("/products/{product_id}", summary="更新产品")
 async def update_product(
+    current_user: CurrentUser,
     product_id: UUID,
     payload: ProductUpdate,
     service: ProductService = Depends(get_product_service),
@@ -92,6 +97,7 @@ async def update_product(
 
 @router.delete("/products/{product_id}", summary="删除产品")
 async def delete_product(
+    current_user: CurrentUser,
     product_id: UUID,
     service: ProductService = Depends(get_product_service),
 ):
@@ -101,6 +107,7 @@ async def delete_product(
 
 @router.post("/products/sync-from-feishu", summary="从飞书多维表格同步产品数据")
 async def sync_products_from_feishu(
+    current_user: CurrentUser,
     service: ProductService = Depends(get_product_service),
 ):
     """手动触发：从飞书多维表格拉取全部产品数据并 upsert 到本地 PG。"""
@@ -119,6 +126,7 @@ async def sync_products_from_feishu(
 
 @router.get("/products/sync-status", summary="飞书同步状态")
 async def get_product_sync_status(
+    current_user: CurrentUser,
     service: ProductService = Depends(get_product_service),
 ):
     """查看本地与飞书的数据同步统计。"""
@@ -130,6 +138,7 @@ async def get_product_sync_status(
 
 @router.post("/products/{product_id}/sync-to-feishu", summary="同步单个产品到飞书")
 async def sync_product_to_feishu(
+    current_user: CurrentUser,
     product_id: UUID,
     service: ProductService = Depends(get_product_service),
 ):

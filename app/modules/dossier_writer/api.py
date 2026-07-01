@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.deps import CurrentUser
 from app.core.response import success_response, error_response
 from .schemas import (
     ProductDossierCreate, ProductDossierUpdate,
@@ -26,6 +27,7 @@ router = APIRouter()
 
 @router.post("/products", response_model=dict)
 async def create_product_dossier(
+    current_user: CurrentUser,
     data: ProductDossierCreate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -43,6 +45,7 @@ async def create_product_dossier(
 
 @router.get("/products", response_model=dict)
 async def list_product_dossiers(
+    current_user: CurrentUser,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
@@ -63,6 +66,7 @@ async def list_product_dossiers(
 
 @router.get("/products/{dossier_id}", response_model=dict)
 async def get_product_dossier(
+    current_user: CurrentUser,
     dossier_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -79,6 +83,7 @@ async def get_product_dossier(
 
 @router.put("/products/{dossier_id}", response_model=dict)
 async def update_product_dossier(
+    current_user: CurrentUser,
     dossier_id: UUID,
     data: ProductDossierUpdate,
     db: AsyncSession = Depends(get_db),
@@ -96,6 +101,7 @@ async def update_product_dossier(
 
 @router.delete("/products/{dossier_id}", response_model=dict)
 async def delete_product_dossier(
+    current_user: CurrentUser,
     dossier_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -111,6 +117,7 @@ async def delete_product_dossier(
 
 @router.post("/products/{dossier_id}/templates", response_model=dict)
 async def upload_templates(
+    current_user: CurrentUser,
     dossier_id: UUID,
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
@@ -183,6 +190,7 @@ async def upload_templates(
 
 @router.post("/products/{dossier_id}/parse", response_model=dict)
 async def parse_templates(
+    current_user: CurrentUser,
     dossier_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -200,6 +208,7 @@ async def parse_templates(
 
 @router.get("/products/{dossier_id}/chapters", response_model=dict)
 async def get_chapter_tree(
+    current_user: CurrentUser,
     dossier_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -211,6 +220,7 @@ async def get_chapter_tree(
 
 @router.get("/chapters/{chapter_id}", response_model=dict)
 async def get_chapter_detail(
+    current_user: CurrentUser,
     chapter_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -226,6 +236,7 @@ async def get_chapter_detail(
 
 @router.post("/chapters/{chapter_id}/assets", response_model=dict)
 async def upload_asset(
+    current_user: CurrentUser,
     chapter_id: UUID,
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
@@ -257,6 +268,7 @@ async def upload_asset(
 
 @router.get("/chapters/{chapter_id}/assets", response_model=dict)
 async def list_assets(
+    current_user: CurrentUser,
     chapter_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -271,6 +283,7 @@ async def list_assets(
 
 @router.delete("/assets/{asset_id}", response_model=dict)
 async def delete_asset(
+    current_user: CurrentUser,
     asset_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -284,6 +297,7 @@ async def delete_asset(
 
 @router.patch("/assets/{asset_id}", response_model=dict)
 async def update_asset_category(
+    current_user: CurrentUser,
     asset_id: UUID,
     body: dict,
     db: AsyncSession = Depends(get_db),
@@ -314,6 +328,7 @@ async def update_asset_category(
 
 @router.post("/products/{dossier_id}/export", response_model=dict)
 async def export_dossier(
+    current_user: CurrentUser,
     dossier_id: UUID,
     data: ExportRequest,
     db: AsyncSession = Depends(get_db),
@@ -330,6 +345,7 @@ async def export_dossier(
 
 @router.get("/products/{dossier_id}/download")
 async def download_exported_file(
+    current_user: CurrentUser,
     dossier_id: UUID,
     filename: str = Query(..., description="文件名"),
     db: AsyncSession = Depends(get_db),
@@ -353,6 +369,7 @@ async def download_exported_file(
 
 @router.get("/chapters/{chapter_id}/preview", response_model=dict)
 async def get_chapter_preview(
+    current_user: CurrentUser,
     chapter_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -368,6 +385,7 @@ async def get_chapter_preview(
 
 @router.get("/chapters/{chapter_id}/docx-file")
 async def get_chapter_docx_file(
+    current_user: CurrentUser,
     chapter_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -399,6 +417,7 @@ async def get_chapter_docx_file(
 
 @router.post("/products/{dossier_id}/match-assets", response_model=dict)
 async def match_assets_to_chapters(
+    current_user: CurrentUser,
     dossier_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -419,6 +438,7 @@ from .field_fill_service import FieldFillService
 
 @router.post("/chapters/{chapter_id}/fill-fields", response_model=dict)
 async def fill_chapter_fields(
+    current_user: CurrentUser,
     chapter_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -450,6 +470,7 @@ async def fill_chapter_fields(
 
 @router.get("/chapters/{chapter_code}/field-mappings", response_model=dict)
 async def get_field_mappings(
+    current_user: CurrentUser,
     chapter_code: str,
     db: AsyncSession = Depends(get_db),
 ):
@@ -481,6 +502,7 @@ async def get_field_mappings(
 
 @router.post("/field-mappings/init-s6", response_model=dict)
 async def init_s6_field_mappings(
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """初始化 S.6 包装系统的字段映射配置（从数据库 seed 数据）"""
@@ -492,6 +514,7 @@ async def init_s6_field_mappings(
 
 @router.get("/chapters/{chapter_id}/fill-results", response_model=dict)
 async def get_fill_results(
+    current_user: CurrentUser,
     chapter_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -526,6 +549,7 @@ async def get_fill_results(
 
 @router.post("/chapters/{chapter_id}/ai-preview", response_model=dict)
 async def ai_preview_extraction(
+    current_user: CurrentUser,
     chapter_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -559,6 +583,7 @@ async def ai_preview_extraction(
 
 @router.post("/chapters/{chapter_id}/ai-confirm", response_model=dict)
 async def ai_confirm_and_fill(
+    current_user: CurrentUser,
     chapter_id: UUID,
     data: dict,
     db: AsyncSession = Depends(get_db),
@@ -595,6 +620,7 @@ async def ai_confirm_and_fill(
 
 @router.get("/chapters/{chapter_code}/asset-categories", response_model=dict)
 async def get_asset_categories(
+    current_user: CurrentUser,
     chapter_code: str,
     db: AsyncSession = Depends(get_db),
 ):
@@ -609,6 +635,7 @@ async def get_asset_categories(
 
 @router.post("/assets/{asset_id}/split-preview", response_model=dict)
 async def split_preview(
+    current_user: CurrentUser,
     asset_id: UUID,
     data: dict,
     db: AsyncSession = Depends(get_db),
@@ -637,6 +664,7 @@ async def split_preview(
 
 @router.post("/chapters/{chapter_id}/split-confirm", response_model=dict)
 async def split_confirm_and_insert(
+    current_user: CurrentUser,
     chapter_id: UUID,
     data: dict,
     db: AsyncSession = Depends(get_db),
@@ -672,6 +700,7 @@ async def split_confirm_and_insert(
 
 @router.get("/chapters/{chapter_code}/appendix-slots", response_model=dict)
 async def get_appendix_slots(
+    current_user: CurrentUser,
     chapter_code: str,
     db: AsyncSession = Depends(get_db),
 ):
