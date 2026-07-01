@@ -520,3 +520,42 @@ async def import_from_feishu(
     )
 
 router.include_router(monthly_router, prefix="/monthly", tags=["月度记录"])
+
+
+# ── 飞书多维表格同步 ──
+
+
+@router.post("/sync/bitable", summary="从飞书多维表格同步数据")
+async def sync_from_bitable(
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """从飞书多维表格同步车间和月度记录数据。"""
+    from app.modules.energy.bitable_sync import EnergyBitableSync
+
+    sync_service = EnergyBitableSync()
+    result = await sync_service.sync_all(db)
+    return success_response(result)
+
+
+@router.post("/sync/bitable/workshops", summary="从飞书多维表格同步车间数据")
+async def sync_workshops_from_bitable(
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """从飞书多维表格同步车间数据。"""
+    from app.modules.energy.bitable_sync import EnergyBitableSync
+
+    sync_service = EnergyBitableSync()
+    result = await sync_service.sync_workshops(db)
+    return success_response(result)
+
+
+@router.post("/sync/bitable/monthly", summary="从飞书多维表格同步月度记录")
+async def sync_monthly_from_bitable(
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """从飞书多维表格同步月度能耗记录。"""
+    from app.modules.energy.bitable_sync import EnergyBitableSync
+
+    sync_service = EnergyBitableSync()
+    result = await sync_service.sync_monthly_records(db)
+    return success_response(result)

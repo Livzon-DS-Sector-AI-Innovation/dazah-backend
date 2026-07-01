@@ -123,6 +123,11 @@ class Settings(BaseSettings):
     FEISHU_BITABLE_TRAINING_NOTIFICATION_APP_TOKEN: str = ""
     FEISHU_BITABLE_TRAINING_NOTIFICATION_TABLE_ID: str = ""
 
+    # Feishu Bitable - 能源模块多维表格同步
+    FEISHU_BITABLE_ENERGY_APP_TOKEN: str = ""
+    FEISHU_BITABLE_ENERGY_WORKSHOP_TABLE_ID: str = ""
+    FEISHU_BITABLE_ENERGY_MONTHLY_TABLE_ID: str = ""
+
     # AI — HR 离职分析
     MOONSHOT_API_KEY: str = ""
     AI_MODEL: str = "kimi-k2.5"
@@ -181,3 +186,4 @@ def get_settings() -> Settings:
     settings = Settings()
     settings.check()
     return settings
+
