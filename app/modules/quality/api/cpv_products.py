@@ -67,7 +67,6 @@ async def create_product(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -200,7 +199,6 @@ async def update_product(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -223,7 +221,6 @@ async def delete_product(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -277,7 +274,6 @@ async def create_parameter(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -302,7 +298,6 @@ async def update_parameter(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -325,7 +320,6 @@ async def delete_parameter(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 

@@ -102,7 +102,6 @@ async def confirm_import(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
