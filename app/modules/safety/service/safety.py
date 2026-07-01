@@ -919,12 +919,12 @@ class SafetyService:
     async def _get_ai_service(self) -> AIService:
         """获取文本模型 AIService（硬编码配置）"""
         from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("text")
+        return await create_ai_service("text")
 
     async def _get_vision_ai_service(self) -> AIService:
         """获取视觉模型 AIService（硬编码配置）"""
         from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("vision")
+        return await create_ai_service("vision")
 
     def _build_context(self, script_number: int, item: Any) -> str:
         """从当前记录构建供 AI 使用的上下文字符串"""

@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+from app.shared.config_reader import get_module_setting
 import uuid
 from datetime import datetime
 from typing import Any
@@ -1012,12 +1013,12 @@ class HazardService:
     async def _get_ai_service(self) -> "AIService":
         """获取文本模型 AIService（硬编码配置）"""
         from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("text")
+        return await create_ai_service("text")
 
     async def _get_vision_ai_service(self) -> "AIService":
         """获取视觉模型 AIService（硬编码配置）"""
         from app.modules.safety.service.config import create_ai_service
-        return create_ai_service("vision")
+        return await create_ai_service("vision")
 
     async def run_hazard_ai_script(
         self, hazard_id: uuid.UUID, script_number: int
@@ -1115,8 +1116,8 @@ async def _build_verify_card_content(
     level_labels = {1: "（部门负责人）", 2: "（分管领导）", 3: "（检查人员）"}
     level_text = level_labels.get(level, f"{level}级")
 
-    bitable_file_token = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
-    bitable_table_id = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
+    bitable_file_token = await get_module_setting("safety", "SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
+    bitable_table_id = await get_module_setting("safety", "SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
     bitable_url = (
         f"https://www.feishu.cn/base/{bitable_file_token}"
         f"?table={bitable_table_id}&record={hazard.feishu_record_id}"
@@ -1445,8 +1446,8 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
                 hazard.hazard_no, person.name, person.user_id, person.open_id,
             )
 
-        bitable_file_token = os.getenv("SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
-        bitable_table_id = os.getenv("SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
+        bitable_file_token = await get_module_setting("safety", "SAFETY_FEISHU_BITABLE_APP_TOKEN", "")
+        bitable_table_id = await get_module_setting("safety", "SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID", "")
         bitable_url = (
             f"https://www.feishu.cn/base/{bitable_file_token}"
             f"?table={bitable_table_id}&record={hazard.feishu_record_id}"
