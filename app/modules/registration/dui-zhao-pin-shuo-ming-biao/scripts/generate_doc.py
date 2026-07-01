@@ -4,6 +4,9 @@
 """
 
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
@@ -129,7 +132,7 @@ def generate_document(coa_data, output_path):
     
     # 保存文档
     doc.save(output_path)
-    print(f"文档已生成: {output_path}")
+    logger.info(f"文档已生成: {output_path}")
 
 
 if __name__ == '__main__':

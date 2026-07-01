@@ -11,13 +11,14 @@ import sys
 import json
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 
 def load_synonyms():
     """Load solvent synonym database."""
     try:
         from app.modules.research.ich_service import DATA_DIR
 
-logger = logging.getLogger(__name__)
         synonym_file = DATA_DIR / "solvent-synonyms.json"
         if synonym_file.exists():
             with open(synonym_file, 'r') as f:
@@ -230,14 +231,14 @@ def analyze_steps(llm_data, solvent_index):
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: solvent_match.py --llm <llm_analysis_json> <ich_json> [output_json]")
-        print("  llm_analysis_json: Output from llm_extract.py")
-        print("  ich_json: ICH Q3C data (data/ich-q3c-full.json)")
-        print("  output_json: Output path (optional, defaults to stdout)")
+        logger.info("Usage: solvent_match.py --llm <llm_analysis_json> <ich_json> [output_json]")
+        logger.info("  llm_analysis_json: Output from llm_extract.py")
+        logger.info("  ich_json: ICH Q3C data (data/ich-q3c-full.json)")
+        logger.info("  output_json: Output path (optional, defaults to stdout)")
         sys.exit(1)
     
     if sys.argv[1] != "--llm":
-        print("Error: --llm flag is required", file=sys.stderr)
+        logger.error("Error: --llm flag is required")
         sys.exit(1)
     
     llm_path = sys.argv[2]
@@ -253,26 +254,26 @@ def main():
     data_dir = script_dir.parent / "data"
     synonyms = load_synonyms()
     
-    print(f"Building solvent index...", file=sys.stderr)
+    logger.info(f"Building solvent index...")
     solvent_index = build_solvent_index(ich_data, synonyms)
     
     # Load LLM-extracted analysis
     with open(llm_path, 'r') as f:
         llm_data = json.load(f)
     
-    print(f"Classifying LLM-extracted solvents...", file=sys.stderr)
+    logger.info(f"Classifying LLM-extracted solvents...")
     analysis = analyze_steps(llm_data, solvent_index)
     
     # Output results
     if output_path:
         with open(output_path, 'w') as f:
             json.dump(analysis, f, indent=2, ensure_ascii=False)
-        print(f"Saved to {output_path}", file=sys.stderr)
+        logger.info(f"Saved to {output_path}")
     else:
-        print(json.dumps(analysis, indent=2, ensure_ascii=False))
+        logger.info(json.dumps(analysis, indent=2, ensure_ascii=False))
     
-    print(f"\nSummary:", file=sys.stderr)
-    print(f"  Total unique solvents: {analysis['total_unique_solvents']}", file=sys.stderr)
+    logger.info(f"\nSummary:")
+    logger.info(f"  Total unique solvents: {analysis['total_unique_solvents']}")
     
     # Class breakdown
     class_counts = {"class1": 0, "class2": 0, "class3": 0, "unknown": 0}
@@ -281,7 +282,7 @@ def main():
     
     for cls, count in class_counts.items():
         if count > 0:
-            print(f"  {cls}: {count}", file=sys.stderr)
+            logger.info(f"  {cls}: {count}")
 
 
 if __name__ == "__main__":

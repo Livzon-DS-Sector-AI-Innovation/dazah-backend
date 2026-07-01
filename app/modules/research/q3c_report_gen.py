@@ -358,11 +358,11 @@ logger = logging.getLogger(__name__)
     
     # Output
     if args.output == "-":
-        print(report)
+        logger.info(report)
     else:
         with open(args.output, 'w') as f:
             f.write(report)
-        print(f"Report saved to {args.output}", file=sys.stderr)
+        logger.info(f"Report saved to {args.output}")
 
 
 if __name__ == "__main__":
