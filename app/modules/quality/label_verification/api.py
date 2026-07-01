@@ -6,6 +6,7 @@ from fastapi import Depends, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import CurrentUser
 from app.core.response import paginated_response, success_response
 from .schemas import (
     LabelVerificationCreate,
@@ -346,8 +347,6 @@ async def auto_compare_video(
     except Exception as e:
         logger.error(f"自动对比失败: {e}")
         from fastapi import HTTPException
-
-logger = logging.getLogger(__name__)
         raise HTTPException(status_code=500, detail=f"视频分析失败: {str(e)}")
 
     return success_response(
