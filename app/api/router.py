@@ -21,7 +21,6 @@ from app.modules.warehouse import router as warehouse_router
 from app.platform.identity.api import (
     auth_router,
     dept_router,
-    impersonation_router,
     login_log_router,
     personnel_router,
     sync_router,
@@ -38,7 +37,6 @@ api_router = APIRouter()
 
 api_router.include_router(identity_router, prefix="/identity", tags=["身份认证"])
 api_router.include_router(user_router, prefix="/identity", tags=["用户信息"])
-api_router.include_router(impersonation_router, prefix="/identity", tags=["用户代理"])
 api_router.include_router(dept_router, prefix="/identity", tags=["组织架构"])
 api_router.include_router(personnel_router, prefix="/identity", tags=["人员名单"])
 api_router.include_router(auth_router, prefix="/identity", tags=["认证"])
