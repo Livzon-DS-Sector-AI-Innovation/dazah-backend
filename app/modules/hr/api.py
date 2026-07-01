@@ -3,7 +3,7 @@ from io import BytesIO
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Query, UploadFile
+from fastapi import Depends, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from pydantic import BaseModel
@@ -1350,6 +1350,28 @@ async def list_annual_training_plan_items(
     return success_response(data=data)
 
 
+@router.delete("/annual-training-plans/{plan_id}/items/{item_id}", summary="删除年度计划明细")
+async def delete_annual_training_plan_item(
+    plan_id: UUID,
+    item_id: UUID,
+    session: AsyncSession = Depends(get_db),
+):
+    """软删除一条年度计划明细。"""
+    from app.modules.hr.models import AnnualTrainingPlanItem
+    item = (await session.execute(
+        select(AnnualTrainingPlanItem).where(
+            AnnualTrainingPlanItem.id == item_id,
+            AnnualTrainingPlanItem.plan_id == plan_id,
+            AnnualTrainingPlanItem.is_deleted == False,
+        )
+    )).scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "明细不存在")
+    item.is_deleted = True
+    await session.flush()
+    return success_response(message="删除成功")
+
+
 @router.put("/annual-training-plans/{plan_id}/items/batch", summary="批量更新年度计划明细")
 async def batch_update_annual_training_plan_items(
     plan_id: UUID,
@@ -1681,6 +1703,36 @@ async def list_training_evaluations(
     return paginated_response(data=data, page=page, page_size=page_size, total=count)
 
 
+@router.post("/training-evaluations/upsert", summary="同步评估补录的记录（培训内容+部门+应到人数）")
+async def upsert_training_evaluation(
+    training_content: str = Form(...),
+    department: str = Form(...),
+    expected_count: int = Form(0),
+    session: AsyncSession = Depends(get_db),
+):
+    """从培训通知面板同步：按培训内容+部门 upsert，自动带入应到人数。"""
+    from app.modules.hr.models import TrainingLedger
+    # 检查是否已有同内容+部门的评估记录
+    existing = (await session.execute(
+        text("SELECT id FROM hr.training_evaluations WHERE training_content = :c AND department = :d AND is_deleted = false"),
+        {"c": training_content, "d": department}
+    )).fetchone()
+    if existing:
+        await session.execute(
+            text("UPDATE hr.training_evaluations SET expected_count = :n, updated_at = now() WHERE id = :id"),
+            {"n": expected_count, "id": existing[0]}
+        )
+        msg = "updated"
+    else:
+        await session.execute(
+            text("INSERT INTO hr.training_evaluations (id, training_content, department, expected_count) VALUES (gen_random_uuid(), :c, :d, :n)"),
+            {"c": training_content, "d": department, "n": expected_count}
+        )
+        msg = "created"
+    await session.commit()
+    return success_response(data={"status": msg}, message="同步成功")
+
+
 @router.get("/training-evaluations/pending", summary="待评估的培训列表")
 async def list_pending_evaluations(
     keyword: str | None = Query(None),
@@ -1688,18 +1740,26 @@ async def list_pending_evaluations(
 ):
     """Return trainings from the annual plan that haven't been evaluated yet."""
     rows = (await session.execute(text("""
-        SELECT p.id, p.content_and_textbook, p.target_audience, p.training_method,
-               p.training_hours, p.remarks, pl.department, pl.year
+        SELECT DISTINCT ON (p.content_and_textbook, pl.department)
+               p.id, p.content_and_textbook, p.target_audience, p.training_method,
+               p.training_hours, p.remarks, pl.department, pl.year,
+               p.trainee_count
         FROM hr.annual_training_plan_items p
         JOIN hr.annual_training_plans pl ON pl.id = p.plan_id
         WHERE p.is_deleted = false
-        AND NOT EXISTS (SELECT 1 FROM hr.training_evaluations e WHERE e.is_deleted = false AND e.training_content = p.content_and_textbook)
-        ORDER BY pl.year DESC, p.content_and_textbook
+        AND NOT EXISTS (
+            SELECT 1 FROM hr.training_evaluations e
+            WHERE e.is_deleted = false
+            AND e.training_content = p.content_and_textbook
+            AND e.department = pl.department
+        )
+        ORDER BY p.content_and_textbook, pl.department, pl.year DESC
         LIMIT 200
     """))).fetchall()
 
     data = [{"id": str(r[0]), "content": r[1], "audience": r[2], "method": r[3],
-             "hours": r[4], "remarks": r[5], "department": r[6], "year": r[7]} for r in rows]
+             "hours": r[4], "remarks": r[5], "department": r[6], "year": r[7],
+             "expected_count": r[8]} for r in rows]
     return success_response(data=data)
 
 
