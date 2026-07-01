@@ -9,11 +9,16 @@ from app.modules.hr import router as hr_router
 from app.modules.product import router as product_router
 from app.modules.procurement import router as procurement_router
 from app.modules.production import router as production_router
+from app.modules.production.label_verification_api import (
+    router as label_verification_router,
+)
+from app.modules.production.product_api import router as workshop_product_router
+from app.modules.production.product_output_api import router as product_output_router
 from app.modules.quality import router as quality_router
 from app.modules.registration import router as registration_router
-from app.modules.research import router as research_router
 from app.modules.regulatory_tracker import router as regulatory_tracker_router
 from app.modules.quality.label_verification import router as label_verification_router
+from app.modules.research import router as research_router
 from app.modules.safety import router as safety_router
 from app.modules.warehouse import router as warehouse_router
 from app.platform.identity.api import (
@@ -55,6 +60,16 @@ api_router.include_router(
 )
 api_router.include_router(quality_router, prefix="/quality", tags=["质量管理"])
 api_router.include_router(label_verification_router, prefix="/quality", tags=["质量管理 - 标签复核"])
+api_router.include_router(
+    workshop_product_router,
+    prefix="/production",
+    tags=["生产管理 - 产品定义"],
+)
+api_router.include_router(
+    product_output_router,
+    prefix="/production",
+    tags=["生产管理 - 产量记录"],
+)
 api_router.include_router(regulatory_tracker_router, tags=["法规追踪"])
 api_router.include_router(
     dossier_writer_router,
