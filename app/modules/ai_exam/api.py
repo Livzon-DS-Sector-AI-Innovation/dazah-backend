@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from app.core.deps import CurrentUser
 
 from app.core.response import success_response
 from app.modules.ai_exam.schemas import ExamExportRequest
