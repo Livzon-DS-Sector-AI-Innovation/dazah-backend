@@ -149,3 +149,63 @@ class DepartmentRepository:
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
+
+
+class LoginLogRepository:
+    async def create(
+        self,
+        session: AsyncSession,
+        *,
+        user_id=None,
+        user_name: str | None = None,
+        login_type: str = "feishu_sso",
+        status: str = "success",
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        error_message: str | None = None,
+        extra: dict | None = None,
+    ):
+        from app.platform.identity.models import LoginLog
+
+        log = LoginLog(
+            user_id=user_id,
+            user_name=user_name,
+            login_type=login_type,
+            status=status,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            error_message=error_message,
+            extra=extra,
+        )
+        session.add(log)
+        await session.flush()
+        return log
+
+    async def list_logs(
+        self,
+        session: AsyncSession,
+        *,
+        status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list, int]:
+        from app.platform.identity.models import LoginLog
+
+        base = select(LoginLog).where(LoginLog.is_deleted == False)  # noqa: E712
+        count_base = select(LoginLog.id).where(LoginLog.is_deleted == False)  # noqa: E712
+
+        if status:
+            base = base.where(LoginLog.status == status)
+            count_base = count_base.where(LoginLog.status == status)
+        if keyword:
+            base = base.where(LoginLog.user_name.ilike(f"%{keyword}%"))
+            count_base = count_base.where(LoginLog.user_name.ilike(f"%{keyword}%"))
+
+        total_result = await session.execute(count_base)
+        total = len(total_result.scalars().all())
+
+        stmt = base.order_by(LoginLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        result = await session.execute(stmt)
+        logs = list(result.scalars().all())
+        return logs, total
