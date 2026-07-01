@@ -172,7 +172,6 @@ async def update_project(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -192,7 +191,6 @@ async def delete_project(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -214,7 +212,6 @@ async def analyze_ich_q3c(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -244,7 +241,6 @@ async def analyze_ich_combined(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -270,7 +266,6 @@ async def get_ich_records(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -324,7 +319,6 @@ async def get_ich_record(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -366,7 +360,6 @@ async def delete_ich_record(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -392,7 +385,6 @@ async def edbo_optimize(
 
     save_prediction: bool = Body(False, description="是否保存预测文件"),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -1011,7 +1003,6 @@ async def create_pilot_workflow(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -1139,7 +1130,6 @@ async def start_pilot_workflow(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -1234,7 +1224,6 @@ async def upload_pilot_document(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -1306,7 +1295,6 @@ async def delete_pilot_workflow(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -1338,7 +1326,6 @@ async def analyze_literature(
 
     file: UploadFile = File(...),
 
-    current_user: CurrentUser = None,
 
 ):
 
@@ -1802,7 +1789,6 @@ async def create_route(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -1860,7 +1846,6 @@ async def update_route(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -1934,7 +1919,6 @@ async def delete_route(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -1996,7 +1980,6 @@ async def create_experiment(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -2084,7 +2067,6 @@ async def update_experiment(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -2166,7 +2148,6 @@ async def delete_experiment(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -2422,7 +2403,6 @@ async def create_optimization(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -2494,7 +2474,6 @@ async def update_optimization(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -2560,7 +2539,6 @@ async def delete_optimization(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3126,7 +3104,6 @@ async def create_rd_project(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3156,7 +3133,6 @@ async def update_rd_project(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3184,7 +3160,6 @@ async def delete_rd_project(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3212,7 +3187,6 @@ async def transition_stage(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3302,7 +3276,6 @@ async def create_pilot_study(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3332,7 +3305,6 @@ async def update_pilot_study(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3387,7 +3359,6 @@ async def create_validation(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3417,7 +3388,6 @@ async def update_validation(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3472,7 +3442,6 @@ async def create_filing(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3502,7 +3471,6 @@ async def update_filing(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -3542,7 +3510,6 @@ async def create_rd_stage_deliverable_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> RdStageDeliverableResponse:
 
@@ -3650,7 +3617,6 @@ async def update_rd_stage_deliverable_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> RdStageDeliverableResponse:
 
@@ -3678,7 +3644,6 @@ async def delete_rd_stage_deliverable_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> list:
 
@@ -3706,7 +3671,6 @@ async def upload_deliverable_file(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> list:
 
@@ -3862,7 +3826,6 @@ async def create_pilot_study_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -3886,7 +3849,6 @@ async def update_pilot_study_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -3908,7 +3870,6 @@ async def delete_pilot_study_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -3953,7 +3914,6 @@ async def create_validation_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -3977,7 +3937,6 @@ async def update_validation_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -3999,7 +3958,6 @@ async def delete_validation_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -4044,7 +4002,6 @@ async def create_filing_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -4068,7 +4025,6 @@ async def update_filing_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -4090,7 +4046,6 @@ async def delete_filing_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -4139,7 +4094,6 @@ async def create_experiment_log(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -4171,7 +4125,6 @@ async def update_experiment_log(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -4201,7 +4154,6 @@ async def delete_experiment_log(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -4250,7 +4202,6 @@ async def create_report(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -4282,7 +4233,6 @@ async def update_report(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -4312,7 +4262,6 @@ async def delete_report(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -4361,7 +4310,6 @@ async def create_initiation(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -4393,7 +4341,6 @@ async def update_initiation(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -4423,7 +4370,6 @@ async def delete_initiation(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -4451,7 +4397,6 @@ async def delete_research_track(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -4497,7 +4442,6 @@ async def delete_research_finding(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -4614,7 +4558,6 @@ async def create_conclusion_version_api(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -5291,7 +5234,6 @@ async def create_deliverable_template(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -5323,7 +5265,6 @@ async def update_deliverable_template(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -5353,7 +5294,6 @@ async def delete_deliverable_template(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> dict:
 
@@ -5379,7 +5319,6 @@ async def generate_report(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
