@@ -30,9 +30,9 @@ def _to_ms_timestamp(value: date | datetime | str | None) -> int | str:
 
 
 class BitableClient:
-    def __init__(self) -> None:
+    def __init__(self, app_token: str | None = None) -> None:
         self.client = FeishuClient()
-        self.app_token = _settings.FEISHU_BITABLE_APP_TOKEN
+        self.app_token = app_token or _settings.FEISHU_BITABLE_APP_TOKEN
 
     def _path(self, table_id: str, suffix: str = "") -> str:
         base = f"/bitable/v1/apps/{self.app_token}/tables/{table_id}"

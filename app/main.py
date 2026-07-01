@@ -12,16 +12,25 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import app.platform.audit.models  # noqa: F401
+
+# Ensure platform models are registered in SQLAlchemy metadata
+import app.platform.identity.models  # noqa: F401
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.response import error_response
+from app.modules.regulatory_tracker.tasks.sync_tasks import (
+    start_scheduler,
+    stop_scheduler,
+)
 from app.platform.audit import AuditMiddleware
 from app.shared.ocr_service import init_ocr
 
 # Ensure platform models are registered in SQLAlchemy metadata
 import app.platform.identity.models  # noqa: F401
 import app.platform.audit.models  # noqa: F401
+>>>>>>> origin/dev/livzon-nx
 
 settings = get_settings()
 
@@ -76,6 +85,73 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         tasks.append((worker, task))
     
     # Start unified scheduler engine (for DB-driven generators)
+
+    from app.modules.warehouse.feishu_events import register_feishu_event_handlers
+
+    register_feishu_event_handlers()
+
+    from app.modules.energy.scheduler import (
+        energy_collection_loop,
+        stop_energy_collection_flag,
+    )
+    from app.modules.equipment.scheduler import (
+        maintenance_plan_loop,
+        stop_maintenance_plan_flag,
+        stop_timeout_flag,
+        timeout_scan_loop,
+    )
+    from app.platform.identity.scheduler import (
+        member_sync_loop,
+        stop_member_sync_flag,
+    )
+
+    start_scheduler()
+    energy_task = asyncio.ensure_future(energy_collection_loop())
+    maintenance_plan_task = asyncio.ensure_future(maintenance_plan_loop())
+    timeout_task = asyncio.ensure_future(timeout_scan_loop())
+    member_task = asyncio.ensure_future(member_sync_loop())
+
+    # ── 平台级飞书 WebSocket 长连接 ──
+    if settings.FEISHU_WS_ENABLED:
+        from app.platform.integrations.feishu.event_handler import set_main_loop
+        from app.platform.integrations.feishu.ws_client import start_ws_client
+
+        set_main_loop(asyncio.get_running_loop())
+        start_ws_client()
+
+    # ── 仓储模块飞书 WebSocket 长连接（模块独立应用凭据） ──
+    from app.modules.warehouse.ws_client import (
+        set_main_loop as set_warehouse_ws_main_loop,
+    )
+    from app.modules.warehouse.ws_client import (
+        start_ws_from_db as start_warehouse_ws,
+    )
+
+    set_warehouse_ws_main_loop(asyncio.get_running_loop())
+    await start_warehouse_ws()
+
+    # ── 设备模块飞书 WebSocket 长连接（独立交互机器人，原生 WebSocket） ──
+    equipment_ws_task: asyncio.Task | None = None
+    if settings.EQUIPMENT_FEISHU_APP_ID and settings.EQUIPMENT_FEISHU_APP_SECRET:
+        from app.modules.equipment.feishu.ws_client import start_equipment_ws
+
+        equipment_ws_task = asyncio.create_task(start_equipment_ws())
+
+    # ── 安全模块专属飞书事件订阅（WebSocket 长连接，独立应用凭据）──
+    from app.modules.safety.feishu.event_client import start_ws, stop_ws
+
+    safety_ws_task = asyncio.create_task(start_ws())
+
+    # ── 安全模块定时任务调度引擎 ──
+    from app.modules.safety.scheduler import (
+        scheduled_task_loop,
+        stop_scheduled_task_flag,
+    )
+
+    scheduler_task = asyncio.create_task(scheduled_task_loop())
+
+    # ── 统一调度引擎（平台级，各模块可渐进迁移）──
+
     from app.platform.scheduler import SchedulerEngine, SchedulerRegistry
     from app.modules.equipment.scheduled import InspectionScheduleGenerator
     
@@ -118,6 +194,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         task.cancel()
     
     logger.info("Shutdown complete")
+
+    # 停止设备模块 WebSocket
+    if equipment_ws_task:
+        from app.modules.equipment.feishu.ws_client import stop_equipment_ws
+
+        await stop_equipment_ws()
+        equipment_ws_task.cancel()
+
+    from app.modules.warehouse.ws_client import stop_ws as stop_warehouse_ws
+
+    await stop_warehouse_ws()
+
+    energy_task.cancel()
+    maintenance_plan_task.cancel()
+    timeout_task.cancel()
+    member_task.cancel()
+
+    # 停止平台级飞书 WebSocket
+    from app.platform.integrations.feishu.ws_client import stop_ws_client
+
+    stop_ws_client()
+
+    logger.info("Shutting down %s", settings.APP_NAME)
 
 
 

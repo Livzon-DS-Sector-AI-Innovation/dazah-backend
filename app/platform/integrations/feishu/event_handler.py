@@ -11,7 +11,11 @@ import asyncio
 import logging
 
 import lark_oapi as lark
+from lark_oapi.api.drive.v1 import P2DriveFileBitableRecordChangedV1
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
+
+from app.core.events import event_bus
+from app.platform.integrations.feishu.utils import FEISHU_BITABLE_RECORD_CHANGED_EVENT
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +33,9 @@ def build_event_handler() -> lark.EventDispatcherHandler:
     return (
         lark.EventDispatcherHandler.builder("", "")
         .register_p2_im_message_receive_v1(_on_message_receive)
+        .register_p2_drive_file_bitable_record_changed_v1(
+            _on_bitable_record_changed
+        )
         .build()
     )
 
@@ -92,3 +99,66 @@ async def _handle_message_async(
         return
 
     logger.info("全局飞书消息已记录: type=%s, message_id=%s", msg_type, message_id)
+
+
+def _on_bitable_record_changed(data: P2DriveFileBitableRecordChangedV1) -> None:
+    event = data.event
+    if not event:
+        return
+
+    file_token = event.file_token or ""
+    table_id = event.table_id or ""
+    actions = [
+        {
+            "record_id": action.record_id,
+            "action": action.action,
+        }
+        for action in (event.action_list or [])
+    ]
+
+    logger.info(
+        "全局飞书收到多维表变更: file_token=%s table_id=%s revision=%s actions=%s",
+        file_token,
+        table_id,
+        event.revision,
+        len(actions),
+    )
+
+    if _main_loop is None:
+        logger.error("主 event loop 未设置，无法处理多维表变更事件")
+        return
+
+    future = asyncio.run_coroutine_threadsafe(
+        _handle_bitable_record_changed_async(
+            file_token=file_token,
+            table_id=table_id,
+            revision=event.revision,
+            update_time=event.update_time,
+            actions=actions,
+        ),
+        _main_loop,
+    )
+    try:
+        future.result(timeout=120)
+    except Exception:
+        logger.exception("异步处理多维表变更事件超时或异常")
+
+
+async def _handle_bitable_record_changed_async(
+    *,
+    file_token: str,
+    table_id: str,
+    revision: int | None,
+    update_time: int | None,
+    actions: list[dict[str, str | None]],
+) -> None:
+    await event_bus.publish(
+        FEISHU_BITABLE_RECORD_CHANGED_EVENT,
+        {
+            "file_token": file_token,
+            "table_id": table_id,
+            "revision": revision,
+            "update_time": update_time,
+            "actions": actions,
+        },
+    )

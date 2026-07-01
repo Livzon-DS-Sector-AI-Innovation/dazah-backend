@@ -3,9 +3,7 @@
 import asyncio
 import json
 import logging
-from app.core.tasks import spawn_task
 import os
-from app.core.config import get_settings
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +11,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.modules.safety.feishu.notification import send_user_card
 from app.platform.audit.service import record_audit_log
 from app.modules.safety.models import (
@@ -43,7 +42,7 @@ from app.modules.safety.schemas import (
 )
 from app.core.llm import llm_client, LLMOutputError, LLMProviderError
 from app.platform.integrations.ai.document_parser import DocumentParser
-from app.modules.safety.ai_prompts import (
+from app.platform.integrations.ai.prompts import (
     SCRIPT_CONFIG,
     build_prompt,
 )
@@ -61,7 +60,7 @@ def _debug_log(msg: str) -> None:
         with open(_debug_log_path, "a", encoding="utf-8") as f:
             f.write(f"[{ts}] {msg}\n")
     except Exception:
-        logger.debug("Failed to write debug log")
+        pass
 
 
 # ── AI 配置默认值（仅用于自动种子和 temperature fallback）──
@@ -361,7 +360,7 @@ class SafetyService:
 
         # 整改回复后，异步通知一级复核人（部门负责人）
         if updated:
-            spawn_task(_send_verify_notification(updated, 1), name="safety.verify_notification")
+            asyncio.create_task(_send_verify_notification(updated, 1))
 
         return updated
 
@@ -442,9 +441,9 @@ class SafetyService:
         if updated and action == "approved":
             if level == 1 and is_general:
                 # 一般隐患：跳过二级，直接通知三级
-                spawn_task(_send_verify_notification(updated, 3), name="safety.verify_notification")
+                asyncio.create_task(_send_verify_notification(updated, 3))
             elif level < 3:
-                spawn_task(_send_verify_notification(updated, level + 1), name="safety.verify_notification")
+                asyncio.create_task(_send_verify_notification(updated, level + 1))
 
         return updated
 
@@ -473,7 +472,7 @@ class SafetyService:
 
         # 重新整改回复后，异步通知一级复核人
         if updated:
-            spawn_task(_send_verify_notification(updated, 1), name="safety.verify_notification")
+            asyncio.create_task(_send_verify_notification(updated, 1))
 
         return updated
 
@@ -722,8 +721,9 @@ async def _build_verify_card_content(
     level_labels = {1: "（部门负责人）", 2: "（分管领导）", 3: "（检查人员）"}
     level_text = level_labels.get(level, f"{level}级")
 
-    bitable_file_token = get_settings().SAFETY_FEISHU_BITABLE_APP_TOKEN
-    bitable_table_id = get_settings().SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID
+    settings = get_settings()
+    bitable_file_token = settings.SAFETY_FEISHU_BITABLE_APP_TOKEN
+    bitable_table_id = settings.SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID
     bitable_url = (
         f"https://www.feishu.cn/base/{bitable_file_token}"
         f"?table={bitable_table_id}&record={hazard.feishu_record_id}"
@@ -1005,8 +1005,9 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
                 hazard.hazard_no, person.name, person.user_id, person.open_id,
             )
 
-        bitable_file_token = get_settings().SAFETY_FEISHU_BITABLE_APP_TOKEN
-        bitable_table_id = get_settings().SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID
+        settings = get_settings()
+        bitable_file_token = settings.SAFETY_FEISHU_BITABLE_APP_TOKEN
+        bitable_table_id = settings.SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID
         bitable_url = (
             f"https://www.feishu.cn/base/{bitable_file_token}"
             f"?table={bitable_table_id}&record={hazard.feishu_record_id}"
@@ -2199,7 +2200,7 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
                 if font_alias == "SimHei":
                     _font_name_bold = "SimHei"
             except Exception:
-                logger.warning("Failed to detect PDF fonts")
+                pass
         logger.debug("PDF fonts: body=%s, bold=%s", _font_name, _font_name_bold)
 
         styles = getSampleStyleSheet()

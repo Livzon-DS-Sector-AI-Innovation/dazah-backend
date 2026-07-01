@@ -28346,6 +28346,1006 @@
         }
       }
     },
+    "/api/v1/warehouse/feishu-config": {
+      "get": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u83b7\u53d6\u4ed3\u50a8\u98de\u4e66\u914d\u7f6e",
+        "operationId": "get_feishu_config_api_v1_warehouse_feishu_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuConfigApiResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u4fdd\u5b58\u4ed3\u50a8\u98de\u4e66\u914d\u7f6e",
+        "operationId": "save_feishu_config_api_v1_warehouse_feishu_config_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WarehouseFeishuConfigUpsert"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuConfigApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu-config/test": {
+      "post": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u6d4b\u8bd5\u4ed3\u50a8\u98de\u4e66\u8fde\u901a\u6027",
+        "operationId": "test_feishu_config_api_v1_warehouse_feishu_config_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/WarehouseFeishuConfigUpsert"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuConnectivityApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu/tables": {
+      "get": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u83b7\u53d6\u4ed3\u50a8\u98de\u4e66\u6570\u636e\u8868\u76ee\u5f55",
+        "operationId": "list_feishu_tables_api_v1_warehouse_feishu_tables_get",
+        "parameters": [
+          {
+            "name": "business_domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Business Domain"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "name": "enabled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Enabled"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuTableListApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu/tables/refresh": {
+      "post": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u5237\u65b0\u4ed3\u50a8\u98de\u4e66\u6570\u636e\u8868\u76ee\u5f55",
+        "operationId": "refresh_feishu_tables_api_v1_warehouse_feishu_tables_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuTableListApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu/tables/enabled/batch": {
+      "post": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u6279\u91cf\u542f\u7528\u6216\u505c\u7528\u4ed3\u50a8\u98de\u4e66\u6570\u636e\u8868\u540c\u6b65",
+        "operationId": "set_feishu_tables_enabled_api_v1_warehouse_feishu_tables_enabled_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WarehouseFeishuTableBatchEnablePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuTableBatchEnableApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu/tables/{table_id}/enabled": {
+      "patch": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u542f\u7528\u6216\u505c\u7528\u4ed3\u50a8\u98de\u4e66\u6570\u636e\u8868\u540c\u6b65",
+        "operationId": "set_feishu_table_enabled_api_v1_warehouse_feishu_tables__table_id__enabled_patch",
+        "parameters": [
+          {
+            "name": "table_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Table Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WarehouseFeishuTableEnablePayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuTableEnableApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu/tables/{table_id}/sync": {
+      "post": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u540c\u6b65\u4ed3\u50a8\u98de\u4e66\u6570\u636e\u8868\u8bb0\u5f55\u5feb\u7167",
+        "operationId": "sync_feishu_table_api_v1_warehouse_feishu_tables__table_id__sync_post",
+        "parameters": [
+          {
+            "name": "table_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Table Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuTableSyncApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu/tables/{table_id}/records": {
+      "get": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u8bfb\u53d6\u4ed3\u50a8\u98de\u4e66\u6570\u636e\u8868\u672c\u5730\u8bb0\u5f55\u5feb\u7167",
+        "operationId": "get_feishu_table_records_api_v1_warehouse_feishu_tables__table_id__records_get",
+        "parameters": [
+          {
+            "name": "table_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Table Id"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Field"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuRawRecordApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu/domains/{business_domain}/records": {
+      "get": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u8bfb\u53d6\u4ed3\u50a8\u4e1a\u52a1\u57df\u542f\u7528\u8868\u672c\u5730\u8bb0\u5f55\u5feb\u7167",
+        "operationId": "get_feishu_domain_records_api_v1_warehouse_feishu_domains__business_domain__records_get",
+        "parameters": [
+          {
+            "name": "business_domain",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Business Domain"
+            }
+          },
+          {
+            "name": "table_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Table Id"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Field"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuRawRecordApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu/ws/status": {
+      "get": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u67e5\u8be2\u4ed3\u50a8\u98de\u4e66 WebSocket \u72b6\u6001",
+        "operationId": "get_feishu_ws_status_api_v1_warehouse_feishu_ws_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuWsStatusApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/warehouse/feishu/ws/restart": {
+      "post": {
+        "tags": [
+          "\u4ed3\u50a8\u7ba1\u7406"
+        ],
+        "summary": "\u91cd\u542f\u4ed3\u50a8\u98de\u4e66 WebSocket \u957f\u8fde\u63a5",
+        "operationId": "restart_feishu_ws_api_v1_warehouse_feishu_ws_restart_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseFeishuWsStatusApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/product/": {
+      "get": {
+        "tags": [
+          "\u4ea7\u54c1\u7ba1\u7406"
+        ],
+        "summary": "\u4ea7\u54c1\u7ba1\u7406\u6a21\u5757\u4fe1\u606f",
+        "operationId": "read_module_api_v1_product__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Read Module Api V1 Product  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/product/products": {
+      "get": {
+        "tags": [
+          "\u4ea7\u54c1\u7ba1\u7406"
+        ],
+        "summary": "\u4ea7\u54c1\u5217\u8868",
+        "operationId": "list_products_api_v1_product_products_get",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u4ea7\u54c1\u540d\u79f0\u7b5b\u9009",
+              "title": "Name"
+            },
+            "description": "\u4ea7\u54c1\u540d\u79f0\u7b5b\u9009"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u4ea7\u54c1\u5927\u7c7b\u7b5b\u9009",
+              "title": "Category"
+            },
+            "description": "\u4ea7\u54c1\u5927\u7c7b\u7b5b\u9009"
+          },
+          {
+            "name": "product_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u4ea7\u54c1\u7c7b\u522b\u7b5b\u9009",
+              "title": "Product Type"
+            },
+            "description": "\u4ea7\u54c1\u7c7b\u522b\u7b5b\u9009"
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\u540d\u79f0\u6216\u6599\u4ef6\u7f16\u53f7\u5173\u952e\u8bcd",
+              "title": "Keyword"
+            },
+            "description": "\u540d\u79f0\u6216\u6599\u4ef6\u7f16\u53f7\u5173\u952e\u8bcd"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "\u4ea7\u54c1\u7ba1\u7406"
+        ],
+        "summary": "\u521b\u5efa\u4ea7\u54c1",
+        "operationId": "create_product_api_v1_product_products_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/product/products/{product_id}": {
+      "get": {
+        "tags": [
+          "\u4ea7\u54c1\u7ba1\u7406"
+        ],
+        "summary": "\u4ea7\u54c1\u8be6\u60c5",
+        "operationId": "get_product_api_v1_product_products__product_id__get",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "\u4ea7\u54c1\u7ba1\u7406"
+        ],
+        "summary": "\u66f4\u65b0\u4ea7\u54c1",
+        "operationId": "update_product_api_v1_product_products__product_id__put",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "\u4ea7\u54c1\u7ba1\u7406"
+        ],
+        "summary": "\u5220\u9664\u4ea7\u54c1",
+        "operationId": "delete_product_api_v1_product_products__product_id__delete",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/product/products/sync-from-feishu": {
+      "post": {
+        "tags": [
+          "\u4ea7\u54c1\u7ba1\u7406"
+        ],
+        "summary": "\u4ece\u98de\u4e66\u591a\u7ef4\u8868\u683c\u540c\u6b65\u4ea7\u54c1\u6570\u636e",
+        "description": "\u624b\u52a8\u89e6\u53d1\uff1a\u4ece\u98de\u4e66\u591a\u7ef4\u8868\u683c\u62c9\u53d6\u5168\u90e8\u4ea7\u54c1\u6570\u636e\u5e76 upsert \u5230\u672c\u5730 PG\u3002",
+        "operationId": "sync_products_from_feishu_api_v1_product_products_sync_from_feishu_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/product/products/sync-status": {
+      "get": {
+        "tags": [
+          "\u4ea7\u54c1\u7ba1\u7406"
+        ],
+        "summary": "\u98de\u4e66\u540c\u6b65\u72b6\u6001",
+        "description": "\u67e5\u770b\u672c\u5730\u4e0e\u98de\u4e66\u7684\u6570\u636e\u540c\u6b65\u7edf\u8ba1\u3002",
+        "operationId": "get_product_sync_status_api_v1_product_products_sync_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/product/products/{product_id}/sync-to-feishu": {
+      "post": {
+        "tags": [
+          "\u4ea7\u54c1\u7ba1\u7406"
+        ],
+        "summary": "\u540c\u6b65\u5355\u4e2a\u4ea7\u54c1\u5230\u98de\u4e66",
+        "description": "\u5c06\u672c\u5730\u5355\u4e2a\u4ea7\u54c1\u5f3a\u5236\u540c\u6b65\u5230\u98de\u4e66\u591a\u7ef4\u8868\u683c\u3002",
+        "operationId": "sync_product_to_feishu_api_v1_product_products__product_id__sync_to_feishu_post",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/procurement/": {
       "get": {
         "tags": [
@@ -60904,6 +61904,112 @@
         "title": "ProcessStepUpdate",
         "description": "\u66f4\u65b0\u5de5\u827a\u6b65\u9aa4"
       },
+      "ProductCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Name",
+            "description": "\u4ea7\u54c1\u540d\u79f0"
+          },
+          "major_category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major Category",
+            "description": "\u4ea7\u54c1\u4ee3\u7801"
+          },
+          "formulation_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formulation Code",
+            "description": "\u5236\u5242\u4ee3\u7801"
+          },
+          "product_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Type",
+            "description": "\u4ea7\u54c1\u5242\u578b"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec",
+            "description": "\u751f\u4ea7\u89c4\u683c"
+          },
+          "capacity_range": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Range",
+            "description": "\u751f\u4ea7\u6279\u91cf"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit",
+            "description": "\u5355\u4f4d"
+          },
+          "indication": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indication",
+            "description": "\u9002\u5e94\u75c7"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ProductCreate"
+      },
       "ProductDossierCreate": {
         "properties": {
           "product_name": {
@@ -61206,6 +62312,109 @@
           "import_key"
         ],
         "title": "ProductInventoryResponse"
+      },
+      "ProductUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "major_category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major Category"
+          },
+          "formulation_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formulation Code"
+          },
+          "product_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Type"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
+          },
+          "capacity_range": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Range"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "indication": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indication"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "ProductUpdate"
       },
       "ProductionPlanCreate": {
         "properties": {
@@ -68938,6 +70147,936 @@
         "type": "object",
         "title": "VerifyMonitorRequest",
         "description": "\u9a8c\u8bc1\u76d1\u6d4b\u8bf7\u6c42"
+      },
+      "WarehouseFeishuConfigApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WarehouseFeishuConfigResponse"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "WarehouseFeishuConfigApiResponse"
+      },
+      "WarehouseFeishuConfigResponse": {
+        "properties": {
+          "config_name": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Config Name",
+            "default": "\u4ed3\u50a8\u98de\u4e66\u914d\u7f6e"
+          },
+          "app_id": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "App Id"
+          },
+          "finished_product_app_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished Product App Token"
+          },
+          "materials_packaging_app_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Materials Packaging App Token"
+          },
+          "hardware_app_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hardware App Token"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          },
+          "remark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remark"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "app_secret_configured": {
+            "type": "boolean",
+            "title": "App Secret Configured",
+            "default": false
+          },
+          "app_secret_masked": {
+            "type": "string",
+            "title": "App Secret Masked",
+            "default": ""
+          },
+          "bitable_app_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bitable App Token"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "app_id"
+        ],
+        "title": "WarehouseFeishuConfigResponse"
+      },
+      "WarehouseFeishuConfigUpsert": {
+        "properties": {
+          "config_name": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Config Name",
+            "default": "\u4ed3\u50a8\u98de\u4e66\u914d\u7f6e"
+          },
+          "app_id": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "App Id"
+          },
+          "finished_product_app_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished Product App Token"
+          },
+          "materials_packaging_app_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Materials Packaging App Token"
+          },
+          "hardware_app_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hardware App Token"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          },
+          "remark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remark"
+          },
+          "app_secret": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "app_id"
+        ],
+        "title": "WarehouseFeishuConfigUpsert"
+      },
+      "WarehouseFeishuConnectivityApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WarehouseFeishuConnectivityResult"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "WarehouseFeishuConnectivityApiResponse"
+      },
+      "WarehouseFeishuConnectivityResult": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/WarehouseFeishuConnectivityStep"
+            },
+            "type": "array",
+            "title": "Steps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "steps"
+        ],
+        "title": "WarehouseFeishuConnectivityResult"
+      },
+      "WarehouseFeishuConnectivityStep": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "message"
+        ],
+        "title": "WarehouseFeishuConnectivityStep"
+      },
+      "WarehouseFeishuFieldResponse": {
+        "properties": {
+          "field_id": {
+            "type": "string",
+            "title": "Field Id"
+          },
+          "field_name": {
+            "type": "string",
+            "title": "Field Name"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "property": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Property"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field_id",
+          "field_name"
+        ],
+        "title": "WarehouseFeishuFieldResponse"
+      },
+      "WarehouseFeishuRawRecordApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WarehouseFeishuRawRecordData"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "WarehouseFeishuRawRecordApiResponse"
+      },
+      "WarehouseFeishuRawRecordData": {
+        "properties": {
+          "table": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WarehouseFeishuTableResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/WarehouseFeishuFieldResponse"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/WarehouseFeishuRawRecordResponse"
+            },
+            "type": "array",
+            "title": "Records"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 50
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fields",
+          "records"
+        ],
+        "title": "WarehouseFeishuRawRecordData"
+      },
+      "WarehouseFeishuRawRecordResponse": {
+        "properties": {
+          "record_id": {
+            "type": "string",
+            "title": "Record Id"
+          },
+          "fields": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Fields"
+          },
+          "created_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created Time"
+          },
+          "last_modified_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Modified Time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "record_id",
+          "fields"
+        ],
+        "title": "WarehouseFeishuRawRecordResponse"
+      },
+      "WarehouseFeishuTableBatchEnableApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/WarehouseFeishuTableResponse"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "WarehouseFeishuTableBatchEnableApiResponse"
+      },
+      "WarehouseFeishuTableBatchEnablePayload": {
+        "properties": {
+          "table_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Table Ids"
+          },
+          "is_enabled": {
+            "type": "boolean",
+            "title": "Is Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "table_ids",
+          "is_enabled"
+        ],
+        "title": "WarehouseFeishuTableBatchEnablePayload"
+      },
+      "WarehouseFeishuTableEnableApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WarehouseFeishuTableResponse"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "WarehouseFeishuTableEnableApiResponse"
+      },
+      "WarehouseFeishuTableEnablePayload": {
+        "properties": {
+          "is_enabled": {
+            "type": "boolean",
+            "title": "Is Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_enabled"
+        ],
+        "title": "WarehouseFeishuTableEnablePayload"
+      },
+      "WarehouseFeishuTableListApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/WarehouseFeishuTableResponse"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "WarehouseFeishuTableListApiResponse"
+      },
+      "WarehouseFeishuTableResponse": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "business_domain": {
+            "type": "string",
+            "title": "Business Domain"
+          },
+          "app_token": {
+            "type": "string",
+            "title": "App Token"
+          },
+          "table_id": {
+            "type": "string",
+            "title": "Table Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "last_discovered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Discovered At"
+          },
+          "last_event_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event At"
+          },
+          "is_enabled": {
+            "type": "boolean",
+            "title": "Is Enabled",
+            "default": false
+          },
+          "field_count": {
+            "type": "integer",
+            "title": "Field Count",
+            "default": 0
+          },
+          "record_count": {
+            "type": "integer",
+            "title": "Record Count",
+            "default": 0
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "sync_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Status"
+          },
+          "sync_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "business_domain",
+          "app_token",
+          "table_id",
+          "name"
+        ],
+        "title": "WarehouseFeishuTableResponse"
+      },
+      "WarehouseFeishuTableSyncApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WarehouseFeishuTableSyncResult"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "WarehouseFeishuTableSyncApiResponse"
+      },
+      "WarehouseFeishuTableSyncResult": {
+        "properties": {
+          "table": {
+            "$ref": "#/components/schemas/WarehouseFeishuTableResponse"
+          },
+          "field_count": {
+            "type": "integer",
+            "title": "Field Count"
+          },
+          "record_count": {
+            "type": "integer",
+            "title": "Record Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "table",
+          "field_count",
+          "record_count"
+        ],
+        "title": "WarehouseFeishuTableSyncResult"
+      },
+      "WarehouseFeishuWsStatus": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "connected": {
+            "type": "boolean",
+            "title": "Connected"
+          },
+          "app_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Id"
+          },
+          "app_tokens": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "App Tokens"
+          },
+          "last_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Started At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "connected"
+        ],
+        "title": "WarehouseFeishuWsStatus"
+      },
+      "WarehouseFeishuWsStatusApiResponse": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code",
+            "default": 200
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "success"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WarehouseFeishuWsStatus"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "WarehouseFeishuWsStatusApiResponse"
       },
       "WorkOrderAssign": {
         "properties": {

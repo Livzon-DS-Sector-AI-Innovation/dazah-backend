@@ -14,6 +14,15 @@ class FeishuAuth:
     _expire_at: float = 0.0
 
     @classmethod
+    def default(cls) -> "FeishuAuth":
+        """Return a compatibility instance for callers that inject auth objects."""
+        return cls()
+
+    async def get_token(self) -> str:
+        """Compatibility wrapper around the shared tenant token cache."""
+        return await self.get_tenant_access_token()
+
+    @classmethod
     async def get_tenant_access_token(cls) -> str:
         if cls._token and time.time() < cls._expire_at - 60:
             return cls._token

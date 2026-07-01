@@ -10,7 +10,6 @@ from app.core.exceptions import DuplicateException, NotFoundException
 from app.modules.product.models import Product
 from app.modules.product.repository import ProductRepository
 from app.modules.product.schemas import ProductCreate, ProductUpdate, SyncStatusResponse
-from app.platform.integrations.feishu.bitable import BitableClient
 from app.platform.integrations.feishu.datasource import BitableDataSource
 
 logger = logging.getLogger(__name__)
