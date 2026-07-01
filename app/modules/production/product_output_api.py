@@ -24,7 +24,7 @@ router = APIRouter()
 
 
 @router.get("/product-output/workshops", summary="获取车间列表")
-async def get_workshops():
+async def get_workshops(current_user: CurrentUser):
     """获取所有车间列表"""
     return ApiResponse(data=WORKSHOP_CHOICES)
 
