@@ -60,7 +60,7 @@ def _extract_impact_data(doc) -> dict:
 # ============ Dashboard ============
 
 @router.get("/regulatory-tracker/dashboard", summary="Dashboard 工作台数据")
-async def get_dashboard(db: AsyncSession = Depends(get_db)):
+async def get_dashboard(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
     """
     返回 Dashboard 工作台数据：
     - 今日新增统计（总数、高影响数、一般法规数）
@@ -131,7 +131,7 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
 # ============ 法规文档统计摘要 ============
 
 @router.get("/regulatory-tracker/summary", summary="法规追踪统计摘要")
-async def get_summary(db: AsyncSession = Depends(get_db)):
+async def get_summary(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
     stats = await repo.get_summary_stats(db)
     return {
         "code": 200,
@@ -144,6 +144,7 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
 
 @router.get("/regulatory-documents", summary="法规文档列表")
 async def list_documents(
+    current_user: CurrentUser,
     keyword: str | None = Query(None, description="关键词搜索"),
     publishDateFrom: date | None = Query(None, description="发布日期起始"),
     publishDateTo: date | None = Query(None, description="发布日期结束"),
@@ -233,7 +234,7 @@ async def list_documents(
 # ============ 法规文档详情 ============
 
 @router.get("/regulatory-documents/{doc_id}/detail", summary="法规文档详情")
-async def get_document_detail(doc_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_document_detail(current_user: CurrentUser, doc_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """获取法规文档详情，包含来源和栏目名称。"""
     doc_detail = await repo.get_document_detail(db, doc_id)
     if not doc_detail:
@@ -269,6 +270,7 @@ async def get_document_detail(doc_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 @router.get("/regulatory-documents/export", summary="导出法规文档为 Excel")
 async def export_documents(
+    current_user: CurrentUser,
     format: str = Query("xlsx", description="导出格式: xlsx"),
     keyword: str | None = Query(None),
     publishDateFrom: date | None = Query(None),
@@ -305,7 +307,7 @@ async def export_documents(
 # ============ 标记文档为已读 ============
 
 @router.patch("/regulatory-documents/{doc_id}/read", summary="标记文档为已读")
-async def mark_document_read(doc_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def mark_document_read(current_user: CurrentUser, doc_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """标记单个文档为已读"""
     doc = await repo.get_document_by_id(db, doc_id)
     if not doc:
@@ -317,7 +319,7 @@ async def mark_document_read(doc_id: uuid.UUID, db: AsyncSession = Depends(get_d
 
 
 @router.post("/regulatory-documents/batch-read", summary="批量标记文档已读")
-async def batch_mark_read(request: BatchReadRequest, db: AsyncSession = Depends(get_db)):
+async def batch_mark_read(current_user: CurrentUser, request: BatchReadRequest, db: AsyncSession = Depends(get_db)):
     """批量标记文档为已读"""
     count = await repo.batch_mark_read(db, request.documentIds)
     await db.commit()
@@ -328,6 +330,7 @@ async def batch_mark_read(request: BatchReadRequest, db: AsyncSession = Depends(
 
 @router.post("/sync-jobs/trigger", summary="手动触发同步任务")
 async def trigger_sync_job(
+    current_user: CurrentUser,
     request: SyncTriggerRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
@@ -387,6 +390,7 @@ async def trigger_sync_job(
 
 @router.get("/sync-jobs", summary="同步任务列表")
 async def list_sync_jobs(
+    current_user: CurrentUser,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),

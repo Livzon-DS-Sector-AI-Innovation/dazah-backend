@@ -71,6 +71,7 @@ INVOICE_UPLOAD_CHUNK_SIZE = 1024 * 1024
     response_model=InvoiceRecognitionResponse,
 )
 async def recognize_invoice(
+    current_user: CurrentUser,
     include_details: bool = Form(False, description="是否识别发票明细"),
     file: UploadFile = File(..., description="电子发票 PDF 文件"),
     db: AsyncSession = Depends(get_db),
@@ -105,7 +106,7 @@ async def recognize_invoice(
     )
 
 
-async def _read_upload_file_with_limit(file: UploadFile) -> bytes:
+async def _read_upload_file_with_limit(current_user: CurrentUser, file: UploadFile) -> bytes:
     chunks: list[bytes] = []
     total_size = 0
     while True:
@@ -130,6 +131,7 @@ async def _read_upload_file_with_limit(file: UploadFile) -> bytes:
     response_model=InvoiceRecognitionRecordListResponse,
 )
 async def list_invoice_records(
+    current_user: CurrentUser,
     keyword: str | None = Query(None, description="文件名、发票号码或销售方关键词"),
     seller_name: str | None = Query(None, description="销售方名称"),
     invoice_number: str | None = Query(None, description="发票号码"),
@@ -159,6 +161,7 @@ async def list_invoice_records(
     response_model=InvoiceRecognitionRecordDeleteResponse,
 )
 async def delete_invoice_record(
+    current_user: CurrentUser,
     record_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -182,6 +185,7 @@ async def delete_invoice_record(
     response_model=InvoiceRecognitionRecordDeleteResponse,
 )
 async def batch_delete_invoice_records(
+    current_user: CurrentUser,
     payload: InvoiceRecognitionRecordDeleteRequest,
     db: AsyncSession = Depends(get_db),
 ):
@@ -202,6 +206,7 @@ async def batch_delete_invoice_records(
     response_model=PurchaseOrderListResponse,
 )
 async def list_purchase_order_records(
+    current_user: CurrentUser,
     category: PurchaseRequestCategory | None = Query(None, description="采购分类"),
     year: int = Query(..., ge=2000, le=2100, description="年份"),
     month: int = Query(..., ge=1, le=12, description="月份"),
@@ -227,6 +232,7 @@ async def list_purchase_order_records(
     description="按采购分类、年份和月份导出整月已审批通过的采购申请明细 Excel。",
 )
 async def export_purchase_order_records(
+    current_user: CurrentUser,
     category: PurchaseRequestCategory | None = Query(None, description="采购分类"),
     year: int = Query(..., ge=2000, le=2100, description="年份"),
     month: int = Query(..., ge=1, le=12, description="月份"),
@@ -263,6 +269,7 @@ async def export_purchase_order_records(
     response_model=PurchaseRequestListResponse,
 )
 async def list_purchase_request_records(
+    current_user: CurrentUser,
     category: PurchaseRequestCategory | None = Query(None, description="采购分类"),
     status: PurchaseRequestStatus | None = Query(None, description="流程状态"),
     approval_role: PurchaseApprovalRole | None = Query(
@@ -299,6 +306,7 @@ async def list_purchase_request_records(
     response_model=PurchaseRequestApiResponse,
 )
 async def create_purchase_request_record(
+    current_user: CurrentUser,
     payload: PurchaseRequestCreate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -318,6 +326,7 @@ async def create_purchase_request_record(
     response_model=PurchaseRequestApiResponse,
 )
 async def get_purchase_request_record(
+    current_user: CurrentUser,
     request_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -335,6 +344,7 @@ async def get_purchase_request_record(
     response_model=PurchaseRequestApiResponse,
 )
 async def update_purchase_request_record(
+    current_user: CurrentUser,
     request_id: UUID,
     payload: PurchaseRequestUpdate,
     db: AsyncSession = Depends(get_db),
@@ -356,6 +366,7 @@ async def update_purchase_request_record(
     response_model=PurchaseRequestApiResponse,
 )
 async def submit_purchase_request_record(
+    current_user: CurrentUser,
     request_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
@@ -375,6 +386,7 @@ async def submit_purchase_request_record(
     response_model=PurchaseRequestApiResponse,
 )
 async def approve_purchase_request_record(
+    current_user: CurrentUser,
     request_id: UUID,
     payload: PurchaseApprovalRequest,
     db: AsyncSession = Depends(get_db),
@@ -392,6 +404,7 @@ async def approve_purchase_request_record(
     response_model=PurchaseRequestApiResponse,
 )
 async def reject_purchase_request_record(
+    current_user: CurrentUser,
     request_id: UUID,
     payload: PurchaseApprovalRequest,
     db: AsyncSession = Depends(get_db),
