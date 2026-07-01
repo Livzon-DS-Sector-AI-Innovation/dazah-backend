@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
-from app.core.response import paginated_response, success_response
+from app.core.response import paginated_response, success_response, error_response
 from app.modules.quality import service
 from app.modules.quality.schemas import (
     CpvImportConfirmRequest,
@@ -29,10 +29,7 @@ async def preview_import(
 ) -> JSONResponse:
     """上传Excel文件并预览导入数据"""
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
-        return JSONResponse(
-            status_code=400,
-            content={"code": 400, "message": "请上传 Excel 文件 (.xlsx, .xls)"},
-        )
+        return error_response("请上传 Excel 文件 (.xlsx, .xls)", status_code=400)
     
     file_content = await file.read()
     

@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.response import success_response, error_response
 from app.modules.regulatory_tracker import repository as repo
 from app.modules.regulatory_tracker.utils.excel_export import generate_regulatory_excel
 from app.modules.regulatory_tracker.schemas import (
@@ -235,7 +236,7 @@ async def get_document_detail(doc_id: uuid.UUID, db: AsyncSession = Depends(get_
     """获取法规文档详情，包含来源和栏目名称。"""
     doc_detail = await repo.get_document_detail(db, doc_id)
     if not doc_detail:
-        return {"code": 404, "message": "文档不存在", "data": None}
+        return error_response("文档不存在", status_code=404)
 
     # 获取相关法规
     from app.modules.regulatory_tracker.models.regulatory_document import RegulatoryDocument
@@ -260,11 +261,7 @@ async def get_document_detail(doc_id: uuid.UUID, db: AsyncSession = Depends(get_
         doc_detail.get("documentCategory") or "general"
     )
 
-    return {
-        "code": 200,
-        "message": "success",
-        "data": doc_detail,
-    }
+    return success_response(doc_detail)
 
 
 # ============ 法规文档导出 ============
@@ -301,7 +298,7 @@ async def export_documents(
             headers={"Content-Disposition": "attachment; filename=regulatory_documents.xlsx"},
         )
     else:
-        return {"code": 400, "message": "不支持的导出格式", "data": None}
+        return error_response("不支持的导出格式", status_code=400)
 
 
 # ============ 标记文档为已读 ============
@@ -311,11 +308,11 @@ async def mark_document_read(doc_id: uuid.UUID, db: AsyncSession = Depends(get_d
     """标记单个文档为已读"""
     doc = await repo.get_document_by_id(db, doc_id)
     if not doc:
-        return {"code": 404, "message": "文档不存在", "data": None}
+        return error_response("文档不存在", status_code=404)
 
     await repo.update_document(db, doc_id, {"is_new": False, "is_read": True})
     await db.commit()
-    return {"code": 200, "message": "success", "data": {"id": str(doc_id), "marked": True}}
+    return success_response({"id": str(doc_id), "marked": True})
 
 
 @router.post("/regulatory-documents/batch-read", summary="批量标记文档已读")
@@ -323,7 +320,7 @@ async def batch_mark_read(request: BatchReadRequest, db: AsyncSession = Depends(
     """批量标记文档为已读"""
     count = await repo.batch_mark_read(db, request.documentIds)
     await db.commit()
-    return {"code": 200, "message": "success", "data": {"updatedCount": count}}
+    return success_response({"updatedCount": count})
 
 
 # ============ 同步任务触发 ============
@@ -337,14 +334,14 @@ async def trigger_sync_job(
     """手动触发数据源同步任务（后台异步执行，含自动 AI 分析）"""
     source = await repo.get_data_source_by_code(db, request.sourceCode)
     if not source:
-        return {"code": 404, "message": f"数据源 {request.sourceCode} 不存在", "data": None}
+        return error_response(f"数据源 {request.sourceCode} 不存在", status_code=404)
 
     channel = await repo.get_channel_by_code(db, source.id, request.channelCode)
     if not channel:
-        return {"code": 404, "message": f"栏目 {request.channelCode} 不存在", "data": None}
+        return error_response(f"栏目 {request.channelCode} 不存在", status_code=404)
 
     if not source.enabled or not channel.enabled:
-        return {"code": 400, "message": "数据源或栏目已禁用", "data": None}
+        return error_response("数据源或栏目已禁用", status_code=400)
 
     # 创建同步任务记录
     job = await repo.create_sync_job(db, {
