@@ -1,11 +1,8 @@
-import asyncio
 from collections.abc import MutableMapping
 from importlib import import_module
 from logging.config import fileConfig
 from typing import Literal
 
-from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from app.core.config import get_settings
@@ -57,31 +54,31 @@ def include_name(
 
 def process_revision_directives(context, revision, directives):
     """Auto-generate CREATE SCHEMA statements for new schemas.
-    
+
     When autogenerate detects new tables in a schema that doesn't exist yet,
     this hook prepends CREATE SCHEMA IF NOT EXISTS statements to the migration.
     """
     if not directives:
         return
-    
+
     migration_script = directives[0]
     upgrade_ops = migration_script.upgrade_ops_list
-    
+
     # Collect all schemas that need to be created
     schemas_to_create = set()
-    
+
     for op_list in upgrade_ops:
         for op in op_list.ops:
             # Check for create_table operations
             if hasattr(op, 'table_name') and hasattr(op, 'schema'):
                 if op.schema and op.schema not in ('public', 'pg_catalog'):
                     schemas_to_create.add(op.schema)
-    
+
     # If we found new schemas, prepend CREATE SCHEMA statements
     if schemas_to_create:
         from alembic.operations import ops
         create_schema_ops = []
-        
+
         for schema in sorted(schemas_to_create):
             # Check if CREATE SCHEMA already exists in the migration
             has_create_schema = False
@@ -91,12 +88,12 @@ def process_revision_directives(context, revision, directives):
                         if schema in str(op.sql):
                             has_create_schema = True
                             break
-            
+
             if not has_create_schema:
                 # Create a raw SQL operation for CREATE SCHEMA
                 create_schema_op = ops.ExecuteSQLOp(f"CREATE SCHEMA IF NOT EXISTS {schema}")
                 create_schema_ops.append(create_schema_op)
-        
+
         # Prepend CREATE SCHEMA operations to the first upgrade ops list
         if create_schema_ops and upgrade_ops:
             existing_ops = list(upgrade_ops[0].ops)
