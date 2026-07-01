@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from app.core.tasks import spawn_task
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -219,7 +220,7 @@ async def trigger_sync_departments(
 
     from app.platform.integrations.feishu.sync import sync_departments
 
-    asyncio.create_task(sync_departments(root_id))
+    spawn_task(sync_departments(root_id), name="identity.sync_departments")
     logger.info("Department sync triggered for root=%s", root_id)
     return success_response(
         data={"message": "组织架构同步已触发", "root_dept_id": root_id},
@@ -240,7 +241,7 @@ async def trigger_sync_members(
 
     from app.platform.integrations.feishu.sync import sync_members
 
-    asyncio.create_task(sync_members(target_id))
+    spawn_task(sync_members(target_id), name="identity.sync_members")
     logger.info("Member sync triggered for target=%s", target_id)
     return success_response(
         data={"message": "成员同步已触发", "target_dept_id": target_id},

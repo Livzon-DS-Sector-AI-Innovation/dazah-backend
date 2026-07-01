@@ -1,23 +1,15 @@
-"""Background sync tasks — APScheduler integration."""
+"""Background sync tasks — SchedulerEngine integration."""
 
 import logging
-from datetime import datetime, timezone
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import select
-
-from app.core.config import get_settings
-from app.shared.config_reader import get_module_setting, get_module_setting_bool
+from app.shared.config_reader import get_module_setting_bool
 from app.core.database import async_session_factory
 from app.modules.regulatory_tracker import repository as repo
-from app.modules.regulatory_tracker.models import DataChannel, DataSource
 from app.modules.regulatory_tracker.services.sync_service import run_sync_job
 from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_new_documents
+from app.platform.scheduler import TaskDefinition, ScheduleConfig, ScheduleStrategy
 
 logger = logging.getLogger(__name__)
-
-scheduler = AsyncIOScheduler()
 
 
 async def daily_sync_job():
@@ -65,8 +57,6 @@ async def daily_sync_job():
         logger.exception("❌ 每日同步任务异常")
 
 
-
-
 async def daily_ai_analysis_job():
     """每日 AI 分析任务：分析新采集的法规文档。"""
     logger.info("⏰ 开始每日 AI 分析任务")
@@ -83,55 +73,28 @@ async def daily_ai_analysis_job():
     except Exception:
         logger.exception("❌ AI 分析任务异常")
 
-async def start_scheduler():
-    """启动定时调度器。"""
-    cron_expr = await get_module_setting("regulatory_tracker", "DAILY_SYNC_CRON", "0 2 * * *")
 
-    parts = cron_expr.strip().split()
-    if len(parts) != 5:
-        logger.error("DAILY_SYNC_CRON 格式错误: %s，使用默认 0 2 * * *", cron_expr)
-        parts = ["0", "2", "*", "*", "*"]
-
-    trigger = CronTrigger(
-        minute=parts[0],
-        hour=parts[1],
-        day=parts[2],
-        month=parts[3],
-        day_of_week=parts[4],
+# Task definitions for SchedulerEngine
+daily_sync_task = TaskDefinition(
+    name="regulatory_tracker.daily_sync",
+    schedule=ScheduleConfig(
+        strategy=ScheduleStrategy.CRON,
+        expression="0 2 * * *",  # 每天凌晨 2 点
         timezone="Asia/Shanghai",
-    )
+    ),
+    coro=daily_sync_job,
+    module="regulatory_tracker",
+    timeout_seconds=600,
+)
 
-    scheduler.add_job(
-        daily_sync_job,
-        trigger=trigger,
-        id="daily_cde_sync",
-        name="CDE 国内药品技术指导原则每日同步",
-        replace_existing=True,
-    )
-    
-    # AI 分析任务：在同步后 1 小时运行
-    ai_trigger = CronTrigger(
-        minute=parts[0],
-        hour=str((int(parts[1]) + 1) % 24),
-        day=parts[2],
-        month=parts[3],
-        day_of_week=parts[4],
+daily_ai_analysis_task = TaskDefinition(
+    name="regulatory_tracker.daily_ai_analysis",
+    schedule=ScheduleConfig(
+        strategy=ScheduleStrategy.CRON,
+        expression="0 3 * * *",  # 每天凌晨 3 点（同步后 1 小时）
         timezone="Asia/Shanghai",
-    )
-    scheduler.add_job(
-        daily_ai_analysis_job,
-        trigger=ai_trigger,
-        id="daily_ai_analysis",
-        name="法规文档 AI 每日分析",
-        replace_existing=True,
-    )
-    
-    scheduler.start()
-    logger.info("📅 Scheduler 已启动, cron=%s (Asia/Shanghai)", cron_expr)
-
-
-def stop_scheduler():
-    """停止定时调度器。"""
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
-        logger.info("📅 Scheduler 已停止")
+    ),
+    coro=daily_ai_analysis_job,
+    module="regulatory_tracker",
+    timeout_seconds=600,
+)

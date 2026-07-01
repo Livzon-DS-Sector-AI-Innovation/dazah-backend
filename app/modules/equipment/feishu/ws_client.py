@@ -213,7 +213,7 @@ async def _handle_binary_message(ws, message: bytes) -> None:
                 type_val = _get_by_key(frame.headers, HEADER_TYPE)
                 logger.debug("设备机器人 CONTROL 帧: %s", type_val)
             except Exception:
-                pass
+                logger.debug("Failed to parse CONTROL frame headers")
             return
 
         if ft == FrameType.DATA:

@@ -76,7 +76,7 @@ class FeishuClient:
             try:
                 error_body = resp.text
             except Exception:
-                pass
+                logger.debug("Failed to read error response body")
             logger.error(
                 "Feishu upload_file failed: status=%s, body=%s, parent_type=%s, parent_node=%s",
                 resp.status_code,

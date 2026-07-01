@@ -102,7 +102,7 @@ class RuleEngine:
         result = engine.validate(input_data, output)
         if not result.is_valid:
             for error in result.errors:
-                print(f"ERROR: {error}")
+                logger.error("Rule error: %s", error)
     """
 
     def validate(

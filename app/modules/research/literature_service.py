@@ -1,8 +1,11 @@
 """文献解析服务 - 使用 AI 分析合成路线"""
 
+import logging
 import json
 from typing import Any
 from app.modules.research.llm_service import call_llm
+
+logger = logging.getLogger(__name__)
 
 
 async def parse_literature(text: str) -> dict[str, Any]:
@@ -138,7 +141,7 @@ async def analyze_literature_with_ai(text: str) -> dict[str, Any]:
         return result
     except Exception as e:
         # 如果 AI 解析失败，返回空结果
-        print(f"AI 文献解析失败: {e}")
+        logger.warning("AI literature parsing failed: %s", e)
         return {
             "candidate_routes": [],
             "experiment_plans": [],

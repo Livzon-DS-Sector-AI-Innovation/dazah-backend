@@ -8,15 +8,15 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, NotFoundException
-from app.modules.production.pressure_models import (
+from .models import (
     DataMaster,
     Notification,
     OcrTask,
     PointMapping,
     PressureRecord,
 )
-from app.modules.production.pressure_repository import PressureRepository
-from app.modules.production.pressure_schemas import (
+from .repository import PressureRepository
+from .schemas import (
     AreaExportData,
     AuditRequest,
     AuditStats,

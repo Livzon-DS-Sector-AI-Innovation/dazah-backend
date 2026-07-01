@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from app.core.tasks import spawn_task
 import os
 from app.core.config import get_settings
 import uuid
@@ -42,7 +43,7 @@ from app.modules.safety.schemas import (
 )
 from app.core.llm import llm_client, LLMOutputError, LLMProviderError
 from app.platform.integrations.ai.document_parser import DocumentParser
-from app.platform.integrations.ai.prompts import (
+from app.modules.safety.ai_prompts import (
     SCRIPT_CONFIG,
     build_prompt,
 )
@@ -60,7 +61,7 @@ def _debug_log(msg: str) -> None:
         with open(_debug_log_path, "a", encoding="utf-8") as f:
             f.write(f"[{ts}] {msg}\n")
     except Exception:
-        pass
+        logger.debug("Failed to write debug log")
 
 
 # ── AI 配置默认值（仅用于自动种子和 temperature fallback）──
@@ -360,7 +361,7 @@ class SafetyService:
 
         # 整改回复后，异步通知一级复核人（部门负责人）
         if updated:
-            asyncio.create_task(_send_verify_notification(updated, 1))
+            spawn_task(_send_verify_notification(updated, 1), name="safety.verify_notification")
 
         return updated
 
@@ -441,9 +442,9 @@ class SafetyService:
         if updated and action == "approved":
             if level == 1 and is_general:
                 # 一般隐患：跳过二级，直接通知三级
-                asyncio.create_task(_send_verify_notification(updated, 3))
+                spawn_task(_send_verify_notification(updated, 3), name="safety.verify_notification")
             elif level < 3:
-                asyncio.create_task(_send_verify_notification(updated, level + 1))
+                spawn_task(_send_verify_notification(updated, level + 1), name="safety.verify_notification")
 
         return updated
 
@@ -472,7 +473,7 @@ class SafetyService:
 
         # 重新整改回复后，异步通知一级复核人
         if updated:
-            asyncio.create_task(_send_verify_notification(updated, 1))
+            spawn_task(_send_verify_notification(updated, 1), name="safety.verify_notification")
 
         return updated
 
@@ -2198,7 +2199,7 @@ async def _send_rectification_notification(hazard: HazardReport) -> None:
                 if font_alias == "SimHei":
                     _font_name_bold = "SimHei"
             except Exception:
-                pass
+                logger.warning("Failed to detect PDF fonts")
         logger.debug("PDF fonts: body=%s, bold=%s", _font_name, _font_name_bold)
 
         styles = getSampleStyleSheet()

@@ -1,4 +1,5 @@
 """素材文本提取器 - 将各种格式的素材统一转为纯文本，供 AI 解析"""
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
@@ -97,7 +98,7 @@ class AssetTextExtractor:
 
     @staticmethod
     def _extract_pdf(file_path: Path) -> Dict[str, Any]:
-        """从 PDF 提取：优先用 pdfplumber，失败则 OCR"""
+        """从 PDF 提取：优先用 pdfplumber，失败则用 PaddleOCR PP-StructureV3"""
         # 尝试 pdfplumber（对文字型 PDF 更快更准）
         try:
             import pdfplumber
@@ -115,24 +116,24 @@ class AssetTextExtractor:
                         "page_texts": page_texts,
                     }
         except Exception:
-            pass
+            logger.warning("PDF extraction with pdfplumber failed, falling back to PaddleOCR")
 
-        # 回退到 OCR
+        # 回退到 PaddleOCR PP-StructureV3（对扫描件更好，保持结构）
         try:
-            from pdf2image import convert_from_path
-            import pytesseract
-
-            images = convert_from_path(str(file_path), dpi=200)
-            page_texts = []
-            for i, img in enumerate(images):
-                text = pytesseract.image_to_string(img, lang="chi_sim+eng")
-                page_texts.append({"page": i + 1, "text": text.strip()})
-
-            full_text = "\n\n".join(p["text"] for p in page_texts)
+            from app.shared.ocr_service import get_ocr_service
+            ocr_service = get_ocr_service()
+            
+            # 使用 PP-StructureV3 提取 Markdown（保持表格、公式等结构）
+            markdown_text = ocr_service.extract_markdown(file_path)
+            
+            # 也可以获取结构化数据
+            structure = ocr_service.extract_structure(file_path)
+            
             return {
-                "text": full_text,
-                "page_count": len(images),
-                "page_texts": page_texts,
+                "text": markdown_text,
+                "page_count": 1,  # PP-StructureV3 不直接提供页数
+                "page_texts": [{"page": 1, "text": markdown_text}],
+                "structure": structure,  # 包含 layout、tables 等结构化信息
             }
         except Exception as e:
             return {"text": "", "error": f"PDF 提取失败: {str(e)}"}
@@ -156,6 +157,8 @@ class AssetTextExtractor:
         """将 PDF 指定页转为图片，返回图片路径"""
         try:
             from pdf2image import convert_from_path
+
+logger = logging.getLogger(__name__)
 
             images = convert_from_path(
                 str(file_path),

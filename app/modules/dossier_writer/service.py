@@ -1,4 +1,5 @@
 """Dossier Writer business workflows."""
+import logging
 import os
 import shutil
 import re
@@ -388,14 +389,14 @@ class DossierService:
                     for para in header.paragraphs:
                         self._replace_in_paragraph(para, replacements)
                 except Exception:
-                    pass
+                    logger.warning("Header paragraph replacement failed")
             
             for footer in [section.footer, section.first_page_footer, section.even_page_footer]:
                 try:
                     for para in footer.paragraphs:
                         self._replace_in_paragraph(para, replacements)
                 except Exception:
-                    pass
+                    logger.warning("Footer paragraph replacement failed")
 
         doc.save(str(file_path))
 
@@ -824,6 +825,8 @@ class DossierService:
         
         # 加载种子数据
         from scripts.seed_s6_ai_config import S6_FIELD_MAPPINGS, S6_ASSET_CATEGORIES
+
+logger = logging.getLogger(__name__)
         
         # 只处理指定章节的配置
         field_configs = [c for c in S6_FIELD_MAPPINGS if c.get("chapter_code") == chapter_code]

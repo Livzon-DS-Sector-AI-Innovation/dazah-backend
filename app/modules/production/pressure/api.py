@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.response import paginated_response, success_response
-from app.modules.production.pressure_schemas import (
+from .schemas import (
     AuditRequest,
     BatchAuditRequest,
     BatchCreateDataMasterRequest,
@@ -27,7 +27,7 @@ from app.modules.production.pressure_schemas import (
     SubmitOcrTaskResultRequest,
     UpdateMergedRowRequest,
 )
-from app.modules.production.pressure_service import PressureService
+from .service import PressureService
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
 from app.shared.schemas import PageParams

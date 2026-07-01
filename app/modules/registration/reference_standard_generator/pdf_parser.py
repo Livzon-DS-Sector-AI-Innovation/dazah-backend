@@ -216,7 +216,7 @@ class COAParser:
                     test_date = datetime.strptime(match.group(1), "%Y-%m-%d")
                     expiry_date = test_date + timedelta(days=4*365)  # 假设 4 年有效期
                     self.metadata["expiration_date"] = expiry_date.strftime("%Y-%m-%d")
-                except:
+                except (ValueError, TypeError, AttributeError):
                     pass
 
         # 贮存条件 - 匹配 "Storage Temperature" 或 "Storage Condition"

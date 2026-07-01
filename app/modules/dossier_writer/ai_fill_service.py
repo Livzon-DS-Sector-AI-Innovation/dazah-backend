@@ -587,7 +587,7 @@ class AIFillService:
                         if converted.exists():
                             return converted
             except Exception:
-                pass
+                logger.warning("LibreOffice conversion failed")
 
         return None
 
@@ -635,7 +635,7 @@ class AIFillService:
                 
                 return data_rows if data_rows else None
         except Exception:
-            pass
+            logger.warning("Data processing failed")
         
         return None
 

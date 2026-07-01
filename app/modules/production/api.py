@@ -642,6 +642,6 @@ async def update_material_balance(
     return ApiResponse(data=MaterialBalanceResponse.model_validate(balance))
 
 # ============ 压差统计路由 ============
-from app.modules.production.pressure_api import router as pressure_router
+from app.modules.production.pressure import router as pressure_router
 
 router.include_router(pressure_router, tags=["压差统计"])

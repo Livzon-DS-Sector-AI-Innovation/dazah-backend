@@ -4,8 +4,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from docx import Document
 from PIL import Image
-import pytesseract
 from pdf2image import convert_from_path
+
+from app.shared.ocr_service import get_ocr_service
 
 
 class AssetExtractor:
@@ -48,22 +49,25 @@ class AssetExtractor:
         }
     
     @staticmethod
-    def extract_text_from_pdf_ocr(file_path: Path, lang: str = 'chi_sim+eng') -> Dict[str, Any]:
+    def extract_text_from_pdf_ocr(file_path: Path) -> Dict[str, Any]:
         """使用 OCR 从 PDF 扫描件提取文本"""
         try:
-            # 转换 PDF 为图片
+            ocr_service = get_ocr_service()
+            
+            # 使用混合 API，PDF 自动使用 PP-StructureV3 保持结构
+            full_text = ocr_service.extract(file_path, output_format="text")
+            
+            # 转换 PDF 为图片以获取页数
             images = convert_from_path(str(file_path), dpi=200)
             
+            # 为每页提取文本（使用 PP-StructureV3）
             all_text = []
             for page_num, image in enumerate(images):
-                # OCR 识别
-                text = pytesseract.image_to_string(image, lang=lang)
+                text = ocr_service.extract(image, output_format="text")
                 all_text.append({
                     "page": page_num + 1,
                     "text": text.strip()
                 })
-            
-            full_text = "\n\n".join([p["text"] for p in all_text])
             
             return {
                 "pages": all_text,
@@ -78,11 +82,13 @@ class AssetExtractor:
             }
     
     @staticmethod
-    def extract_from_image(file_path: Path, lang: str = 'chi_sim+eng') -> Dict[str, Any]:
+    def extract_from_image(file_path: Path) -> Dict[str, Any]:
         """从图片文件提取文本"""
         try:
+            ocr_service = get_ocr_service()
             image = Image.open(str(file_path))
-            text = pytesseract.image_to_string(image, lang=lang)
+            # 使用 PP-OCR 进行快速文本提取
+            text = ocr_service.extract_text(image)
             return {
                 "text": text.strip(),
                 "format": image.format,

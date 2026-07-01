@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.response import error_response
 from app.platform.audit import AuditMiddleware
-from app.modules.regulatory_tracker.tasks.sync_tasks import start_scheduler, stop_scheduler
+from app.shared.ocr_service import init_ocr
 
 # Ensure platform models are registered in SQLAlchemy metadata
 import app.platform.identity.models  # noqa: F401
@@ -53,6 +53,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan — auto-start all registered background workers."""
     logger.info("Starting %s (%s)", settings.APP_NAME, settings.APP_ENV)
     
+    # Initialize OCR service
+    init_ocr()
+    
     # Import all modules to trigger their __init__.py and register workers
     import app.modules.safety  # noqa: F401
     import app.modules.equipment  # noqa: F401
@@ -78,6 +81,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     
     scheduler_registry = SchedulerRegistry()
     scheduler_registry.register_generator(InspectionScheduleGenerator())
+    
+    # Register regulatory_tracker scheduled tasks
+    from app.modules.regulatory_tracker.tasks.sync_tasks import daily_sync_task, daily_ai_analysis_task
+    scheduler_registry.register_task(daily_sync_task)
+    scheduler_registry.register_task(daily_ai_analysis_task)
     scheduler_engine = SchedulerEngine(scheduler_registry)
     scheduler_engine_task = asyncio.create_task(scheduler_engine.run())
     

@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.production.pressure_models import (
+from .models import (
     DataMaster,
     Notification,
     OcrTask,

@@ -2,15 +2,30 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
+# Remove all existing Debian sources and use Chinese mirror
+RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/* && \
+    echo "deb https://mirror.nyist.edu.cn/debian/ bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
+    echo "deb https://mirror.nyist.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+    echo "deb https://mirror.nyist.edu.cn/debian-security/ bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list
+
+# Install system dependencies required for OpenCV and PaddleOCR
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv package manager
 RUN pip install --no-cache-dir uv
 
 ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ENV UV_EXTRA_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 ENV UV_PYTHON=/usr/local/bin/python3
 
+# Copy and install Python dependencies
 COPY pyproject.toml uv.lock* ./
 RUN uv sync --frozen --no-dev
 
+# Copy application code
 COPY . .
 
 EXPOSE 8000

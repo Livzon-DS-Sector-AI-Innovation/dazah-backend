@@ -3,6 +3,7 @@
 Generate Markdown compliance report from solvent analysis.
 """
 
+import logging
 import sys
 import json
 import os
@@ -19,7 +20,7 @@ def load_solvent_synonyms():
             with open(synonyms_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
     except Exception:
-        pass
+        logger.warning("Failed to load synonym file")
     return {}
 
 
@@ -333,6 +334,8 @@ def generate_q3c_report(analysis, flag_class1=True, ich_data_source=""):
 
 def main():
     import argparse
+
+logger = logging.getLogger(__name__)
     
     parser = argparse.ArgumentParser(description="Generate ICH Q3C compliance report")
     parser.add_argument("analysis_json", help="Path to analysis JSON from solvent_match.py")

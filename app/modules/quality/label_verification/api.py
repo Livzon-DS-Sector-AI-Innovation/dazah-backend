@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from uuid import UUID
 
@@ -6,11 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.response import paginated_response, success_response
-from app.modules.production.label_verification_schemas import (
+from .schemas import (
     LabelVerificationCreate,
     LabelVerificationUpdate,
 )
-from app.modules.production.label_verification_service import LabelVerificationService
+from .service import LabelVerificationService
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
 from app.shared.schemas import PageParams
@@ -181,7 +182,7 @@ async def analyze_label_verification_video(
     """分析视频中的标签信息，返回 AI 识别结果"""
     import os
     from app.core.config import get_settings
-    from app.modules.production.label_verification_video_service import LabelVerificationVideoService
+    from .video_service import LabelVerificationVideoService
     from app.core.llm import llm_client, LLMOutputError
 
     settings = get_settings()
@@ -293,7 +294,7 @@ async def auto_compare_video(
     """
     import os
     from app.core.config import get_settings
-    from app.modules.production.label_verification_video_service import (
+    from .video_service import (
         LabelVerificationVideoService,
     )
     from app.core.llm import llm_client
@@ -345,6 +346,8 @@ async def auto_compare_video(
     except Exception as e:
         logger.error(f"自动对比失败: {e}")
         from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
         raise HTTPException(status_code=500, detail=f"视频分析失败: {str(e)}")
 
     return success_response(

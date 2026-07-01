@@ -74,7 +74,7 @@ class EmployeeBitableDataSource:
         # Query all employees
         rows = await ds.query()
         for emp in rows:
-            print(emp.name, emp.employee_number, emp.department)
+            logger.debug("Employee: %s, number: %s, dept: %s", emp.name, emp.employee_number, emp.department)
 
         # Find by employee number
         emp = await ds.find_by_employee_number("110000149")

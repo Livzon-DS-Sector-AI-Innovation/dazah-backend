@@ -19,7 +19,7 @@ from app.modules.safety.schemas import (
 )
 from app.platform.audit.service import record_audit_log
 from app.core.llm import llm_client
-from app.platform.integrations.ai.prompts import (
+from app.modules.safety.ai_prompts import (
     STANDALONE_WORKFLOW_CONFIG,
     build_prompt,
 )

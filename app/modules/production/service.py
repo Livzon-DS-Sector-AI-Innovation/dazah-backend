@@ -1,6 +1,7 @@
 """Production business workflows live here."""
 
 import uuid
+import json
 from datetime import datetime
 from typing import Any
 
@@ -367,7 +368,7 @@ class ProductionService:
                     params = json.loads(r.parameters)
                     if "quantity" in params:
                         total_input += params["quantity"]
-                except:
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                     pass
 
         # 汇总包装记录（累计所有包装产出量）
@@ -379,7 +380,7 @@ class ProductionService:
                     params = json.loads(r.parameters)
                     if "quantity" in params:
                         total_output += params["quantity"]
-                except:
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                     pass
 
         # 更新批次数据
@@ -427,7 +428,7 @@ class ProductionService:
                     params = json.loads(r.parameters)
                     if "quantity" in params:
                         record_input += params["quantity"]
-                except:
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                     pass
             elif r.operation_type == "packaging" and r.parameters:
                 try:
@@ -435,7 +436,7 @@ class ProductionService:
                     params = json.loads(r.parameters)
                     if "quantity" in params:
                         record_output += params["quantity"]
-                except:
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                     pass
 
         # 投入量优先使用生产记录，如果没有则使用物料表

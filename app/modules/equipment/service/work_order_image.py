@@ -1,5 +1,6 @@
 """Work order image service."""
 
+import logging
 import os
 import uuid
 
@@ -87,6 +88,8 @@ async def get_images(
 async def delete_image(db: AsyncSession, image_id: uuid.UUID) -> None:
     from app.core.storage import delete_object, is_enabled as minio_enabled
 
+logger = logging.getLogger(__name__)
+
     image = await repo.get_image_by_id(db, image_id)
     if not image:
         raise NotFoundException("图片", str(image_id))
@@ -95,7 +98,7 @@ async def delete_image(db: AsyncSession, image_id: uuid.UUID) -> None:
         try:
             delete_object("equipment", image.file_path)
         except Exception:
-            pass
+            logger.warning("Failed to delete image from MinIO")
     elif os.path.exists(image.file_path):
         os.remove(image.file_path)
 

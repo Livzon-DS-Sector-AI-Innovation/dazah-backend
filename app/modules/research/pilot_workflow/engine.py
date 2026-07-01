@@ -1,6 +1,7 @@
 """工作流编排引擎 — 逐步执行，人工确认"""
 
 import logging
+from app.core.tasks import spawn_task
 import uuid
 from datetime import UTC, datetime
 
@@ -206,7 +207,7 @@ async def approve_step(workflow_id: uuid.UUID) -> dict:
         await session.commit()
         
         # 在后台异步执行下一步
-        asyncio.create_task(_execute_next_step_async(workflow_id, next_idx))
+        spawn_task(_execute_next_step_async(workflow_id, next_idx), name="research.workflow_step")
         
         return {
             "status": "running",

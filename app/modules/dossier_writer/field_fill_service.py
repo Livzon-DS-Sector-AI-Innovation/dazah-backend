@@ -1,4 +1,5 @@
 """字段填充服务 - 编排素材提取和填充流程"""
+import logging
 import re
 import fnmatch
 from pathlib import Path
@@ -226,7 +227,7 @@ class FieldFillService:
                         '--outdir', str(asset_path.parent), str(asset_path)
                     ], check=True, timeout=30)
                 except Exception as e:
-                    print(f"转换 doc 文件失败: {e}")
+                    logger.warning("Doc conversion failed: %s", e)
                     return None
             
             if docx_path.exists():
@@ -395,7 +396,7 @@ class FieldFillService:
             
             return True
         except Exception as e:
-            print(f"填充表格失败: {e}")
+            logger.warning("Table fill failed: %s", e)
             return False
 
 
@@ -410,6 +411,8 @@ class FieldFillService:
         from pdf2image import convert_from_path
         from PIL import Image
         import tempfile
+
+logger = logging.getLogger(__name__)
         
         source_path = Path(source_asset_path)
         if not source_path.exists():
@@ -450,7 +453,7 @@ class FieldFillService:
                 return True
                 
         except Exception as e:
-            print(f"插入图片失败: {e}")
+            logger.warning("Image insertion failed: %s", e)
             return False
         
         return False

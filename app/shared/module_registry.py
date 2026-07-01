@@ -135,14 +135,6 @@ BUSINESS_MODULES: tuple[ModuleDefinition, ...] = (
         description="申报资料撰写工具，包括模板管理、章节编辑、素材管理和AI辅助填充。",
     ),
     ModuleDefinition(
-        code="ai_parser",
-        name="AI解析",
-        path="/ai-parser",
-        db_schema="ai_parser",
-        owner_hint="AI平台负责人",
-        description="AI解析服务，提供文档解析、数据提取等AI能力。",
-    ),
-    ModuleDefinition(
         code="product",
         name="产品管理",
         path="/product",

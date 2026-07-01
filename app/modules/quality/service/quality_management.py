@@ -708,7 +708,7 @@ async def submit_for_review(db: AsyncSession, deviation_id: uuid.UUID, user_id: 
 
     # Trigger AI analysis asynchronously
     import asyncio
-    asyncio.create_task(_trigger_ai_analysis(deviation_id, user_id))
+    spawn_task(_trigger_ai_analysis(deviation_id, user_id), name="quality.ai_analysis")
 
     return {"success": True}
 

@@ -1,7 +1,8 @@
 """Document text extraction for uploaded attachments.
 
 Supports PDF, DOCX, XLSX, TXT, and Markdown files.
-For scanned PDFs (image-only), uses OCR to extract text.
+For scanned PDFs (image-only), uses PaddleOCR to extract text.
+Uses hybrid approach: PP-OCR for simple text, PP-StructureV3 for structured documents.
 """
 
 import logging
@@ -59,7 +60,9 @@ class DocumentParser:
 
     @staticmethod
     def _extract_pdf_ocr(path: str, max_pages: int = 10) -> str:
-        """Extract text from scanned PDF using OCR.
+        """Extract text from scanned PDF using PaddleOCR.
+        
+        Uses PP-StructureV3 for better structure preservation (tables, formulas, layout).
         
         Args:
             path: PDF file path
@@ -67,18 +70,20 @@ class DocumentParser:
         """
         try:
             from pdf2image import convert_from_path
-            import pytesseract
+            from app.shared.ocr_service import get_ocr_service
+            ocr_service = get_ocr_service()
             
             # Convert PDF to images with lower DPI for speed
             # 150 DPI is a good balance between speed and accuracy
             images = convert_from_path(path, dpi=150, first_page=1, last_page=max_pages)
             parts: list[str] = []
             
-            logger.info(f"OCR processing {len(images)} pages...")
+            logger.info(f"OCR processing {len(images)} pages with PP-StructureV3...")
             
             for i, image in enumerate(images):
-                # Use Chinese + English for OCR
-                text = pytesseract.image_to_string(image, lang='chi_sim+eng')
+                # Use hybrid API - PP-StructureV3 for better structure preservation
+                # Returns Markdown format which preserves tables, formulas, etc.
+                text = ocr_service.extract(image, output_format="markdown")
                 if text.strip():
                     parts.append(f"--- Page {i+1} ---\n{text.strip()}")
             

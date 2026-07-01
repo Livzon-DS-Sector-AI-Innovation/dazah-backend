@@ -223,11 +223,11 @@ class DossierRepository:
         return result.scalar_one_or_none()
 
     async def delete_asset(self, asset_id: UUID) -> bool:
-        """删除素材"""
+        """软删除素材"""
         asset = await self.get_asset(asset_id)
         if not asset:
             return False
-        await self.db.delete(asset)
+        asset.is_deleted = True
         await self.db.flush()
         return True
 

@@ -12,7 +12,7 @@ from app.modules.quality import router as quality_router
 from app.modules.registration import router as registration_router
 from app.modules.research import router as research_router
 from app.modules.regulatory_tracker import router as regulatory_tracker_router
-from app.modules.production.label_verification_api import router as label_verification_router
+from app.modules.quality.label_verification import router as label_verification_router
 from app.modules.safety import router as safety_router
 from app.modules.warehouse import router as warehouse_router
 from app.platform.identity.api import (

@@ -5,18 +5,13 @@ from typing import Optional
 from sqlalchemy import String, Text, Integer, Float, DateTime, ForeignKey, Boolean, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from app.shared.base_model import Base
+from app.shared.base_model import BaseModel
 
 
-class FieldMapping(Base):
+class FieldMapping(BaseModel):
     """字段映射配置表 - 定义每个章节需要填充哪些字段"""
     __tablename__ = "field_mappings"
     __table_args__ = {"schema": "dossier_writer"}
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     chapter_code: Mapped[str] = mapped_column(
         String(100), nullable=False, comment="章节编号，如 3.2.S.6"
@@ -64,15 +59,11 @@ class FieldMapping(Base):
     )
 
 
-class FieldFillResult(Base):
+class FieldFillResult(BaseModel):
     """字段填充结果表 - 记录每个字段的填充情况"""
     __tablename__ = "field_fill_results"
     __table_args__ = {"schema": "dossier_writer"}
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     dossier_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -128,15 +119,11 @@ class FieldFillResult(Base):
     )
 
 
-class AssetCategory(Base):
+class AssetCategory(BaseModel):
     """素材分类定义表 - 每个章节需要哪些类型的素材"""
     __tablename__ = "asset_categories"
     __table_args__ = {"schema": "dossier_writer"}
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     chapter_code: Mapped[str] = mapped_column(
         String(100), nullable=False, comment="章节编号，如 3.2.S.6"
@@ -161,15 +148,10 @@ class AssetCategory(Base):
     )
 
 
-class AssetPageSplit(Base):
+class AssetPageSplit(BaseModel):
     """素材页拆分结果表 - 记录 AI 对多页文档的拆分识别"""
     __tablename__ = "asset_page_splits"
     __table_args__ = {"schema": "dossier_writer"}
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     asset_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

@@ -6,6 +6,7 @@ This script receives solvent names from llm_extract.py and classifies them
 against the ICH Q3C(R9) database.
 """
 
+import logging
 import sys
 import json
 from pathlib import Path
@@ -15,12 +16,14 @@ def load_synonyms():
     """Load solvent synonym database."""
     try:
         from app.modules.research.ich_service import DATA_DIR
+
+logger = logging.getLogger(__name__)
         synonym_file = DATA_DIR / "solvent-synonyms.json"
         if synonym_file.exists():
             with open(synonym_file, 'r') as f:
                 return json.load(f)
     except Exception:
-        pass
+        logger.warning("Failed to load synonym file")
     return {}
 
 

@@ -1,6 +1,5 @@
 """Work order service: state machine, business logic."""
 
-import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -10,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, NotFoundException
+from app.core.tasks import spawn_task
 from app.modules.equipment import repository as repo
 from app.modules.equipment.models import WorkOrder
 from app.modules.equipment.schemas import (
@@ -207,7 +207,7 @@ async def complete_work_order(
             if responsible else None
         )
         if feishu_uid:
-            asyncio.ensure_future(_notify_verification(
+            spawn_task(_notify_verification(
                 feishu_user_id=feishu_uid,
                 work_order_no=wo.work_order_no,
                 equipment_name=equipment.name if equipment else "",
