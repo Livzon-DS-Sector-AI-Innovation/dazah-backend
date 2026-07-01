@@ -1,3 +1,4 @@
+from typing import Optional
 """Research database queries."""
 
 import uuid

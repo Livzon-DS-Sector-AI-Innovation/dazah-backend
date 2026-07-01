@@ -38,7 +38,7 @@ from app.modules.safety.schemas import (
 from app.modules.safety.service._helpers import audit_log
 from app.platform.integrations.ai.client import AIService
 from app.platform.integrations.ai.document_parser import DocumentParser
-from app.platform.integrations.ai.prompts import (
+from app.modules.safety.ai_prompts import (
     SCRIPT_CONFIG,
     build_prompt,
 )

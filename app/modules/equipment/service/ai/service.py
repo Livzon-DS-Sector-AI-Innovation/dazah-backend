@@ -19,7 +19,7 @@ from app.modules.equipment.models.inspection_template import (
     InspectionTemplate,
     InspectionTemplateItem,
 )
-from app.modules.equipment.service.ai.client import AIAnalysisError, analyze_image
+from app.modules.equipment.service.ai.client import AIAnalysisError, QwenClient
 from app.modules.equipment.service.ai.prompts import (
     MANUAL_SUBMIT_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
@@ -76,7 +76,8 @@ async def analyze_inspection_photo(
     user_prompt = build_user_prompt(items_input)
 
     try:
-        raw_response = await analyze_image(
+        client = QwenClient()
+        raw_response = await client.analyze_image(
             image_base64=image_base64,
             image_mime_type=image_mime_type,
             system_prompt=SYSTEM_PROMPT,

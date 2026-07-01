@@ -11,7 +11,7 @@ from app.core.exceptions import DuplicateException, NotFoundException
 from app.modules.research import repository as repo
 from app.modules.research.models import (
     ResearchProject,
-    RdProject, RdMilestone, RdStageRecord, RdResearchTrack, RdResearchFinding,
+    RdProject, RdMilestone, RdStageRecord, RdResearchTrack, RdResearchFinding, RdPilotStudy, RdProcessValidation, RdRegistrationFiling, RdExperimentLog, RdReport, RdInitiation, RdDeliverableTemplate, RdStageDeliverable,
 )
 from app.modules.research.schemas import (
     ResearchProjectCreate,
@@ -21,6 +21,14 @@ from app.modules.research.schemas import (
     RdStageRecordCreate, RdStageRecordUpdate, RdStageRecordResponse,
     RdResearchTrackCreate, RdResearchTrackUpdate, RdResearchTrackResponse,
     RdResearchFindingCreate, RdResearchFindingUpdate, RdResearchFindingResponse,
+    RdPilotStudyCreate, RdPilotStudyUpdate, RdPilotStudyResponse,
+    RdProcessValidationCreate, RdProcessValidationUpdate, RdProcessValidationResponse,
+    RdRegistrationFilingCreate, RdRegistrationFilingUpdate, RdRegistrationFilingResponse,
+    RdExperimentLogCreate, RdExperimentLogUpdate, RdExperimentLogResponse,
+    RdReportCreate, RdReportUpdate, RdReportResponse, RdReportGenerateRequest, RdReportGenerateResponse,
+    RdInitiationCreate, RdInitiationUpdate, RdInitiationResponse,
+    RdDeliverableTemplateCreate, RdDeliverableTemplateUpdate, RdDeliverableTemplateResponse,
+    RdStageDeliverableCreate, RdStageDeliverableUpdate, RdStageDeliverableResponse,
 )
 
 

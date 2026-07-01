@@ -1,7 +1,7 @@
 """merge heads
 
 Revision ID: 9a01e2d58ecb
-Revises: 77472813e846, abdaf2f5b61f, f156d363a77f
+Revises: 
 Create Date: 2026-06-25 22:13:51.864201
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '9a01e2d58ecb'
-down_revision: Union[str, None] = ('77472813e846', 'abdaf2f5b61f', 'f156d363a77f')
+down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

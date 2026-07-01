@@ -1,7 +1,7 @@
 """add_training_management_tables
 
 Revision ID: 494e3004c6fe
-Revises: 2eba70488232
+Revises: 
 Create Date: 2026-06-08 23:31:43.968786
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '494e3004c6fe'
-down_revision: Union[str, None] = '2eba70488232'
+down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

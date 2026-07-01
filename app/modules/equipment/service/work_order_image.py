@@ -12,6 +12,8 @@ from app.core.exceptions import AppException, NotFoundException
 from app.modules.equipment import repository as repo
 from app.modules.equipment.models.work_order_image import WorkOrderImage
 
+logger = logging.getLogger(__name__)
+
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 
 
@@ -87,8 +89,6 @@ async def get_images(
 
 async def delete_image(db: AsyncSession, image_id: uuid.UUID) -> None:
     from app.core.storage import delete_object, is_enabled as minio_enabled
-
-logger = logging.getLogger(__name__)
 
     image = await repo.get_image_by_id(db, image_id)
     if not image:

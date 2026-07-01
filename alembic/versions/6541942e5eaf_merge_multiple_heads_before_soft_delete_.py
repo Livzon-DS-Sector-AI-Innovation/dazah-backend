@@ -1,7 +1,7 @@
 """merge multiple heads before soft-delete-unique-index migration
 
 Revision ID: 6541942e5eaf
-Revises: 449b1347ab8a, 706fdf53f046, baaa69a19144
+Revises: 
 Create Date: 2026-06-23 20:50:52.925466
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '6541942e5eaf'
-down_revision: Union[str, None] = ('449b1347ab8a', '706fdf53f046', 'baaa69a19144')
+down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
