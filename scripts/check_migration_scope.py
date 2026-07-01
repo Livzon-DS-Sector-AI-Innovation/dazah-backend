@@ -28,23 +28,23 @@ def extract_schemas_from_migration(file_path: str) -> set[str]:
     Ignores referent_schema (foreign key targets) since cross-module FKs are allowed.
     """
     content = Path(file_path).read_text()
-    
+
     # Patterns to match schema references
     patterns = [
         r'source_schema=["\'](\w+)["\']',  # source_schema="safety" (FK source)
         r'(?<!referent_)schema=["\'](\w+)["\']',  # schema='safety' but NOT referent_schema
         r'CREATE SCHEMA IF NOT EXISTS (\w+)',  # CREATE SCHEMA IF NOT EXISTS safety
     ]
-    
+
     schemas = set()
     for pattern in patterns:
         matches = re.findall(pattern, content, re.IGNORECASE)
         schemas.update(matches)
-    
+
     # Filter out system schemas
     system_schemas = {'public', 'pg_catalog', 'information_schema'}
     schemas = {s for s in schemas if s not in system_schemas}
-    
+
     return schemas
 
 
@@ -58,20 +58,20 @@ def main():
     if len(sys.argv) != 2:
         print("Usage: python scripts/check_migration_scope.py <migration_file>")
         sys.exit(2)
-    
+
     migration_file = sys.argv[1]
-    
+
     if not Path(migration_file).exists():
         print(f"Error: File not found: {migration_file}")
         sys.exit(2)
-    
+
     # Baseline migrations are allowed to touch multiple schemas
     if is_baseline_migration(migration_file):
         print(f"✓ {migration_file}: Baseline migration (multi-schema allowed)")
         sys.exit(0)
-    
+
     schemas = extract_schemas_from_migration(migration_file)
-    
+
     if len(schemas) == 0:
         print(f"✓ {migration_file}: No schema changes detected (OK)")
         sys.exit(0)

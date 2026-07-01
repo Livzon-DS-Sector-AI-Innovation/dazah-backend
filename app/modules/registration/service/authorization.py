@@ -1,9 +1,9 @@
 """Registration business workflows live here."""
 
+import io
 import logging
 import uuid
 import zipfile
-import io
 from pathlib import Path
 from uuid import UUID
 
@@ -12,15 +12,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundException
 from app.modules.registration.models import AuthorizationLetter, SupplementaryReply
-from app.modules.registration.repository import AuthorizationLetterRepository, SupplementaryReplyRepository
+from app.modules.registration.repository import (
+    AuthorizationLetterRepository,
+    SupplementaryReplyRepository,
+)
 from app.modules.registration.schemas import (
-    SupplementaryReplyCreate,
-    SupplementaryReplyListItem,
-    SupplementaryReplyResponse,
     AuthorizationLetterCreate,
     AuthorizationLetterListItem,
     AuthorizationLetterResponse,
     ProductInfo,
+    SupplementaryReplyListItem,
+    SupplementaryReplyResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,7 +105,7 @@ def generate_authorization_letter_bytes(
     if not _is_docx_format(template_data):
         # 如果不是 DOCX 格式，尝试旧的二进制替换方式
         return _binary_replace(template_data, replacements)
-    
+
     # DOCX 格式：使用 XML 文本替换
     return _docx_replace(template_data, replacements)
 
@@ -114,35 +116,35 @@ def _docx_replace(
 ) -> bytes:
     """对 DOCX 文件执行 XML 文本替换"""
     replacement_dict = {old: new for old, new in replacements}
-    
+
     with zipfile.ZipFile(io.BytesIO(template_data), 'r') as z:
         # 读取所有文件
         files = {}
         for name in z.namelist():
             files[name] = z.read(name)
-        
+
         # 处理 document.xml
         if 'word/document.xml' in files:
             try:
                 doc_xml = files['word/document.xml'].decode('utf-8')
             except UnicodeDecodeError:
                 raise ValueError("模板文件编码错误：DOCX 文档包含非 UTF-8 编码的内容")
-            
+
             for old_text, new_text in replacement_dict.items():
                 if old_text in doc_xml:
                     doc_xml = doc_xml.replace(old_text, new_text)
                     logger.info(f"替换：'{old_text}' -> '{new_text}'")
                 else:
                     logger.warning(f"未找到文本：'{old_text}'")
-            
+
             files['word/document.xml'] = doc_xml.encode('utf-8')
-        
+
         # 创建新的 docx 文件
         output = io.BytesIO()
         with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as out_z:
             for name, content in files.items():
                 out_z.writestr(name, content)
-        
+
         return output.getvalue()
 
 
@@ -334,8 +336,8 @@ class SupplementaryReplyService:
         流程：解析 PDF → 提取药品信息和问题 → 生成 Word → 保存记录
         """
         from app.modules.registration.reply_generator import (
-            parse_cde_notice,
             generate_reply_document,
+            parse_cde_notice,
         )
 
         # 1. 解析 CDE 通知函 PDF

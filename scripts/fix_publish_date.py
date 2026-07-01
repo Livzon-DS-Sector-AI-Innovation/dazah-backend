@@ -11,10 +11,11 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import select, func
-from app.platform.identity.models import User  # noqa: F401
+from sqlalchemy import func, select
+
 from app.core.database import async_session_factory
 from app.modules.regulatory_tracker.models import RegulatoryDocument
+from app.platform.identity.models import User  # noqa: F401
 
 logging.basicConfig(
     level=logging.INFO,

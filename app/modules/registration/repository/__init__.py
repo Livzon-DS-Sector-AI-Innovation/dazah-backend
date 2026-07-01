@@ -1,8 +1,8 @@
 """Registration repository."""
 
 from app.modules.registration.repository.authorization import (
-    ReferenceStandardRepository,
     AuthorizationLetterRepository,
+    ReferenceStandardRepository,
     SupplementaryReplyRepository,
 )
 from app.modules.registration.repository.drug import (
@@ -15,19 +15,19 @@ from app.modules.registration.repository.drug import (
     update_drug,
     update_drug_node,
 )
-from app.modules.registration.repository.reference_substance import (
-    create_reference_substance,
-    delete_reference_substance,
-    get_reference_substance_by_id,
-    get_reference_substances,
-    update_reference_substance,
-)
 from app.modules.registration.repository.holiday import (
     create_holiday,
     delete_holiday,
     get_holiday_by_id,
     get_holidays,
     update_holiday,
+)
+from app.modules.registration.repository.reference_substance import (
+    create_reference_substance,
+    delete_reference_substance,
+    get_reference_substance_by_id,
+    get_reference_substances,
+    update_reference_substance,
 )
 from app.modules.registration.repository.validation_audit import (
     ValidationAuditFileRepository,

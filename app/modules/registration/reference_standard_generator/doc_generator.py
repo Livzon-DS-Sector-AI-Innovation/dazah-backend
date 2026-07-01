@@ -5,10 +5,10 @@ import logging
 import re
 
 from docx import Document
-from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
 logger = logging.getLogger(__name__)
 
@@ -140,12 +140,12 @@ def generate_reference_standard_document(
         content_value = coa_data.get('含量', '')
         rsd_value = coa_data.get('RSD', '')
         moisture_value = coa_data.get('水分/干燥失重', '')
-        
+
         content_text = f"含量＝ {content_value} ％      RSD％＝ {rsd_value}\n"
         if moisture_value:
             content_text += f"水分/干燥失重＝ {moisture_value} ％\n"
-        content_text += f"（测定方法——                                     ）"
-        
+        content_text += "（测定方法——                                     ）"
+
         _set_cell_format(
             table2.rows[5].cells[1], content_text, align_center=False
         )

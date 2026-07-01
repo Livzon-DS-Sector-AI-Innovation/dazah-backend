@@ -5,9 +5,9 @@ Revises: 7ef205f0db8c
 Create Date: 2026-06-27
 
 """
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = 'add_doc_category'
@@ -29,7 +29,7 @@ def upgrade() -> None:
         ),
         schema='regulatory_tracker'
     )
-    
+
     # Create index for faster filtering
     op.create_index(
         'ix_regulatory_documents_document_category',
@@ -46,7 +46,7 @@ def downgrade() -> None:
         table_name='regulatory_documents',
         schema='regulatory_tracker'
     )
-    
+
     # Drop column
     op.drop_column(
         'regulatory_documents',

@@ -4,15 +4,15 @@ HTTP 数据链路分析工具
 使用 requests 直接分析 API 接口
 """
 
-import sys
 import json
 import os
 import re
+import sys
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs, urljoin
+from urllib.parse import urljoin
+
 import requests
 from bs4 import BeautifulSoup
-
 
 # 目标栏目配置
 TARGETS = [
@@ -93,7 +93,7 @@ class HTTPDataFlowAnalyzer:
             print(f"   Content-Type: {response.headers.get('content-type', 'N/A')}")
 
             # Capture cookies
-            cookies = [{"name": c.name, "value": c.value[:50] + "...", "domain": c.domain} 
+            cookies = [{"name": c.name, "value": c.value[:50] + "...", "domain": c.domain}
                       for c in self.session.cookies]
             result["cookies_set"] = cookies
             print(f"   Cookies: {len(cookies)} 个")
@@ -101,7 +101,7 @@ class HTTPDataFlowAnalyzer:
                 print(f"      - {c['name']} @ {c['domain']}")
 
             # Check for anti-bot cookies
-            rs_cookies = [c for c in cookies if any(x in c["name"].lower() 
+            rs_cookies = [c for c in cookies if any(x in c["name"].lower()
                          for x in ["rs", "__rs", "fasd", "fasc", "temp", "dyna", "cma_", "cmac"])]
             if rs_cookies:
                 result["anti_bot_detected"] = True
@@ -179,23 +179,23 @@ class HTTPDataFlowAnalyzer:
                                 result["json_apis"].append(api_info)
                             except:
                                 pass
-                except Exception as e:
+                except Exception:
                     pass
 
             # Step 4: Analyze page structure for data loading
             print("\n[4] 分析页面数据结构...")
-            
+
             # Check for Vue/React data
             vue_data = soup.find_all(attrs={"data-v-": True})
             react_root = soup.find(id="root") or soup.find(id="app")
-            
+
             if vue_data:
                 print(f"   检测到 Vue 组件: {len(vue_data)} 个")
                 result["browser_required"] = True
                 result["browser_required_reason"].append("Vue.js 应用，需要浏览器渲染")
-            
+
             if react_root:
-                print(f"   检测到 React 根节点")
+                print("   检测到 React 根节点")
                 result["browser_required"] = True
                 result["browser_required_reason"].append("React 应用，需要浏览器渲染")
 
@@ -205,7 +205,7 @@ class HTTPDataFlowAnalyzer:
                 if script.string:
                     # Look for data initialization
                     if "window.__INITIAL_STATE__" in script.string or "window.__DATA__" in script.string:
-                        print(f"   ✅ 发现内联数据")
+                        print("   ✅ 发现内联数据")
                         result["key_findings"].append("页面包含内联初始化数据")
 
             # Step 5: Check for pagination elements
@@ -217,7 +217,7 @@ class HTTPDataFlowAnalyzer:
                 "[class*='pageNav']",
                 "a[href*='page=']",
             ]
-            
+
             for selector in pagination_selectors:
                 if soup.select_one(selector):
                     print(f"   ✅ 找到分页元素: {selector}")
@@ -270,7 +270,7 @@ class HTTPDataFlowAnalyzer:
             if meta_tokens:
                 result["token_dependency"] = True
                 result["token_details"].append(f"Meta tokens: {[m.get('name') for m in meta_tokens]}")
-                print(f"   ⚠️ 检测到 Token meta 标签")
+                print("   ⚠️ 检测到 Token meta 标签")
 
             # Check response headers for tokens
             for header in ["X-Token", "X-CSRF-Token", "X-XSRF-Token"]:
@@ -280,13 +280,13 @@ class HTTPDataFlowAnalyzer:
                     print(f"   ⚠️ 响应头包含: {header}")
 
             # Step 8: Summary
-            print(f"\n[8] 关键发现:")
+            print("\n[8] 关键发现:")
             if result["json_apis"]:
                 result["key_findings"].append(f"发现 {len(result['json_apis'])} 个 JSON API")
                 print(f"   ✅ 发现 {len(result['json_apis'])} 个 JSON API")
             else:
                 result["key_findings"].append("未发现直接的 JSON API")
-                print(f"   ❌ 未发现直接的 JSON API")
+                print("   ❌ 未发现直接的 JSON API")
 
             if result["api_endpoints_found"]:
                 result["key_findings"].append(f"发现 {len(result['api_endpoints_found'])} 个 API 端点")
@@ -294,16 +294,16 @@ class HTTPDataFlowAnalyzer:
 
             if result["pagination_detected"]:
                 result["key_findings"].append("检测到分页机制")
-                print(f"   ✅ 检测到分页机制")
+                print("   ✅ 检测到分页机制")
 
             if result["anti_bot_detected"]:
                 result["key_findings"].append("检测到反爬机制")
-                print(f"   ⚠️ 检测到反爬机制")
+                print("   ⚠️ 检测到反爬机制")
 
             if result["browser_required"]:
                 print(f"   ⚠️ 需要浏览器: {'; '.join(result['browser_required_reason'])}")
             else:
-                print(f"   ✅ 可能不需要浏览器")
+                print("   ✅ 可能不需要浏览器")
 
         except Exception as e:
             print(f"❌ 错误: {e}")

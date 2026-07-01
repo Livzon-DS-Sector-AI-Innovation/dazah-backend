@@ -28,6 +28,7 @@ register_background_worker(
 async def _start_equipment_scheduler():
     """Start equipment module's maintenance plan and timeout scan loops."""
     import asyncio
+
     from app.modules.equipment.scheduler import (
         maintenance_plan_loop,
         timeout_scan_loop,

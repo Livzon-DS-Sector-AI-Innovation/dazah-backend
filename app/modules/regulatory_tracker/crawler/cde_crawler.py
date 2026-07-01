@@ -18,8 +18,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import async_playwright
-from app.shared.config_reader import get_module_setting, get_module_setting_bool
+
 from app.core.config import get_settings
+from app.shared.config_reader import get_module_setting, get_module_setting_bool
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class CdeDomesticGuidelineAdapter:
         headless = self._headless_override
         if headless is None:
             headless = await get_module_setting_bool("regulatory_tracker", "CRAWLER_HEADLESS", True)
-        
+
         # Read list URL from database if not overridden
         list_url = self._list_url_override
         if list_url is None:
@@ -91,7 +92,7 @@ class CdeDomesticGuidelineAdapter:
                 "CDE_GUIDELINE_URL",
                 "https://www.cde.org.cn/zdyz/listpage/9cd8db3b7530c6fa0c86485e563f93c7"
             )
-        
+
         launch_kwargs: dict[str, Any] = {
             "headless": headless,
             "args": LAUNCH_ARGS,
@@ -203,7 +204,7 @@ class CdeDomesticGuidelineAdapter:
             # 等待响应被捕获
             try:
                 await asyncio.wait_for(event.wait(), timeout=timeout_ms / 1000)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("等待 getDomesticGuideList 响应超时")
         finally:
             self._page.remove_listener("response", on_response)
@@ -245,7 +246,7 @@ class CdeDomesticGuidelineAdapter:
                 "a:has-text('>')",
                 "li.next > a",
             ]
-            
+
             clicked = False
             for sel in next_btn_selectors:
                 try:
@@ -257,7 +258,7 @@ class CdeDomesticGuidelineAdapter:
                         break
                 except Exception:
                     continue
-            
+
             if not clicked:
                 # 尝试通过 JS 点击
                 clicked_text = await self._page.evaluate("""() => {
@@ -274,7 +275,7 @@ class CdeDomesticGuidelineAdapter:
                 if clicked_text:
                     clicked = True
                     logger.info(f"JS 点击翻页: {clicked_text}")
-            
+
             if not clicked:
                 logger.warning("未找到下一页按钮")
                 return None
@@ -282,7 +283,7 @@ class CdeDomesticGuidelineAdapter:
             # 等待响应
             try:
                 await asyncio.wait_for(event.wait(), timeout=timeout_ms / 1000)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("翻页等待响应超时")
         finally:
             self._page.remove_listener("response", on_response)

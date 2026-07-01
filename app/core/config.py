@@ -1,7 +1,6 @@
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -159,9 +158,9 @@ class Settings(BaseSettings):
     STORAGE_ROOT: str = "./storage"
 
     # LLM (AI 解析配置)
-    LLM_API_KEY: Optional[str] = None
-    LLM_BASE_URL: Optional[str] = "https://api.deepseek.com"
-    LLM_MODEL: Optional[str] = "deepseek-chat"
+    LLM_API_KEY: str | None = None
+    LLM_BASE_URL: str | None = "https://api.deepseek.com"
+    LLM_MODEL: str | None = "deepseek-chat"
 
     # MCP — AI Agent 认证
     MCP_AGENT_API_KEYS: str = ""

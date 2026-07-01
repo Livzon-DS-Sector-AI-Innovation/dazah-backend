@@ -12,11 +12,11 @@ import json
 import logging
 import os
 import sys
-from datetime import date, datetime, timezone
-from uuid import uuid4
+from datetime import UTC, date, datetime
 
 # Load .env before importing app modules
 from dotenv import load_dotenv
+
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -118,7 +118,7 @@ def _extract_date(value) -> date | None:
     if isinstance(value, (int, float)):
         # Feishu returns milliseconds
         ts = value / 1000
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        dt = datetime.fromtimestamp(ts, tz=UTC)
         return dt.date()
     if isinstance(value, str):
         text = value.strip()

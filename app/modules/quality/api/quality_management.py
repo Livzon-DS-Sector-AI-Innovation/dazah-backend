@@ -4,81 +4,33 @@
 
 import uuid
 
-
-
-from fastapi import APIRouter, Depends, Query
-
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-
 from app.core.database import get_db
-
-from app.core.response import success_response, paginated_response
-
-from app.core.exceptions import NotFoundException, AppException
-
-from app.core.deps import CurrentUser, get_current_user
-
-from app.modules.quality.schemas import (
-
-    BatchUpdateStatusRequest,
-
-    CapaApprovalRequest,
-
-    CapaAutoFillFromDeviation,
-
-    CapaDeptHeadConfirmRequest,
-
-    CapaDetail,
-
-    CapaEvaluationRequest,
-
-    CapaListItem,
-
-    CapaStatistics,
-
-    CompleteAiAnalysisRequest,
-
-    CompletePartRequest,
-
-    ConfirmProductionStatusRequest,
-
-    CreateAttachmentReviewRequest,
-
-    CreateCapaRequest,
-
-    CreateDepartmentContactRequest,
-
-    CreateDeviationRequest,
-
-    DepartmentWeeklyConfirmationOut,
-
-    DeviationDetail,
-
-    DeviationListItem,
-
-    DeviationStatistics,
-
-    ExecutionTrack,
-
-    LinkDeviationRequest,
-
-    SubmitInvestigationRequest,
-
-    SubmitReviewRequest,
-
-    UpdateCapaRequest,
-
-    UpdateDepartmentContactRequest,
-
-    UpdateDeviationRequest,
-
-)
-
+from app.core.deps import CurrentUser
+from app.core.exceptions import AppException, NotFoundException
+from app.core.response import paginated_response, success_response
 from app.modules.quality import service
-
-
+from app.modules.quality.schemas import (
+    BatchUpdateStatusRequest,
+    CapaApprovalRequest,
+    CapaDeptHeadConfirmRequest,
+    CapaEvaluationRequest,
+    CompleteAiAnalysisRequest,
+    CompletePartRequest,
+    ConfirmProductionStatusRequest,
+    CreateAttachmentReviewRequest,
+    CreateCapaRequest,
+    CreateDepartmentContactRequest,
+    CreateDeviationRequest,
+    ExecutionTrack,
+    LinkDeviationRequest,
+    SubmitInvestigationRequest,
+    SubmitReviewRequest,
+    UpdateCapaRequest,
+    UpdateDeviationRequest,
+)
 
 router = APIRouter()
 

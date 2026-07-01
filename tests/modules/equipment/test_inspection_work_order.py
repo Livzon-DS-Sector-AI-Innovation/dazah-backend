@@ -1,7 +1,6 @@
 """Tests for inspection anomaly auto work-order creation and close-task gating."""
 
 import uuid
-from datetime import date
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -25,7 +24,6 @@ from app.modules.equipment.service.inspection import (
     submit_equipment_check,
 )
 from app.platform.identity.models import Department, User
-
 
 # ═══════════ Fixtures ═══════════════════════════════════════
 
@@ -143,7 +141,7 @@ async def inspection_task(
     equipment_with_dept: Equipment,
     template_with_items: InspectionTemplate,
 ):
-    from datetime import datetime, UTC
+    from datetime import UTC, datetime
 
     task = await create_task(
         db_session,
@@ -357,7 +355,7 @@ async def test_work_order_no_responsible_person(
     db_session.add(eq_no_dept)
     await db_session.flush()
 
-    from datetime import datetime, UTC
+    from datetime import UTC, datetime
 
     # 创建任务并启动
     task = await create_task(

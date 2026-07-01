@@ -9,17 +9,14 @@ CDE API 接口链路验证脚本
 5. Playwright 自动化获取 MmEwMD+Cookie 后调接口
 """
 
-import os
-import sys
 import json
-import time
+import os
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/playwright-browsers"
 
 from playwright.sync_api import sync_playwright
-
 
 LAUNCH_ARGS = [
     "--no-sandbox",
@@ -173,7 +170,7 @@ def verify_cde_api():
         if c.get("expires", -1) > 0:
             print(f"      expires: {info.get('expires_human', 'N/A')}")
         else:
-            print(f"      expires: Session")
+            print("      expires: Session")
 
     results["q2_cookie"] = {
         "status": "completed",
@@ -194,7 +191,7 @@ def verify_cde_api():
             mmewmd_found = True
             parsed = urlparse(url)
             params = parse_qs(parsed.query)
-            print(f"   ✅ 发现 MmEwMD 参数在 URL 中")
+            print("   ✅ 发现 MmEwMD 参数在 URL 中")
             print(f"   URL: {url[:200]}")
             if "MmEwMD" in params:
                 mm_value = params["MmEwMD"][0]
@@ -213,7 +210,7 @@ def verify_cde_api():
         # 也检查 POST body
         if resp.get("body_preview") and "MmEwMD" in resp.get("body_preview", ""):
             mmewmd_found = True
-            print(f"   ✅ 发现 MmEwMD 在响应体中")
+            print("   ✅ 发现 MmEwMD 在响应体中")
 
     # 检查页面中的 JS 变量
     try:
@@ -318,7 +315,7 @@ def verify_cde_api():
 
         if api_result.get("is_json") and api_result.get("data"):
             data = api_result["data"]
-            print(f"   ✅ 成功获取 JSON 数据!")
+            print("   ✅ 成功获取 JSON 数据!")
             print(f"   keys: {list(data.keys())}")
             if "records" in data:
                 print(f"   records: {len(data['records'])} 条")
@@ -349,7 +346,7 @@ def verify_cde_api():
                 }
             }
         else:
-            print(f"   ❌ 未获取到 JSON 数据")
+            print("   ❌ 未获取到 JSON 数据")
             print(f"   body_preview: {api_result.get('body_preview', 'N/A')[:300]}")
             results["q5_playwright_auto"] = {
                 "status": "failed",
@@ -390,7 +387,7 @@ def verify_cde_api():
 
         if page2_result.get("is_json") and page2_result.get("data"):
             data2 = page2_result["data"]
-            print(f"   ✅ 第二页数据获取成功!")
+            print("   ✅ 第二页数据获取成功!")
             if "records" in data2:
                 print(f"   records: {len(data2['records'])} 条")
             if "current" in data2:
@@ -417,7 +414,7 @@ def verify_cde_api():
                 }
             }
         else:
-            print(f"   ❌ 第二页数据获取失败")
+            print("   ❌ 第二页数据获取失败")
             print(f"   preview: {page2_result.get('body_preview', 'N/A')[:300]}")
             results["q3_pagination"] = {
                 "status": "failed",
@@ -473,7 +470,7 @@ def verify_cde_api():
                 print(f"      is_html: {detail_result.get('is_html')}")
 
                 if detail_result.get("status") == 200 and detail_result.get("has_content"):
-                    print(f"      ✅ 详情页可访问!")
+                    print("      ✅ 详情页可访问!")
                     results["q4_detail_page"] = {
                         "status": "success",
                         "details": {
@@ -487,7 +484,7 @@ def verify_cde_api():
                     break
             else:
                 # 也尝试直接导航
-                print(f"\n   尝试直接导航到详情页...")
+                print("\n   尝试直接导航到详情页...")
                 full_url = f"https://www.cde.org.cn/zdyz/domesticinfopage?zdyzIdCODE={zdyz_id}"
                 try:
                     page.goto(full_url, timeout=15000, wait_until="domcontentloaded")
@@ -514,7 +511,7 @@ def verify_cde_api():
                         "details": {"zdyzIdCODE": zdyz_id, "error": str(nav_e)},
                     }
         else:
-            print(f"   ⚠️ 无法获取 zdyzIdCODE (第一条记录数据不可用)")
+            print("   ⚠️ 无法获取 zdyzIdCODE (第一条记录数据不可用)")
             results["q4_detail_page"] = {
                 "status": "skipped",
                 "details": "No zdyzIdCODE available from API response",

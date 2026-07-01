@@ -4,16 +4,16 @@ Revision ID: e6c93c255136
 Revises: a09acdc0169c
 Create Date: 2026-06-29 20:11:40.076320
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision: str = 'e6c93c255136'
-down_revision: Union[str, None] = 'a09acdc0169c'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'a09acdc0169c'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

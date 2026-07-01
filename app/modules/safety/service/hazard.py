@@ -1,9 +1,7 @@
 """HazardReport service — CRUD + AI workflow + notifications."""
-import asyncio
 import json
 import logging
 import os
-from app.shared.config_reader import get_module_setting
 import uuid
 from datetime import datetime
 from typing import Any
@@ -12,14 +10,15 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import delete_object
-from app.core.tasks import spawn_task
 from app.core.storage import is_enabled as minio_enabled
+from app.core.tasks import spawn_task
 from app.modules.safety.feishu.notification import send_user_card
 from app.modules.safety.models import HazardReport
 from app.modules.safety.repository import SafetyRepository
 from app.modules.safety.schemas import HazardReportCreate, HazardReportUpdate
 from app.modules.safety.service._helpers import audit_log
 from app.platform.integrations.ai.client import AIOutputError, AIService
+from app.shared.config_reader import get_module_setting
 
 logger = logging.getLogger(__name__)
 

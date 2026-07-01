@@ -5,8 +5,8 @@ from datetime import date, datetime
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
-    Date,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,

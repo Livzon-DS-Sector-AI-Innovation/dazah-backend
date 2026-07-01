@@ -1,9 +1,11 @@
 """Helper functions for reading module runtime settings from database."""
 
 import json
+
 from sqlalchemy import select
-from app.core.database import async_session_factory
+
 from app.core.config_model import ModuleSetting
+from app.core.database import async_session_factory
 
 
 async def get_module_setting(module: str, key: str, default: str = "") -> str:

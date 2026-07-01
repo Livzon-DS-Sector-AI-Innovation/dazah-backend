@@ -1,8 +1,6 @@
 """M3 CTD 标准目录结构定义"""
-from typing import List, Dict, Optional
 
-
-M3_CHAPTERS: List[Dict] = [
+M3_CHAPTERS: list[dict] = [
     # Level 1: 3.2
     {"code": "3.2", "title": "主体数据", "level": 1, "parent_code": None,
      "aliases": [], "keywords": []},
@@ -106,7 +104,7 @@ M3_CHAPTERS: List[Dict] = [
 ]
 
 
-def get_chapter_by_code(code: str) -> Optional[Dict]:
+def get_chapter_by_code(code: str) -> dict | None:
     """根据章节编号获取章节定义"""
     for ch in M3_CHAPTERS:
         if ch["code"] == code:
@@ -114,12 +112,12 @@ def get_chapter_by_code(code: str) -> Optional[Dict]:
     return None
 
 
-def get_children(parent_code: str) -> List[Dict]:
+def get_children(parent_code: str) -> list[dict]:
     """获取指定父章节的子章节"""
     return [ch for ch in M3_CHAPTERS if ch["parent_code"] == parent_code]
 
 
-def match_file_to_chapter(filename: str) -> Optional[str]:
+def match_file_to_chapter(filename: str) -> str | None:
     """
     根据文件名匹配章节编号
     匹配优先级：

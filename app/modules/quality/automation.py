@@ -1,13 +1,16 @@
 """Deviation automation service - overdue reminders and weekly confirmations."""
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from datetime import UTC, datetime
 
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.quality.models import Deviation, DepartmentContact, DepartmentWeeklyConfirmation
+from app.modules.quality.models import (
+    DepartmentContact,
+    DepartmentWeeklyConfirmation,
+    Deviation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,18 +58,18 @@ async def check_overdue_deviations(db: AsyncSession) -> list[dict]:
             Deviation.status_updated_at.isnot(None),
         )
     )
-    
+
     result = await db.execute(query)
     deviations = result.scalars().all()
-    
+
     overdue_items = []
-    now = datetime.now(timezone.utc)
-    
+    now = datetime.now(UTC)
+
     for dev in deviations:
         step = STATUS_TO_STEP.get(dev.status)
         if not step:
             continue
-        
+
         limit_days = STEP_OVERDUE_DAYS.get(step, 7)
         if dev.status_updated_at:
             days_elapsed = (now - dev.status_updated_at).days
@@ -83,17 +86,17 @@ async def check_overdue_deviations(db: AsyncSession) -> list[dict]:
                     "step": step,
                     "step_label": APPROVAL_STEP_LABELS.get(step, step),
                 })
-    
+
     return overdue_items
 
 
 async def check_unsubmitted_weekly_confirmations(db: AsyncSession) -> list[dict]:
     """Find departments with production but no deviation submission this week."""
     # Get current week key (e.g., "2026-W23")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     iso_cal = now.isocalendar()
     current_week_key = f"{iso_cal[0]}-W{iso_cal[1]:02d}"
-    
+
     # Get all production workshops
     workshop_query = select(DepartmentContact).where(
         and_(
@@ -103,7 +106,7 @@ async def check_unsubmitted_weekly_confirmations(db: AsyncSession) -> list[dict]
     )
     result = await db.execute(workshop_query)
     workshops = result.scalars().all()
-    
+
     unsubmitted = []
     for workshop in workshops:
         # Check if there's a confirmation for this week
@@ -115,7 +118,7 @@ async def check_unsubmitted_weekly_confirmations(db: AsyncSession) -> list[dict]
         )
         confirm_result = await db.execute(confirm_query)
         confirm = confirm_result.scalar_one_or_none()
-        
+
         if not confirm:
             # No confirmation yet - check if they have production
             unsubmitted.append({
@@ -130,7 +133,7 @@ async def check_unsubmitted_weekly_confirmations(db: AsyncSession) -> list[dict]
                 "dept_head_id": str(workshop.dept_head_id) if workshop.dept_head_id else None,
                 "gmp_staff_ids": workshop.gmp_staff_ids or [],
             })
-    
+
     return unsubmitted
 
 

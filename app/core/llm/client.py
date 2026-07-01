@@ -1,11 +1,11 @@
 """Unified LLM client interface."""
 
 import json
-import httpx
-from typing import Optional
 
-from .config import get_config, LLMConfigData
-from .exceptions import LLMProviderError, LLMRateLimitError, LLMOutputError
+import httpx
+
+from .config import LLMConfigData, get_config
+from .exceptions import LLMOutputError, LLMProviderError, LLMRateLimitError
 
 
 class LLMClient:
@@ -20,7 +20,7 @@ class LLMClient:
     async def _get_client_and_config(self, config_type: str = "text") -> tuple[httpx.AsyncClient, LLMConfigData]:
         """Get HTTP client and config."""
         config = await get_config(config_type)
-        
+
         client = httpx.AsyncClient(
             base_url=config.api_base_url.rstrip("/"),
             headers={
@@ -34,8 +34,8 @@ class LLMClient:
     async def chat(
         self,
         messages: list[dict],
-        response_format: Optional[str] = "json_object",
-        temperature: Optional[float] = None,
+        response_format: str | None = "json_object",
+        temperature: float | None = None,
         max_tokens: int = 16384,
         config_type: str = "text",
     ) -> str:
@@ -56,18 +56,18 @@ class LLMClient:
             LLMRateLimitError: If rate limit exceeded
         """
         client, config = await self._get_client_and_config(config_type)
-        
+
         try:
             # Use config temperature if not overridden
             temp = temperature if temperature is not None else config.temperature
-            
+
             # For json_object format, ensure "json" appears in the prompt
             msgs = [dict(m) for m in messages]
             if response_format == "json_object":
                 last = msgs[-1]
                 if isinstance(last.get("content"), str) and "json" not in last["content"].lower():
                     last["content"] = last["content"] + "\n\n请以 JSON 格式返回结果。"
-            
+
             body = {
                 "model": config.model_name,
                 "messages": msgs,
@@ -76,12 +76,12 @@ class LLMClient:
             }
             if response_format:
                 body["response_format"] = {"type": response_format}
-            
+
             resp = await client.post("/chat/completions", json=body)
-            
+
             if resp.status_code == 429:
                 raise LLMRateLimitError("Rate limit exceeded", status_code=429)
-            
+
             if resp.is_error:
                 error_text = resp.text[:500]
                 raise LLMProviderError(
@@ -89,18 +89,18 @@ class LLMClient:
                     status_code=resp.status_code,
                     raw_response=error_text,
                 )
-            
+
             data = resp.json()
             return data["choices"][0]["message"]["content"]
-        
+
         finally:
             await client.aclose()
 
     async def chat_json(
         self,
         messages: list[dict],
-        expected_keys: Optional[list[str]] = None,
-        temperature: Optional[float] = None,
+        expected_keys: list[str] | None = None,
+        temperature: float | None = None,
         config_type: str = "text",
     ) -> dict:
         """Chat + parse JSON response.
@@ -123,7 +123,7 @@ class LLMClient:
             temperature=temperature,
             config_type=config_type,
         )
-        
+
         # Strip markdown code fences if present
         cleaned = raw.strip()
         if cleaned.startswith("```"):
@@ -134,12 +134,12 @@ class LLMClient:
                     break
             if cleaned.endswith("```"):
                 cleaned = cleaned[:-3].strip()
-        
+
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError as e:
             raise LLMOutputError("LLM response is not valid JSON", raw) from e
-        
+
         # Handle array responses - merge into single dict
         if isinstance(parsed, list):
             if len(parsed) == 0:
@@ -155,25 +155,25 @@ class LLMClient:
                 parsed = merged
             else:
                 parsed = {"_raw": raw}
-        
+
         # Coerce boolean strings
         for k, v in parsed.items():
             if isinstance(v, str) and v.lower() in ("true", "false"):
                 parsed[k] = v.lower() == "true"
-        
+
         # Validate expected keys
         if expected_keys:
             missing = [k for k in expected_keys if k not in parsed]
             if missing:
                 raise LLMOutputError(f"LLM response missing keys: {missing}", raw)
-        
+
         return parsed
 
     async def chat_vision(
         self,
         text_prompt: str,
         image_urls: list[str],
-        temperature: Optional[float] = None,
+        temperature: float | None = None,
         max_tokens: int = 16384,
     ) -> str:
         """Send a multimodal chat request with images.
@@ -188,26 +188,26 @@ class LLMClient:
             Response text from LLM
         """
         client, config = await self._get_client_and_config("vision")
-        
+
         try:
             temp = temperature if temperature is not None else config.temperature
-            
+
             content_parts = [{"type": "text", "text": text_prompt}]
             for url in image_urls:
                 content_parts.append({"type": "image_url", "image_url": {"url": url}})
-            
+
             body = {
                 "model": config.model_name,
                 "messages": [{"role": "user", "content": content_parts}],
                 "temperature": temp,
                 "max_tokens": max_tokens,
             }
-            
+
             resp = await client.post("/chat/completions", json=body)
-            
+
             if resp.status_code == 429:
                 raise LLMRateLimitError("Rate limit exceeded", status_code=429)
-            
+
             if resp.is_error:
                 error_text = resp.text[:500]
                 raise LLMProviderError(
@@ -215,10 +215,10 @@ class LLMClient:
                     status_code=resp.status_code,
                     raw_response=error_text,
                 )
-            
+
             data = resp.json()
             return data["choices"][0]["message"]["content"]
-        
+
         finally:
             await client.aclose()
 
@@ -226,8 +226,8 @@ class LLMClient:
         self,
         text_prompt: str,
         image_urls: list[str],
-        expected_keys: Optional[list[str]] = None,
-        temperature: Optional[float] = None,
+        expected_keys: list[str] | None = None,
+        temperature: float | None = None,
     ) -> dict:
         """Vision chat + parse JSON response.
         
@@ -245,7 +245,7 @@ class LLMClient:
             image_urls,
             temperature=temperature,
         )
-        
+
         # Strip markdown code fences
         cleaned = raw.strip()
         if cleaned.startswith("```"):
@@ -256,22 +256,22 @@ class LLMClient:
                     break
             if cleaned.endswith("```"):
                 cleaned = cleaned[:-3].strip()
-        
+
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError as e:
             raise LLMOutputError("Vision LLM response is not valid JSON", raw) from e
-        
+
         # Coerce boolean strings
         for k, v in parsed.items():
             if isinstance(v, str) and v.lower() in ("true", "false"):
                 parsed[k] = v.lower() == "true"
-        
+
         if expected_keys:
             missing = [k for k in expected_keys if k not in parsed]
             if missing:
                 raise LLMOutputError(f"Vision LLM response missing keys: {missing}", raw)
-        
+
         return parsed
 
     async def health_check(self) -> dict:
@@ -302,7 +302,7 @@ class LLMClient:
     async def stream_chat(
         self,
         messages: list[dict],
-        temperature: Optional[float] = None,
+        temperature: float | None = None,
         max_tokens: int = 4096,
     ):
         """Stream chat completion tokens.
@@ -312,10 +312,10 @@ class LLMClient:
             - text: the token text
         """
         import json as json_module
-        
+
         config = await get_config("text")
         temp = temperature if temperature is not None else config.temperature
-        
+
         body = {
             "model": config.model_name,
             "messages": messages,
@@ -323,7 +323,7 @@ class LLMClient:
             "max_tokens": max_tokens,
             "stream": True,
         }
-        
+
         async with httpx.AsyncClient(
             base_url=config.api_base_url.rstrip("/"),
             headers={
@@ -335,31 +335,31 @@ class LLMClient:
             async with client.stream("POST", "/chat/completions", json=body) as resp:
                 if resp.status_code == 429:
                     raise LLMRateLimitError("Rate limit exceeded", status_code=429)
-                
+
                 if resp.is_error:
                     error_text = await resp.aread()
                     raise LLMProviderError(
                         f"Stream API error: {resp.status_code} - {error_text.decode()[:500]}",
                         status_code=resp.status_code,
                     )
-                
+
                 async for line in resp.aiter_lines():
                     if not line or not line.startswith("data: "):
                         continue
-                    
+
                     data = line[6:]  # Remove "data: " prefix
                     if data == "[DONE]":
                         break
-                    
+
                     try:
                         chunk = json_module.loads(data)
                         if not chunk.get("choices"):
                             continue
-                        
+
                         delta = chunk["choices"][0].get("delta", {})
                         reasoning = delta.get("reasoning_content")
                         content = delta.get("content")
-                        
+
                         if reasoning:
                             yield {"type": "reasoning", "text": reasoning}
                         if content:

@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from app.platform.integrations.ai.client import AIService, AIOutputError
+from app.platform.integrations.ai.client import AIOutputError, AIService
 
 __all__ = ["AIService", "AIOutputError", "get_ai_service"]
 

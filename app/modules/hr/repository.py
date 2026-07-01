@@ -6,16 +6,16 @@ from typing import Any
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
-from sqlalchemy import asc, delete, desc, func, or_, select
+from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.hr.models import (
     AnnualTrainingPlan,
     AnnualTrainingPlanItem,
-    HrDepartment,
     DepartureRecord,
     Employee,
+    HrDepartment,
     OffboardingRecord,
     OnboardingRecord,
     Team,

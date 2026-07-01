@@ -14,7 +14,7 @@ import os
 import signal
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # 先加载 .env.development 到 os.environ
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,11 +30,15 @@ if os.path.exists(_env_file):
 sys.path.insert(0, _project_root)
 
 import argparse
-from sqlalchemy import select, and_, func
-from app.platform.identity.models import User  # noqa: F401
+
+from sqlalchemy import and_, func, select
+
 from app.core.database import async_session_factory
 from app.modules.regulatory_tracker.models.regulatory_document import RegulatoryDocument
-from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_and_update
+from app.modules.regulatory_tracker.services.ai_analysis_service import (
+    analyze_and_update,
+)
+from app.platform.identity.models import User  # noqa: F401
 
 logging.basicConfig(
     level=logging.INFO,
@@ -94,15 +98,15 @@ async def full_backfill(batch_size: int = 20, dry_run: bool = False):
         return None
 
     progress_file = os.path.join(_project_root, "task7_backfill_progress.json")
-    
+
     # 加载已有进度
     overall_start = time.time()
     total_success = 0
     total_failed = 0
     total_skipped = 0
-    
+
     if os.path.exists(progress_file):
-        with open(progress_file, "r") as f:
+        with open(progress_file) as f:
             prev = json.load(f)
             total_success = prev.get("total_success", 0)
             total_failed = prev.get("total_failed", 0)
@@ -117,7 +121,7 @@ async def full_backfill(batch_size: int = 20, dry_run: bool = False):
         return {"pending": pending}
 
     batch_num = 0
-    
+
     while not _stop_requested:
         batch_num += 1
         batch_start = time.time()
@@ -131,7 +135,7 @@ async def full_backfill(batch_size: int = 20, dry_run: bool = False):
                 break
 
             logger.info(f"--- 批次 {batch_num} | 剩余 {pending_count} 条 | 累计成功={total_success} 失败={total_failed} ---")
-            
+
             documents = await get_pending_documents(db, batch_size)
             if not documents:
                 logger.info("没有更多待处理文档")
@@ -166,7 +170,7 @@ async def full_backfill(batch_size: int = 20, dry_run: bool = False):
 
             # 保存进度
             progress = {
-                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
                 "model": model,
                 "batch_num": batch_num,
                 "total_success": total_success,
@@ -193,7 +197,7 @@ async def full_backfill(batch_size: int = 20, dry_run: bool = False):
     # 最终报告
     total_elapsed = time.time() - overall_start
     report = {
-        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": datetime.now(UTC).isoformat(),
         "model": model,
         "total_success": total_success,
         "total_failed": total_failed,
@@ -201,7 +205,7 @@ async def full_backfill(batch_size: int = 20, dry_run: bool = False):
         "total_elapsed_seconds": round(total_elapsed, 1),
         "stopped_by_signal": _stop_requested,
     }
-    
+
     report_path = os.path.join(_project_root, "task7_backfill_report.json")
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)

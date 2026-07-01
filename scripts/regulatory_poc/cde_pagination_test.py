@@ -4,11 +4,11 @@ CDE 国内药品技术指导原则 - 翻页测试
 测试分页功能，验证不同页的数据是否不同
 """
 
-import os
 import json
+import os
 import time
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/playwright-browsers"
 
@@ -228,14 +228,14 @@ def main():
         
         return results;
     }""")
-    
+
     print(f"   找到 {len(pagination_info)} 个分页相关元素")
     for info in pagination_info[:10]:
         print(f"      [{info['selector']}] <{info['tag']}> '{info['text']}' visible={info['visible']}")
 
     # 尝试翻页
     print("\n[6] 开始翻页测试...")
-    
+
     # 策略1: 点击"下一页"按钮
     next_btn_selectors = [
         'a:has-text("下一页")',
@@ -247,7 +247,7 @@ def main():
         '[class*="next"]',
         'a[title="下一页"]',
     ]
-    
+
     clicked = False
     for sel in next_btn_selectors:
         try:
@@ -257,9 +257,9 @@ def main():
                 el.click()
                 clicked = True
                 break
-        except Exception as e:
+        except Exception:
             continue
-    
+
     if not clicked:
         # 策略2: 点击页码 2
         print("   尝试点击页码 2...")
@@ -268,7 +268,7 @@ def main():
             clicked = True
         except:
             pass
-    
+
     if not clicked:
         # 策略3: 使用 JavaScript 查找并点击
         print("   使用 JS 查找翻页按钮...")
@@ -288,13 +288,13 @@ def main():
         }""")
         if clicked:
             print(f"   JS 点击: {clicked}")
-    
+
     if clicked:
         print("   等待第 2 页数据加载...")
         page.wait_for_timeout(4000)
         page.screenshot(path="/tmp/cde_page2.png")
         print("   截图: /tmp/cde_page2.png")
-        
+
         # 记录翻页事件
         new_count = len(output["getDomesticGuideList_captured"])
         if new_count > initial_count:
@@ -307,12 +307,12 @@ def main():
             })
             print(f"   ✅ 翻页成功! 新增 {new_count - initial_count} 个响应")
         else:
-            print(f"   ⚠️ 翻页后无新响应")
-    
+            print("   ⚠️ 翻页后无新响应")
+
     # 再翻一页到第 3 页
     print("\n[7] 翻到第 3 页...")
     before_page3 = len(output["getDomesticGuideList_captured"])
-    
+
     clicked = False
     for sel in next_btn_selectors:
         try:
@@ -323,20 +323,20 @@ def main():
                 break
         except:
             continue
-    
+
     if not clicked:
         try:
             page.click('a:has-text("3"), button:has-text("3"), li:has-text("3")')
             clicked = True
         except:
             pass
-    
+
     if clicked:
         print("   等待第 3 页数据加载...")
         page.wait_for_timeout(4000)
         page.screenshot(path="/tmp/cde_page3.png")
         print("   截图: /tmp/cde_page3.png")
-        
+
         after_page3 = len(output["getDomesticGuideList_captured"])
         if after_page3 > before_page3:
             output["pagination_events"].append({
@@ -348,7 +348,7 @@ def main():
             })
             print(f"   ✅ 翻页成功! 新增 {after_page3 - before_page3} 个响应")
         else:
-            print(f"   ⚠️ 翻页后无新响应")
+            print("   ⚠️ 翻页后无新响应")
 
     # Cookie
     cookies = context.cookies()
@@ -390,25 +390,25 @@ def _print_summary(output):
     print(f"  翻页事件: {len(output['pagination_events'])}")
 
     if output["getDomesticGuideList_captured"]:
-        print(f"\n  getDomesticGuideList 详情:")
+        print("\n  getDomesticGuideList 详情:")
         for i, cap in enumerate(output["getDomesticGuideList_captured"], 1):
             page_num = cap.get("field_current", "?")
             total = cap.get("field_total", "?")
             pages = cap.get("field_pages", "?")
             records = cap.get("field_records_len", 0)
             first_title = cap.get("first_record_title", "")[:60]
-            
+
             print(f"\n  [{i}] 第 {page_num} 页 (共 {pages} 页, {total} 条)")
             print(f"      记录数: {records}")
             print(f"      首条: {first_title}")
-            
+
             # 提取 MmEwMD 长度
             if "query_params" in cap and "MmEwMD" in cap["query_params"]:
                 mmewmd = cap["query_params"]["MmEwMD"][0]
                 print(f"      MmEwMD: {len(mmewmd)} 字符")
 
     if output["pagination_events"]:
-        print(f"\n  翻页事件记录:")
+        print("\n  翻页事件记录:")
         for event in output["pagination_events"]:
             print(f"      {event['from_page']} → {event['to_page']} | 新增 {event['new_responses']} 个响应")
 
@@ -418,11 +418,11 @@ def _print_summary(output):
         for cap in output["getDomesticGuideList_captured"]:
             if cap.get("first_record_title"):
                 titles.append(cap["first_record_title"])
-        
+
         if len(set(titles)) == len(titles):
-            print(f"\n  ✅ 数据验证: 各页首条记录不同，分页有效")
+            print("\n  ✅ 数据验证: 各页首条记录不同，分页有效")
         else:
-            print(f"\n  ⚠️ 数据验证: 存在重复的首条记录")
+            print("\n  ⚠️ 数据验证: 存在重复的首条记录")
 
     print(f"\n  Cookies ({len(output['cookies'])} 个):")
     for c in output["cookies"][:5]:

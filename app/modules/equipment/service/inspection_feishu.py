@@ -580,10 +580,10 @@ async def _cmd_submit(open_id: str, session: dict) -> None:
             plan_type = session.get("plan_type", "")
             async with async_session_factory() as db:
                 if plan_type == "线路巡检":
+                    from app.modules.equipment import repository as repo
                     from app.modules.equipment.service.inspection import (
                         submit_route_check,
                     )
-                    from app.modules.equipment import repository as repo
                     records_db = await repo.get_records_by_task(
                         db, uuid.UUID(task_id),
                     )
@@ -699,10 +699,10 @@ async def _cmd_skip(open_id: str, session: dict) -> None:
             plan_type = session.get("plan_type", "")
             async with async_session_factory() as db:
                 if plan_type == "线路巡检":
+                    from app.modules.equipment import repository as repo
                     from app.modules.equipment.service.inspection import (
                         submit_route_check,
                     )
-                    from app.modules.equipment import repository as repo
                     records_db = await repo.get_records_by_task(
                         db, uuid.UUID(task_id),
                     )
@@ -927,6 +927,8 @@ async def _cmd_modify(open_id: str, session: dict, user_text: str) -> None:
     # 更新会话
     from app.modules.equipment.service.inspection_session import (
         get_session as redis_get_session,
+    )
+    from app.modules.equipment.service.inspection_session import (
         update_session,
     )
 
@@ -1487,7 +1489,8 @@ async def _save_photo(
     image_bytes: bytes,
 ) -> InspectionPhoto:
     """保存巡检照片到 MinIO（或本地文件系统）和数据库。"""
-    from app.core.storage import is_enabled as minio_enabled, upload_object
+    from app.core.storage import is_enabled as minio_enabled
+    from app.core.storage import upload_object
 
     filename = f"{uuid.uuid4()}_feishu.jpg"
 

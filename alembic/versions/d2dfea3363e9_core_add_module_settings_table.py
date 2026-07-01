@@ -4,23 +4,23 @@ Revision ID: d2dfea3363e9
 Revises: 7ef205f0db8c
 Create Date: 2026-06-27 11:08:58.557566
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used in this file.
 revision: str = 'd2dfea3363e9'
-down_revision: Union[None, str] = '7ef205f0db8c'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: None | str = '7ef205f0db8c'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     # Ensure core schema exists
     op.execute("CREATE SCHEMA IF NOT EXISTS core")
-    
+
     # Create module_settings table
     op.create_table(
         'module_settings',

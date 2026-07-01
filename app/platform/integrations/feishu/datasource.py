@@ -5,7 +5,7 @@
 """
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Any
 
 from app.platform.integrations.feishu.bitable import BitableClient, _to_ms_timestamp

@@ -6,8 +6,9 @@ product service method.
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -78,5 +79,5 @@ def _is_newly_created(existing: Any) -> bool:
     if not created_at:
         return False
     if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - created_at).total_seconds() < 60
+        created_at = created_at.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - created_at).total_seconds() < 60

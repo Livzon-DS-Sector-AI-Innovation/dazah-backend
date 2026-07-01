@@ -319,6 +319,7 @@ class EmployeeService:
     async def upload_employees(self, file_bytes: bytes) -> dict:
         """从 Excel 文件批量导入员工，按工号 upsert。返回 {created, updated, errors}。"""
         from io import BytesIO
+
         from openpyxl import load_workbook
 
         wb = load_workbook(BytesIO(file_bytes), data_only=True)
@@ -733,7 +734,9 @@ class EmployeeService:
     async def upload_annual_plan(self, file_bytes: bytes) -> dict:
         """从 Excel 批量导入年度培训计划，按年度+部门自动分类。"""
         from io import BytesIO
+
         from openpyxl import load_workbook
+
         from app.modules.hr.models import AnnualTrainingPlan, AnnualTrainingPlanItem
 
         wb = load_workbook(BytesIO(file_bytes), data_only=True)
@@ -809,7 +812,9 @@ class EmployeeService:
     async def upload_sop_catalog(self, file_bytes: bytes) -> dict:
         """从 Excel 批量导入 SOP 目录，按 SOP编号 upsert。"""
         from io import BytesIO
+
         from openpyxl import load_workbook
+
         from app.modules.hr.models import SopCatalog
 
         wb = load_workbook(BytesIO(file_bytes), data_only=True)
@@ -892,7 +897,9 @@ class EmployeeService:
     async def upload_trainers(self, file_bytes: bytes) -> dict:
         """从 Excel 批量导入内训师，按姓名+部门 upsert。"""
         from io import BytesIO
+
         from openpyxl import load_workbook
+
         from app.modules.hr.models import HrTrainer
 
         wb = load_workbook(BytesIO(file_bytes), data_only=True)
@@ -1011,7 +1018,8 @@ class DepartmentService:
             page_size=page_size,
         )
         # Attach employee count to each department
-        from sqlalchemy import select, func
+        from sqlalchemy import func, select
+
         from app.modules.hr.models import Employee
         for dept in departments:
             count = await self.repo.session.scalar(

@@ -1,14 +1,12 @@
 
+import os
 import shutil
+
+import numpy as np
 import pandas as pd
-import numpy as np
-import os
-from edbo.plus.benchmark.multiobjective_benchmark import Benchmark
-import os
-import numpy as np
-import matplotlib.pyplot as plt
 import seaborn as sns
-import pandas as pd
+from edbo.plus.benchmark.multiobjective_benchmark import Benchmark
+
 sns.set_style("darkgrid")
 sns.set_context("talk")
 

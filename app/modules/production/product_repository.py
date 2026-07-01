@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.production.product_models import Product

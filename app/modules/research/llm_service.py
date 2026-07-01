@@ -1,6 +1,5 @@
 """LLM 服务模块 - 使用 core.llm 统一客户端"""
 
-import json
 from app.core.llm import llm_client
 
 
@@ -10,7 +9,7 @@ async def call_llm(prompt: str, system_prompt: str = "") -> dict:
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
-    
+
     return await llm_client.chat_json(messages)
 
 
@@ -47,7 +46,7 @@ def build_q3d_prompt(text: str) -> str:
 
 def build_q3c_prompt(steps: list[dict]) -> str:
     """构建 Q3C 溶剂识别 prompt (skill's version with ICH Q3C database)"""
-    
+
     # ICH Q3C Solvent Database
     ich_class1 = ["Benzene", "Carbon tetrachloride", "1,2-Dichloroethane", "1,1-Dichloroethene", "1,1,1-Trichloroethane"]
     ich_class2 = ["Acetonitrile", "Chlorobenzene", "1,1,2-Trichloroethane", "Acetic Acid", "Acetone", "Anisole",
@@ -61,7 +60,7 @@ def build_q3c_prompt(steps: list[dict]) -> str:
                   "Nitromethane", "Pentane", "1-Pentanol", "1-Propanol", "2-Propanol", "Propyl Acetate",
                   "Pyridine", "Tetrahydrofuran", "Tetralin", "Toluene", "1,1,2-Trichloroethylene", "Xylenes"]
     ich_class3 = ["1,2,4-Trimethylbenzene", "2-Ethoxyethanol", "Sulfolane"]
-    
+
     # Common solvent synonyms
     solvent_synonyms = {
         "ethanol": ["alcohol", "ethyl alcohol", "乙醇", "无水乙醇", "95% 乙醇"],
@@ -101,7 +100,7 @@ def build_q3c_prompt(steps: list[dict]) -> str:
         "nitric acid": ["硝酸"],
         "phosphoric acid": ["磷酸"]
     }
-    
+
     prompt = f"""你是一个制药工艺分析专家。请从以下合成工艺步骤中提取所有使用的溶剂，并根据 ICH Q3C(R9) 指南进行分类。
 
 ## 任务
@@ -124,10 +123,10 @@ def build_q3c_prompt(steps: list[dict]) -> str:
 
 以下是常见溶剂的中文/英文/缩写名称 (匹配时请考虑所有这些变体):
 """
-    
+
     for canonical, synonyms in solvent_synonyms.items():
         prompt += f"- {canonical}: {', '.join(synonyms)}\n"
-    
+
     prompt += """
 ## 匹配规则
 
@@ -204,14 +203,14 @@ def build_q3c_prompt(steps: list[dict]) -> str:
 
 ## 工艺步骤文本
 """
-    
+
     # Add each step's content
     for step in steps:
         step_text = step.get("content", "")
         prompt += f"\n\n{step.get('title', 'Step')}: {step_text}\n"
-    
+
     prompt += "\n\n请只返回 JSON，不要其他解释。确保每个溶剂都包含 ich_class 字段。"
-    
+
     return prompt
 
 

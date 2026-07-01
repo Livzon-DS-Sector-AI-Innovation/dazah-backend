@@ -4,35 +4,17 @@
 
 import uuid
 
-
-
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
-
 from fastapi.responses import JSONResponse
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-
 from app.core.database import get_db
-
 from app.core.deps import CurrentUser
-
-from app.core.response import paginated_response, success_response, error_response
-
+from app.core.response import error_response, paginated_response, success_response
 from app.modules.quality import service
-
 from app.modules.quality.schemas import (
-
     CpvImportConfirmRequest,
-
-    CpvImportPreviewResponse,
-
-    CpvImportTaskResponse,
-
 )
-
-
 
 router = APIRouter()
 
@@ -63,11 +45,11 @@ async def preview_import(
 
         return error_response("请上传 Excel 文件 (.xlsx, .xls)", status_code=400)
 
-    
+
 
     file_content = await file.read()
 
-    
+
 
     preview = await service.preview_import(
 
@@ -75,7 +57,7 @@ async def preview_import(
 
     )
 
-    
+
 
     return success_response(data=preview.model_dump())
 
@@ -109,7 +91,7 @@ async def confirm_import(
 
     file_content = await file.read()
 
-    
+
 
     current_user_id = None
 
@@ -117,7 +99,7 @@ async def confirm_import(
 
         current_user_id = current_user.id
 
-    
+
 
     request = CpvImportConfirmRequest(
 
@@ -133,11 +115,11 @@ async def confirm_import(
 
     )
 
-    
+
 
     task = await service.confirm_import(db, file_content, request, current_user_id)
 
-    
+
 
     return success_response(data=task.model_dump())
 

@@ -4,17 +4,18 @@ Revision ID: 63e0261d5871
 Revises: fb2c920c3d32
 Create Date: 2026-06-04 14:41:40.835681
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
+
 # revision identifiers, used by Alembic.
 revision: str = '63e0261d5871'
-down_revision: Union[str, None] = 'fb2c920c3d32'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'fb2c920c3d32'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

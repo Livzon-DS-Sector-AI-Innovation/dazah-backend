@@ -1,8 +1,7 @@
 """Feishu Bitable (多维表格) CRUD operations."""
 
 import logging
-from datetime import date, datetime, timezone
-from uuid import UUID
+from datetime import UTC, date, datetime
 
 from app.core.config import get_settings
 from app.platform.integrations.feishu.auth import FeishuAuth
@@ -23,9 +22,9 @@ def _to_ms_timestamp(value: date | datetime | str | None) -> int | str:
             return value
     if isinstance(value, (date, datetime)):
         if isinstance(value, date) and not isinstance(value, datetime):
-            dt = datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+            dt = datetime(value.year, value.month, value.day, tzinfo=UTC)
         else:
-            dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+            dt = value if value.tzinfo else value.replace(tzinfo=UTC)
         return int(dt.timestamp() * 1000)
     return value
 

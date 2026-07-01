@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,7 +105,7 @@ async def handle_oauth_callback(
 def generate_jwt(user: User) -> str:
     """Generate a JWT token for the given user."""
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user.id),
         "open_id": user.feishu_open_id,
@@ -121,7 +121,7 @@ def generate_state_token() -> str:
     import secrets
     settings = get_settings()
     nonce = secrets.token_urlsafe(32)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "nonce": nonce,
         "iat": now,

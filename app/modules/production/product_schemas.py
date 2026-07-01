@@ -2,15 +2,14 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
 
 class ProductBase(BaseModel):
     workshop: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class ProductCreate(ProductBase):
@@ -18,8 +17,8 @@ class ProductCreate(ProductBase):
 
 
 class ProductUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
 
 
 class ProductResponse(ProductBase):

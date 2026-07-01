@@ -1,10 +1,10 @@
 
-import torch
 import gpytorch
+import numpy as np
+import torch
+from gpytorch.constraints import GreaterThan
 from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.priors import GammaPrior
-from gpytorch.constraints import GreaterThan
-import numpy as np
 
 tkwargs = {
     "dtype": torch.double,
@@ -25,7 +25,7 @@ def build_and_optimize_model(train_x, train_y):
 
     class ExactGPModel(gpytorch.models.ExactGP):
         def __init__(self, train_x, train_y, likelihood):
-            super(ExactGPModel, self).__init__(train_x, train_y,
+            super().__init__(train_x, train_y,
                                                likelihood)
             self.mean_module = gpytorch.means.ConstantMean()
 

@@ -1,8 +1,6 @@
-import os
 
 import numpy as np
 import pandas as pd
-
 
 df_dft = pd.read_csv('data/dataset_B2.csv')
 

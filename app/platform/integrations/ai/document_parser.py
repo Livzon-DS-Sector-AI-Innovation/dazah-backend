@@ -42,20 +42,20 @@ class DocumentParser:
 
         reader = PdfReader(path)
         parts: list[str] = []
-        
+
         # First pass: try to extract text directly
         for page in reader.pages:
             t = page.extract_text()
             if t:
                 parts.append(t)
-        
+
         text = "\n".join(parts)
-        
+
         # If no text extracted, this is likely a scanned PDF - use OCR
         if len(text.strip()) < 100:  # Less than 100 chars means probably empty
             logger.info(f"PDF appears to be scanned (extracted {len(text)} chars), attempting OCR...")
             text = DocumentParser._extract_pdf_ocr(path, max_pages=10)
-        
+
         return text
 
     @staticmethod
@@ -70,28 +70,29 @@ class DocumentParser:
         """
         try:
             from pdf2image import convert_from_path
+
             from app.shared.ocr_service import get_ocr_service
             ocr_service = get_ocr_service()
-            
+
             # Convert PDF to images with lower DPI for speed
             # 150 DPI is a good balance between speed and accuracy
             images = convert_from_path(path, dpi=150, first_page=1, last_page=max_pages)
             parts: list[str] = []
-            
+
             logger.info(f"OCR processing {len(images)} pages with PP-StructureV3...")
-            
+
             for i, image in enumerate(images):
                 # Use hybrid API - PP-StructureV3 for better structure preservation
                 # Returns Markdown format which preserves tables, formulas, etc.
                 text = ocr_service.extract(image, output_format="markdown")
                 if text.strip():
                     parts.append(f"--- Page {i+1} ---\n{text.strip()}")
-            
+
             if not parts:
                 return "[OCR未能提取到文本内容]"
-            
+
             return "\n\n".join(parts)
-            
+
         except Exception as e:
             logger.error(f"OCR extraction failed: {e}")
             return f"[OCR提取失败: {str(e)}]"
@@ -125,5 +126,5 @@ class DocumentParser:
 
     @staticmethod
     def _extract_txt(path: str) -> str:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             return f.read()

@@ -2,12 +2,14 @@
 
 import logging
 
-from app.shared.config_reader import get_module_setting_bool
 from app.core.database import async_session_factory
 from app.modules.regulatory_tracker import repository as repo
+from app.modules.regulatory_tracker.services.ai_analysis_service import (
+    analyze_new_documents,
+)
 from app.modules.regulatory_tracker.services.sync_service import run_sync_job
-from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_new_documents
-from app.platform.scheduler import TaskDefinition, ScheduleConfig, ScheduleStrategy
+from app.platform.scheduler import ScheduleConfig, ScheduleStrategy, TaskDefinition
+from app.shared.config_reader import get_module_setting_bool
 
 logger = logging.getLogger(__name__)
 

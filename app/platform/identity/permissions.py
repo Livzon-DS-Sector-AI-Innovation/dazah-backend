@@ -1,7 +1,6 @@
 """Role-based permission control."""
 
 from typing import Annotated
-from functools import wraps
 
 from fastapi import Depends, HTTPException, status
 

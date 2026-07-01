@@ -6,11 +6,10 @@ Usage: cd to dazah-backend and run:
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import insert, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.modules.administration.models import VehicleRequest
@@ -35,18 +34,18 @@ async def get_tenant_token(client: httpx.AsyncClient) -> str:
 
 def get_cutoff_timestamp() -> int:
     """Return the millisecond timestamp for N months ago."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     month = now.month - SYNC_MONTHS
     year = now.year
     while month <= 0:
         month += 12
         year -= 1
     try:
-        cutoff = datetime(year, month, now.day, tzinfo=timezone.utc)
+        cutoff = datetime(year, month, now.day, tzinfo=UTC)
     except ValueError:
         import calendar
         last_day = calendar.monthrange(year, month)[1]
-        cutoff = datetime(year, month, last_day, tzinfo=timezone.utc)
+        cutoff = datetime(year, month, last_day, tzinfo=UTC)
     return int(cutoff.timestamp() * 1000)
 
 

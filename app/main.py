@@ -12,7 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-import app.platform.audit.models  # noqa: F401
+# Ensure platform models are registered in SQLAlchemy metadata
+import app.platform.audit.models  # noqa: F401  # noqa: F401
 
 # Ensure platform models are registered in SQLAlchemy metadata
 import app.platform.identity.models  # noqa: F401
@@ -22,14 +23,9 @@ from app.core.exceptions import AppException
 from app.core.response import error_response
 from app.modules.regulatory_tracker.tasks.sync_tasks import (
     start_scheduler,
-    stop_scheduler,
 )
 from app.platform.audit import AuditMiddleware
 from app.shared.ocr_service import init_ocr
-
-# Ensure platform models are registered in SQLAlchemy metadata
-import app.platform.identity.models  # noqa: F401
-import app.platform.audit.models  # noqa: F401
 
 settings = get_settings()
 
@@ -60,29 +56,29 @@ mcp_asgi = get_mcp_app(path="/", middleware=mcp_middleware)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan — auto-start all registered background workers."""
     logger.info("Starting %s (%s)", settings.APP_NAME, settings.APP_ENV)
-    
+
     # Initialize OCR service
     init_ocr()
-    
+
     # Import all modules to trigger their __init__.py and register workers
-    import app.modules.safety  # noqa: F401
-    import app.modules.equipment  # noqa: F401
     import app.modules.energy  # noqa: F401
+    import app.modules.equipment  # noqa: F401
     import app.modules.regulatory_tracker  # noqa: F401
+    import app.modules.safety  # noqa: F401
     import app.platform.identity  # noqa: F401
     import app.platform.integrations.feishu  # noqa: F401
-    
+
     # Start all registered background workers
     from app.shared.lifecycle import get_all_workers
-    
+
     workers = get_all_workers()
     tasks = []
-    
+
     for worker in workers:
         logger.info("Starting background worker: %s", worker.name)
         task = asyncio.create_task(worker.start())
         tasks.append((worker, task))
-    
+
     # Start unified scheduler engine (for DB-driven generators)
 
     from app.modules.warehouse.feishu_events import register_feishu_event_handlers
@@ -91,17 +87,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     from app.modules.energy.scheduler import (
         energy_collection_loop,
-        stop_energy_collection_flag,
     )
     from app.modules.equipment.scheduler import (
         maintenance_plan_loop,
-        stop_maintenance_plan_flag,
-        stop_timeout_flag,
         timeout_scan_loop,
     )
     from app.platform.identity.scheduler import (
         member_sync_loop,
-        stop_member_sync_flag,
     )
 
     start_scheduler()
@@ -137,48 +129,50 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         equipment_ws_task = asyncio.create_task(start_equipment_ws())
 
     # ── 安全模块专属飞书事件订阅（WebSocket 长连接，独立应用凭据）──
-    from app.modules.safety.feishu.event_client import start_ws, stop_ws
+    from app.modules.safety.feishu.event_client import start_ws
 
     safety_ws_task = asyncio.create_task(start_ws())
 
     # ── 安全模块定时任务调度引擎 ──
     from app.modules.safety.scheduler import (
         scheduled_task_loop,
-        stop_scheduled_task_flag,
     )
 
     scheduler_task = asyncio.create_task(scheduled_task_loop())
 
     # ── 统一调度引擎（平台级，各模块可渐进迁移）──
 
-    from app.platform.scheduler import SchedulerEngine, SchedulerRegistry
     from app.modules.equipment.scheduled import InspectionScheduleGenerator
-    
+    from app.platform.scheduler import SchedulerEngine, SchedulerRegistry
+
     scheduler_registry = SchedulerRegistry()
     scheduler_registry.register_generator(InspectionScheduleGenerator())
-    
+
     # Register regulatory_tracker scheduled tasks
-    from app.modules.regulatory_tracker.tasks.sync_tasks import daily_sync_task, daily_ai_analysis_task
+    from app.modules.regulatory_tracker.tasks.sync_tasks import (
+        daily_ai_analysis_task,
+        daily_sync_task,
+    )
     scheduler_registry.register_task(daily_sync_task)
     scheduler_registry.register_task(daily_ai_analysis_task)
     scheduler_engine = SchedulerEngine(scheduler_registry)
     scheduler_engine_task = asyncio.create_task(scheduler_engine.run())
-    
-    logger.info("Background tasks started (%d workers, %d generators)", 
+
+    logger.info("Background tasks started (%d workers, %d generators)",
                 len(workers), len(scheduler_registry.generators))
-    
+
     yield
-    
+
     # Shutdown: stop all workers in reverse order
     logger.info("Shutting down %s", settings.APP_NAME)
-    
+
     # Stop unified scheduler engine
     scheduler_engine.stop()
     try:
         await asyncio.wait_for(scheduler_engine_task, timeout=10)
     except (TimeoutError, asyncio.CancelledError):
         pass
-    
+
     # Stop all background workers
     for worker, task in reversed(tasks):
         logger.info("Stopping background worker: %s", worker.name)
@@ -191,7 +185,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             except (TimeoutError, asyncio.CancelledError):
                 logger.warning("Worker %s stop timed out", worker.name)
         task.cancel()
-    
+
     logger.info("Shutdown complete")
 
     # 停止设备模块 WebSocket

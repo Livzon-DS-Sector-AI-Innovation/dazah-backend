@@ -1,9 +1,8 @@
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
+
 sns.set_style("ticks")
-import matplotlib as mpl
 # mpl.rcParams['grid.linestyle'] = ':'
 # mpl.rcParams['grid.linewidth'] = 0.1
 plt.rcParams['font.family'] = 'Helvetica'

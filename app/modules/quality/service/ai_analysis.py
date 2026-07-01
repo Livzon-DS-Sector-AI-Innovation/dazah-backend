@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.llm import llm_client
 
@@ -44,7 +44,6 @@ async def analyze_deviation_async(deviation_id: uuid.UUID, user_id: str):
     Asynchronously analyze a deviation using AI.
     This function is called in the background after deviation submission.
     """
-    from sqlalchemy.ext.asyncio import AsyncSession
     from app.core.database import async_session_factory
     from app.modules.quality.models import Deviation
 
@@ -74,7 +73,7 @@ async def analyze_deviation_async(deviation_id: uuid.UUID, user_id: str):
             if isinstance(result, dict):
                 deviation.ai_analysis = result
                 deviation.status = "pending_investigation"
-                deviation.status_updated_at = datetime.now(timezone.utc)
+                deviation.status_updated_at = datetime.now(UTC)
                 deviation.updated_by = uuid.UUID(user_id) if user_id != "system" else None
                 await db.commit()
                 logger.info(f"AI analysis completed for deviation {deviation_id}")

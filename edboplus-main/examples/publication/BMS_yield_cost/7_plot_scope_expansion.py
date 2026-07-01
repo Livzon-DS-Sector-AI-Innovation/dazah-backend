@@ -1,21 +1,23 @@
 import os.path
 
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
+
 sns.set_style("ticks")
 sns.despine()
 import matplotlib as mpl
+
 mpl.rcParams['grid.linestyle'] = ':'
 mpl.rcParams['grid.linewidth'] = 0.1
 plt.rcParams['font.family'] = 'Helvetica'
 plt.rcParams['font.size'] = 10
 import pareto
+import seaborn as sns
 from edbo.plus.benchmark.multiobjective_benchmark import is_pareto
 from pymoo.mcdm.high_tradeoff import HighTradeoffPoints
 from sklearn.preprocessing import MinMaxScaler
-import seaborn as sns
 
 
 def get_pareto_points(objective_values):
@@ -73,7 +75,7 @@ ax.set_ylim(-10, 110)
 if not os.path.exists('results_plots'):
     os.mkdir('results_plots')
 
-plt.savefig(f'./results_plots/dataset.svg', format='svg', dpi=500)
+plt.savefig('./results_plots/dataset.svg', format='svg', dpi=500)
 # plt.show()
 
 # Reduced space
@@ -98,7 +100,7 @@ hues = ['ligand', 'base', 'solvent', 'concentration']
 sns.scatterplot(x=df_exp['cost'], y=df_exp['yield'],
                 hue=df_exp['ligand'], s=80,
                 lw=0.01, edgecolor='black',
-                ax=ax, palette='Spectral',                
+                ax=ax, palette='Spectral',
                 style=df_exp['solvent'],
                 )
 sns.lineplot(x=pareto_points[:, 1], y=pareto_points[:, 0],
@@ -108,6 +110,6 @@ ax.set_ylim(-10, 110)
 
 if not os.path.exists('results_plots'):
     os.mkdir('results_plots')
-plt.savefig(f'./results_plots/dataset_reduced.svg', format='svg', dpi=500)
+plt.savefig('./results_plots/dataset_reduced.svg', format='svg', dpi=500)
 # plt.show()
 

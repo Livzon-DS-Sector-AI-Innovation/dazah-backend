@@ -1,9 +1,8 @@
 """Registration project ORM model."""
 
-import uuid
-from datetime import date, datetime
+from datetime import date
 
-from sqlalchemy import CheckConstraint, Date, DateTime, String, Text
+from sqlalchemy import CheckConstraint, Date, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel

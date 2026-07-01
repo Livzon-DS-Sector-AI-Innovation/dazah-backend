@@ -1,14 +1,13 @@
 
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
 import os
-
 
 # sns.set_style("ticks")
 # sns.set_context("paper")
 import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
 mpl.rcParams['grid.linestyle'] = ':'
 mpl.rcParams['grid.linewidth'] = 0.1
 
@@ -174,7 +173,7 @@ for sampling in ['seed', 'lhs', 'cvtsampling']:
 
 ax[0][1].legend()
 plt.tight_layout()
-plt.savefig(f"figures/benchmark_sampling.svg")
+plt.savefig("figures/benchmark_sampling.svg")
 plt.show()
 
 

@@ -6,7 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.registration.models.certificate import RegistrationCertificate
-from app.modules.registration.schemas.certificate import CertificateCreate, CertificateUpdate
+from app.modules.registration.schemas.certificate import (
+    CertificateCreate,
+    CertificateUpdate,
+)
 
 
 async def get_certificates(db: AsyncSession) -> list[RegistrationCertificate]:

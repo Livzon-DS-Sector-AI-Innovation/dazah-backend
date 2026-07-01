@@ -1,31 +1,29 @@
 """Quality management business logic."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.quality.models import (
-    AttachmentReview,
     CAPA,
+    AttachmentReview,
     DepartmentContact,
     DepartmentWeeklyConfirmation,
     Deviation,
 )
 from app.modules.quality.schemas import (
-    DepartmentContactOut,
-    DepartmentWeeklyConfirmationOut,
     AttachmentReviewOut,
-    CapaApprovalRequest,
     CapaDetail,
     CapaListItem,
     CapaStatistics,
-    ConfirmProductionStatusRequest,
     CreateCapaRequest,
     CreateDepartmentContactRequest,
     CreateDeviationRequest,
+    DepartmentContactOut,
+    DepartmentWeeklyConfirmationOut,
     DeviationDetail,
     DeviationListItem,
     DeviationStatistics,
@@ -146,7 +144,7 @@ async def get_deviation_detail(db: AsyncSession, deviation_id: uuid.UUID) -> Dev
 
 async def create_deviation(db: AsyncSession, data: CreateDeviationRequest, user_id: str) -> dict[str, str]:
     deviation = Deviation(
-        deviation_code=f"DEV-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
+        deviation_code=f"DEV-{datetime.now(UTC).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
         title=data.title,
         department=data.department,
         discovery_date=datetime.fromisoformat(data.discovery_date) if data.discovery_date else None,
@@ -163,7 +161,7 @@ async def create_deviation(db: AsyncSession, data: CreateDeviationRequest, user_
         needs_cross_dept_review=data.needs_cross_dept_review,
         cross_dept_reviewers=[r.model_dump() for r in data.cross_dept_reviewers] if data.cross_dept_reviewers else [],
         status="draft",
-        status_updated_at=datetime.now(timezone.utc),
+        status_updated_at=datetime.now(UTC),
     )
     db.add(deviation)
     try:
@@ -193,9 +191,9 @@ async def update_deviation(db: AsyncSession, deviation_id: uuid.UUID, data: Upda
         else:
             setattr(deviation, field, value)
 
-    deviation.updated_at = datetime.now(timezone.utc)
+    deviation.updated_at = datetime.now(UTC)
     if data.status:
-        deviation.status_updated_at = datetime.now(timezone.utc)
+        deviation.status_updated_at = datetime.now(UTC)
 
     try:
 
@@ -214,7 +212,7 @@ async def delete_deviation(db: AsyncSession, deviation_id: uuid.UUID) -> dict[st
     if not deviation:
         raise ValueError(f"Deviation {deviation_id} not found")
     deviation.is_deleted = True
-    deviation.updated_at = datetime.now(timezone.utc)
+    deviation.updated_at = datetime.now(UTC)
     try:
 
         await db.commit()
@@ -240,8 +238,8 @@ async def submit_investigation(db: AsyncSession, deviation_id: uuid.UUID, data: 
         deviation.investigation_records = data.investigation_records
 
     deviation.status = "pending_dept_head_review"
-    deviation.status_updated_at = datetime.now(timezone.utc)
-    deviation.updated_at = datetime.now(timezone.utc)
+    deviation.status_updated_at = datetime.now(UTC)
+    deviation.updated_at = datetime.now(UTC)
     try:
 
         await db.commit()
@@ -271,7 +269,7 @@ async def submit_review(db: AsyncSession, deviation_id: uuid.UUID, data: SubmitR
         "author": user_id,
         "step": data.step,
         "result": data.result,
-        "createTime": datetime.now(timezone.utc).isoformat(),
+        "createTime": datetime.now(UTC).isoformat(),
     }
     review_opinions.append(new_opinion)
 
@@ -279,8 +277,8 @@ async def submit_review(db: AsyncSession, deviation_id: uuid.UUID, data: SubmitR
         deviation.status = "returned"
         deviation.returned_step = data.step
         deviation.review_opinions = review_opinions
-        deviation.status_updated_at = datetime.now(timezone.utc)
-        deviation.updated_at = datetime.now(timezone.utc)
+        deviation.status_updated_at = datetime.now(UTC)
+        deviation.updated_at = datetime.now(UTC)
         try:
 
             await db.commit()
@@ -303,8 +301,8 @@ async def submit_review(db: AsyncSession, deviation_id: uuid.UUID, data: SubmitR
 
     deviation.status = next_status
     deviation.review_opinions = review_opinions
-    deviation.status_updated_at = datetime.now(timezone.utc)
-    deviation.updated_at = datetime.now(timezone.utc)
+    deviation.status_updated_at = datetime.now(UTC)
+    deviation.updated_at = datetime.now(UTC)
     try:
 
         await db.commit()
@@ -328,8 +326,8 @@ async def submit_final_code(db: AsyncSession, deviation_id: uuid.UUID, final_cod
 
     deviation.final_code = final_code.strip()
     deviation.status = "closed"
-    deviation.status_updated_at = datetime.now(timezone.utc)
-    deviation.updated_at = datetime.now(timezone.utc)
+    deviation.status_updated_at = datetime.now(UTC)
+    deviation.updated_at = datetime.now(UTC)
     try:
 
         await db.commit()
@@ -354,8 +352,8 @@ async def resubmit_deviation(db: AsyncSession, deviation_id: uuid.UUID, user_id:
 
     deviation.status = target_status
     deviation.returned_step = None
-    deviation.status_updated_at = datetime.now(timezone.utc)
-    deviation.updated_at = datetime.now(timezone.utc)
+    deviation.status_updated_at = datetime.now(UTC)
+    deviation.updated_at = datetime.now(UTC)
     try:
 
         await db.commit()
@@ -416,7 +414,7 @@ async def get_capa_detail(db: AsyncSession, capa_id: uuid.UUID) -> CapaDetail:
 
 async def create_capa(db: AsyncSession, data: CreateCapaRequest, user_id: str) -> dict[str, str]:
     capa = CAPA(
-        capa_code=f"CAPA-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
+        capa_code=f"CAPA-{datetime.now(UTC).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
         title=data.title,
         deviation_id=data.deviation_id,
         source=data.source,
@@ -431,7 +429,7 @@ async def create_capa(db: AsyncSession, data: CreateCapaRequest, user_id: str) -
         expected_completion_date=datetime.fromisoformat(data.expected_completion_date) if data.expected_completion_date else None,
         reporter=data.reporter,
         status="draft",
-        status_updated_at=datetime.now(timezone.utc),
+        status_updated_at=datetime.now(UTC),
     )
     db.add(capa)
     try:
@@ -461,9 +459,9 @@ async def update_capa(db: AsyncSession, capa_id: uuid.UUID, data: UpdateCapaRequ
         else:
             setattr(capa, field, value)
 
-    capa.updated_at = datetime.now(timezone.utc)
+    capa.updated_at = datetime.now(UTC)
     if data.status:
-        capa.status_updated_at = datetime.now(timezone.utc)
+        capa.status_updated_at = datetime.now(UTC)
 
     try:
 
@@ -482,7 +480,7 @@ async def delete_capa(db: AsyncSession, capa_id: uuid.UUID) -> dict[str, bool]:
     if not capa:
         raise ValueError(f"CAPA {capa_id} not found")
     capa.is_deleted = True
-    capa.updated_at = datetime.now(timezone.utc)
+    capa.updated_at = datetime.now(UTC)
     try:
 
         await db.commit()
@@ -521,7 +519,7 @@ async def upsert_department_contact(db: AsyncSession, data: CreateDepartmentCont
             update_data = data.model_dump(exclude_unset=True)
             for field, value in update_data.items():
                 setattr(contact, field, value)
-            contact.updated_at = datetime.now(timezone.utc)
+            contact.updated_at = datetime.now(UTC)
             try:
 
                 await db.commit()
@@ -561,7 +559,7 @@ async def delete_department_contact(db: AsyncSession, contact_id: uuid.UUID) -> 
     if not contact:
         raise ValueError(f"DepartmentContact {contact_id} not found")
     contact.is_deleted = True
-    contact.updated_at = datetime.now(timezone.utc)
+    contact.updated_at = datetime.now(UTC)
     try:
 
         await db.commit()
@@ -658,7 +656,7 @@ async def list_attachment_reviews(
     if attachment_url:
         query = query.where(AttachmentReview.attachment_url == attachment_url)
     query = query.order_by(AttachmentReview.review_time.desc())
-    
+
     result = await db.execute(query)
     items = result.scalars().all()
     return [AttachmentReviewOut.model_validate(item).model_dump() for item in items]
@@ -675,7 +673,7 @@ async def create_attachment_review(
         attachment_url=data.attachment_url,
         content=data.content,
         reviewer_id=reviewer_id,
-        review_time=datetime.now(timezone.utc),
+        review_time=datetime.now(UTC),
     )
     db.add(review)
     await db.flush()
@@ -702,12 +700,11 @@ async def submit_for_review(db: AsyncSession, deviation_id: uuid.UUID, user_id: 
         raise ValueError(f"只有草稿状态的偏差可以提交，当前状态: {deviation.status}")
 
     deviation.status = "pending_ai_analysis"
-    deviation.status_updated_at = datetime.now(timezone.utc)
+    deviation.status_updated_at = datetime.now(UTC)
     deviation.updated_by = uuid.UUID(user_id) if user_id != "system" else None
     await db.flush()
 
     # Trigger AI analysis asynchronously
-    import asyncio
     spawn_task(_trigger_ai_analysis(deviation_id, user_id), name="quality.ai_analysis")
 
     return {"success": True}
@@ -739,7 +736,7 @@ async def complete_ai_analysis(
     if ai_analysis is not None:
         deviation.ai_analysis = ai_analysis
     deviation.status = "pending_investigation"
-    deviation.status_updated_at = datetime.now(timezone.utc)
+    deviation.status_updated_at = datetime.now(UTC)
     deviation.updated_by = uuid.UUID(user_id) if user_id != "system" else None
     await db.flush()
     return {"success": True}
@@ -763,7 +760,7 @@ async def batch_update_status(
                 continue
 
             deviation.status = target_status
-            deviation.status_updated_at = datetime.now(timezone.utc)
+            deviation.status_updated_at = datetime.now(UTC)
             deviation.updated_by = uuid.UUID(user_id) if user_id != "system" else None
             updated += 1
         except Exception as e:
@@ -818,7 +815,7 @@ async def confirm_production_status(
     result = await db.execute(query)
     existing = result.scalar_one_or_none()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if existing:
         existing.production_status = data.production_status
         existing.deviation_status = data.deviation_status
@@ -958,7 +955,7 @@ async def submit_capa(db: AsyncSession, capa_id: uuid.UUID, user_id: str) -> dic
         raise ValueError(f"只有草稿状态的CAPA可以提交，当前状态: {capa.status}")
 
     capa.status = "submitted"
-    capa.status_updated_at = datetime.now(timezone.utc)
+    capa.status_updated_at = datetime.now(UTC)
     capa.updated_by = uuid.UUID(user_id) if user_id != "system" else None
     await db.flush()
     return {"success": True}
@@ -976,7 +973,7 @@ async def confirm_dept_head(
         raise ValueError("CAPA不存在")
 
     confirmations = capa.dept_head_confirmations or []
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     confirmation = {
         "department": data.department,
@@ -1010,11 +1007,11 @@ async def confirm_dept_head(
 
     if all_approved and confirmations:
         capa.status = "pending_qa_approval"
-        capa.status_updated_at = datetime.now(timezone.utc)
+        capa.status_updated_at = datetime.now(UTC)
     elif any_rejected:
         capa.status = "returned"
         capa.returned_step = "dept_head_confirm"
-        capa.status_updated_at = datetime.now(timezone.utc)
+        capa.status_updated_at = datetime.now(UTC)
 
     capa.updated_by = uuid.UUID(user_id) if user_id != "system" else None
     await db.flush()
@@ -1032,7 +1029,7 @@ async def approve_capa(
     if not capa or capa.is_deleted:
         raise ValueError("CAPA不存在")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     if data.step == "qa_review":
         capa.qa_reviewer_id = uuid.UUID(user_id) if user_id != "system" else None
@@ -1070,7 +1067,7 @@ async def resubmit_capa(db: AsyncSession, capa_id: uuid.UUID, user_id: str) -> d
 
     capa.status = "draft"
     capa.returned_step = None
-    capa.status_updated_at = datetime.now(timezone.utc)
+    capa.status_updated_at = datetime.now(UTC)
     capa.updated_by = uuid.UUID(user_id) if user_id != "system" else None
     await db.flush()
     return {"success": True}
@@ -1132,7 +1129,7 @@ async def confirm_execution(db: AsyncSession, capa_id: uuid.UUID, user_id: str) 
         raise ValueError(f"只有执行中状态的CAPA可以确认执行完成，当前状态: {capa.status}")
 
     capa.status = "pending_evaluation"
-    capa.status_updated_at = datetime.now(timezone.utc)
+    capa.status_updated_at = datetime.now(UTC)
     capa.updated_by = uuid.UUID(user_id) if user_id != "system" else None
     await db.flush()
     return {"success": True}
@@ -1157,7 +1154,7 @@ async def submit_evaluation(
     capa.evaluation_confirm_date = datetime.fromisoformat(data.evaluation_confirm_date.replace("Z", "+00:00")) if data.evaluation_confirm_date else None
     capa.closure_date = datetime.fromisoformat(data.closure_date.replace("Z", "+00:00")) if data.closure_date else None
     capa.status = "closed"
-    capa.status_updated_at = datetime.now(timezone.utc)
+    capa.status_updated_at = datetime.now(UTC)
     capa.updated_by = uuid.UUID(user_id) if user_id != "system" else None
     await db.flush()
     return {"success": True}

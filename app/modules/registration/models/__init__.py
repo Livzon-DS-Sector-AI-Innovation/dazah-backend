@@ -1,6 +1,9 @@
 """Registration module models."""
 
-from app.modules.registration.models.authorization import AuthorizationLetter, SupplementaryReply
+from app.modules.registration.models.authorization import (
+    AuthorizationLetter,
+    SupplementaryReply,
+)
 from app.modules.registration.models.certificate import RegistrationCertificate
 from app.modules.registration.models.copp_certificate import CoppCertificate
 from app.modules.registration.models.domestic_approval import DomesticApproval

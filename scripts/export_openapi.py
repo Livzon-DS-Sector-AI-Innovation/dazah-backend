@@ -17,6 +17,7 @@ os.environ.setdefault("FRONTEND_URL", "http://localhost:3000")
 
 from app.main import app
 
+
 def main():
     spec = app.openapi()
     output_path = Path(__file__).parent.parent / "openapi.json"

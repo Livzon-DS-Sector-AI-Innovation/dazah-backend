@@ -4,17 +4,17 @@ Revision ID: d121aec51082
 Revises: 9f02f3bfcdc1
 Create Date: 2026-06-24 16:15:02.828827
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'd121aec51082'
-down_revision: Union[str, None] = '9f02f3bfcdc1'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '9f02f3bfcdc1'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

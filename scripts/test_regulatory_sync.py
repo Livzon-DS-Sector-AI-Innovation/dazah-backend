@@ -12,9 +12,10 @@
 
 import asyncio
 import logging
-import sys
-from app.platform.identity.models import User  # noqa: F401
 import os
+import sys
+
+from app.platform.identity.models import User  # noqa: F401
 
 # 设置环境
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/playwright-browsers"
@@ -23,16 +24,15 @@ os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/playwright-browsers"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select, text
+
 from app.core.database import async_session_factory
+from app.modules.regulatory_tracker import repository as repo
 from app.modules.regulatory_tracker.models import (
-    DataSource,
     DataChannel,
+    DataSource,
     RegulatoryDocument,
     SyncJob,
-    SyncJobPage,
 )
-from app.modules.regulatory_tracker import repository as repo
-from app.modules.regulatory_tracker.crawler.cde_crawler import CdeDomesticGuidelineAdapter
 from app.modules.regulatory_tracker.services.sync_service import run_sync_job
 
 logging.basicConfig(

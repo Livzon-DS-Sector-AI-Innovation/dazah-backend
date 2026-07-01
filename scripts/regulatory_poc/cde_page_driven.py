@@ -5,12 +5,12 @@ CDE 页面驱动采集脚本
 通过点击分页按钮触发翻页
 """
 
-import os
 import json
-import time
+import os
 import threading
+import time
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/playwright-browsers"
 
@@ -148,7 +148,7 @@ def main():
 
                     guide_list_responses.append(capture)
 
-            except Exception as ex:
+            except Exception:
                 pass
 
     page.on("response", on_response)
@@ -257,7 +257,7 @@ def main():
         page.wait_for_timeout(2000)
 
     # Step 7: 翻页测试 - 通过点击分页按钮
-    print(f"\n[7] 翻页测试...")
+    print("\n[7] 翻页测试...")
     page.screenshot(path="/tmp/cde_page_before_pagination.png")
 
     # 查找分页元素
@@ -363,7 +363,7 @@ def main():
         page.screenshot(path=f"/tmp/cde_page_after_page{attempt+2}.png")
 
     # Step 8: 保存结果
-    print(f"\n[8] 保存结果...")
+    print("\n[8] 保存结果...")
 
     # 整理捕获的页面数据
     for cap in guide_list_responses:

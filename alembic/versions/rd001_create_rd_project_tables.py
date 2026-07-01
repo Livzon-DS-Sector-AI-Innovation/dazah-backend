@@ -5,10 +5,10 @@ Revises:
 Create Date: 2026-06-24 12:00:00.000000
 
 """
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = 'rd001'
@@ -20,7 +20,7 @@ depends_on = None
 def upgrade() -> None:
     # 创建 research schema（如果不存在）
     op.execute("CREATE SCHEMA IF NOT EXISTS research")
-    
+
     # 1. rd_projects - 研发项目主表
     op.create_table(
         'rd_projects',
@@ -48,7 +48,7 @@ def upgrade() -> None:
         sa.Column('is_deleted', sa.Boolean(), nullable=False, server_default='false'),
         schema='research'
     )
-    
+
     # 2. rd_milestones - 里程碑/决策记录
     op.create_table(
         'rd_milestones',
@@ -70,7 +70,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['project_id'], ['research.rd_projects.id']),
         schema='research'
     )
-    
+
     # 3. rd_stage_records - 阶段记录
     op.create_table(
         'rd_stage_records',
@@ -99,7 +99,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['project_id'], ['research.rd_projects.id']),
         schema='research'
     )
-    
+
     # 4. rd_research_tracks - 研究项
     op.create_table(
         'rd_research_tracks',
@@ -123,7 +123,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['project_id'], ['research.rd_projects.id']),
         schema='research'
     )
-    
+
     # 5. rd_research_findings - 研究发现
     op.create_table(
         'rd_research_findings',

@@ -118,9 +118,10 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    from urllib.parse import quote_plus, urlparse
+
     from sqlalchemy import create_engine
     from sqlalchemy.pool import NullPool
-    from urllib.parse import urlparse, quote_plus
 
     # Parse URL to separate host and database
     db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "")

@@ -4,17 +4,17 @@ Revision ID: 711c184810ba
 Revises: 2500b821eece
 Create Date: 2026-06-05 15:28:55.815922
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '711c184810ba'
-down_revision: Union[str, None] = '2500b821eece'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '2500b821eece'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

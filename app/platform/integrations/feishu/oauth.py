@@ -40,7 +40,7 @@ class FeishuOAuthClient:
         self.scopes = scopes
 
     @classmethod
-    def from_settings(cls) -> "FeishuOAuthClient":
+    def from_settings(cls) -> FeishuOAuthClient:
         s = get_settings()
         return cls(
             app_id=s.FEISHU_APP_ID,

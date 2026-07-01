@@ -3,52 +3,25 @@
 
 
 import uuid
-
 from datetime import date
 
-
-
 from fastapi import APIRouter, Depends, Query
-
 from fastapi.responses import JSONResponse
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-
 from app.core.database import get_db
-
 from app.core.deps import CurrentUser
-
 from app.core.response import paginated_response, success_response
-
 from app.modules.quality import service
-
 from app.modules.quality.schemas import (
-
-    CpvBatchWideResponse,
-
     CpvParameterCreate,
-
     CpvParameterResponse,
-
     CpvParameterUpdate,
-
     CpvProductCreate,
-
     CpvProductListResponse,
-
     CpvProductResponse,
-
     CpvProductUpdate,
-
-    CpvStatisticsResponse,
-
-    CpvTrendResponse,
-
 )
-
-
 
 router = APIRouter()
 
@@ -101,11 +74,11 @@ async def get_products(
 
     from app.modules.quality import repository as repo
 
-    
+
 
     products, total = await service.get_products(db, keyword, status, page, page_size)
 
-    
+
 
     # 获取每个产品的统计信息
 
@@ -121,7 +94,7 @@ async def get_products(
 
         cqa_batch_count = await repo.count_batches(db, p.id, "CQA")
 
-        
+
 
         result.append(
 
@@ -159,7 +132,7 @@ async def get_products(
 
         )
 
-    
+
 
     return paginated_response(data=result, page=page, page_size=page_size, total=total)
 

@@ -1,8 +1,8 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
    name='edbo',
-   packages=find_packages(), 
+   packages=find_packages(),
    version='0.2.0',
    author='Jose A. Garrido Torres & Abigail Gutmann Doyle',
    author_email='josegarridotorres@me.com',
@@ -36,9 +36,9 @@ setup(
     ],
    classifiers=[
     'Development Status :: 3 - Alpha',
-    'Intended Audience :: Science/Research', 
+    'Intended Audience :: Science/Research',
     'Topic :: Scientific/Engineering :: Chemistry',
-    'License :: OSI Approved :: MIT License', 
+    'License :: OSI Approved :: MIT License',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',

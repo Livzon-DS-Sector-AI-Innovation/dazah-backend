@@ -1,9 +1,8 @@
 """DataSource ORM model."""
 
-import uuid
-from sqlalchemy import String, Boolean
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.shared.base_model import BaseModel
 
 

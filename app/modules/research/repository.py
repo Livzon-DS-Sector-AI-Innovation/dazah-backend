@@ -1,4 +1,4 @@
-from typing import Optional
+
 """Research database queries."""
 
 import uuid
@@ -8,9 +8,9 @@ from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.research.models import (
-    RdStageDeliverable,
     PilotWorkflow,
     PilotWorkflowStep,
+    RdStageDeliverable,
     ResearchProject,
 )
 
@@ -210,7 +210,11 @@ async def get_workflow_step_by_id(
 # ===== RdProject Repository Functions =====
 
 from app.modules.research.models import (
-    RdProject, RdMilestone, RdStageRecord, RdResearchTrack, RdResearchFinding,
+    RdMilestone,
+    RdProject,
+    RdResearchFinding,
+    RdResearchTrack,
+    RdStageRecord,
 )
 
 
@@ -225,7 +229,7 @@ async def get_rd_projects(
 ) -> tuple[list[RdProject], int]:
     """获取 RdProject 列表"""
     query = select(RdProject).where(RdProject.is_deleted == False)
-    
+
     if stage:
         query = query.where(RdProject.current_stage == stage)
     if status:
@@ -240,18 +244,18 @@ async def get_rd_projects(
         )
     if project_type:
         query = query.where(RdProject.project_type == project_type)
-    
+
     # 获取总数
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar() or 0
-    
+
     # 分页
     query = query.order_by(RdProject.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
-    
+
     result = await db.execute(query)
     projects = list(result.scalars().all())
-    
+
     return projects, total
 
 
@@ -514,7 +518,9 @@ async def update_research_finding(
 # ===== RdPilotStudy Repository Functions =====
 
 from app.modules.research.models import (
-    RdPilotStudy, RdProcessValidation, RdRegistrationFiling,
+    RdPilotStudy,
+    RdProcessValidation,
+    RdRegistrationFiling,
 )
 
 
@@ -703,17 +709,17 @@ async def get_rd_stage_deliverable(
 
 async def list_rd_stage_deliverables(
     db: AsyncSession,
-    project_id: Optional[uuid.UUID] = None,
-    stage: Optional[str] = None,
-    deliverable_type: Optional[str] = None,
-    status: Optional[str] = None,
+    project_id: uuid.UUID | None = None,
+    stage: str | None = None,
+    deliverable_type: str | None = None,
+    status: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[RdStageDeliverable], int]:
     """获取阶段交付物列表"""
     query = select(RdStageDeliverable)
     count_query = select(func.count(RdStageDeliverable.id))
-    
+
     if project_id:
         query = query.where(RdStageDeliverable.project_id == project_id)
         count_query = count_query.where(RdStageDeliverable.project_id == project_id)
@@ -726,17 +732,17 @@ async def list_rd_stage_deliverables(
     if status:
         query = query.where(RdStageDeliverable.status == status)
         count_query = count_query.where(RdStageDeliverable.status == status)
-    
+
     # 获取总数
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
-    
+
     # 分页查询
     query = query.order_by(desc(RdStageDeliverable.created_at))
     query = query.offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
     items = list(result.scalars().all())
-    
+
     return items, total
 
 

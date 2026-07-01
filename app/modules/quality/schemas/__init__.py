@@ -1,17 +1,30 @@
 """Quality module schemas."""
 
-from app.modules.quality.schemas.cpv_product import (
-    CpvProductCreate,
-    CpvProductListResponse,
-    CpvProductResponse,
-    CpvProductUpdate,
-    ProductStatus,
+from app.modules.quality.schemas.attachment_review import (
+    AttachmentReviewOut,
+    CreateAttachmentReviewRequest,
 )
-from app.modules.quality.schemas.cpv_parameter import (
-    CpvParameterCreate,
-    CpvParameterResponse,
-    CpvParameterUpdate,
-    ParameterType,
+from app.modules.quality.schemas.capa import (
+    CapaApprovalRequest,
+    CapaAutoFillFromDeviation,
+    CapaDeptHeadConfirmRequest,
+    CapaDetail,
+    CapaEvaluationRequest,
+    CapaItem,
+    CapaListItem,
+    CompletePartRequest,
+    CreateCapaRequest,
+    DeptHeadConfirmation,
+    ExecutionTrack,
+    LinkDeviationRequest,
+    UpdateCapaRequest,
+)
+from app.modules.quality.schemas.contacts import (
+    ConfirmProductionStatusRequest,
+    CreateDepartmentContactRequest,
+    DepartmentContactOut,
+    DepartmentWeeklyConfirmationOut,
+    UpdateDepartmentContactRequest,
 )
 from app.modules.quality.schemas.cpv_batch import (
     CpvBatchResponse,
@@ -26,13 +39,25 @@ from app.modules.quality.schemas.cpv_import import (
     ImportMode,
     ImportStatus,
 )
+from app.modules.quality.schemas.cpv_parameter import (
+    CpvParameterCreate,
+    CpvParameterResponse,
+    CpvParameterUpdate,
+    ParameterType,
+)
+from app.modules.quality.schemas.cpv_product import (
+    CpvProductCreate,
+    CpvProductListResponse,
+    CpvProductResponse,
+    CpvProductUpdate,
+    ProductStatus,
+)
 from app.modules.quality.schemas.cpv_statistics import (
     CpvStatisticsRequest,
     CpvStatisticsResponse,
     CpvTrendItem,
     CpvTrendResponse,
 )
-from app.modules.quality.schemas.shared import PageParams
 from app.modules.quality.schemas.deviations import (
     AiAnalysis,
     BatchUpdateStatusRequest,
@@ -48,32 +73,7 @@ from app.modules.quality.schemas.deviations import (
     SubmitReviewRequest,
     UpdateDeviationRequest,
 )
-from app.modules.quality.schemas.capa import (
-    LinkDeviationRequest,
-    CapaApprovalRequest,
-    CapaAutoFillFromDeviation,
-    CapaDeptHeadConfirmRequest,
-    CapaDetail,
-    CapaEvaluationRequest,
-    CapaItem,
-    CapaListItem,
-    CompletePartRequest,
-    CreateCapaRequest,
-    DeptHeadConfirmation,
-    ExecutionTrack,
-    UpdateCapaRequest,
-)
-from app.modules.quality.schemas.contacts import (
-    ConfirmProductionStatusRequest,
-    CreateDepartmentContactRequest,
-    DepartmentContactOut,
-    DepartmentWeeklyConfirmationOut,
-    UpdateDepartmentContactRequest,
-)
-from app.modules.quality.schemas.attachment_review import (
-    AttachmentReviewOut,
-    CreateAttachmentReviewRequest,
-)
+from app.modules.quality.schemas.shared import PageParams
 from app.modules.quality.schemas.statistics import (
     CapaStatistics,
     DeviationStatistics,

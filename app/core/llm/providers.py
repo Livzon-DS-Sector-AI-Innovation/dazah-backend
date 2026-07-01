@@ -1,8 +1,7 @@
 """Provider registry for LLM services."""
 
-from typing import Literal
 from dataclasses import dataclass
-
+from typing import Literal
 
 ProviderType = Literal["openai", "deepseek", "qwen", "moonshot", "custom"]
 

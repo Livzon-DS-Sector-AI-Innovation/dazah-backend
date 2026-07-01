@@ -12,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import delete_object
 from app.core.storage import is_enabled as minio_enabled
+from app.modules.safety.ai_prompts import (
+    SCRIPT_CONFIG,
+    build_prompt,
+)
 from app.modules.safety.models import (
     Accident,
     Contractor,
@@ -38,10 +42,6 @@ from app.modules.safety.schemas import (
 from app.modules.safety.service._helpers import audit_log
 from app.platform.integrations.ai.client import AIService
 from app.platform.integrations.ai.document_parser import DocumentParser
-from app.modules.safety.ai_prompts import (
-    SCRIPT_CONFIG,
-    build_prompt,
-)
 
 logger = logging.getLogger(__name__)
 

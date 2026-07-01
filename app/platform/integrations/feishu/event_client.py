@@ -105,15 +105,19 @@ async def start_ws() -> None:
                 while not _stop.is_set():
                     try:
                         message = await asyncio.wait_for(ws.recv(), timeout=120)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         continue
 
                     # 处理消息
                     if isinstance(message, bytes):
                         # protobuf 二进制帧 → 用 lark_oapi Frame 解析
                         try:
+                            from lark_oapi.ws.client import (
+                                HEADER_TYPE,
+                                MessageType,
+                                _get_by_key,
+                            )
                             from lark_oapi.ws.pb.pbbp2_pb2 import Frame
-                            from lark_oapi.ws.client import MessageType, HEADER_TYPE, _get_by_key
 
                             frame = Frame()
                             frame.ParseFromString(message)
@@ -156,7 +160,7 @@ async def start_ws() -> None:
 
         try:
             await asyncio.wait_for(_stop.wait(), timeout=10)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
     logger.info("飞书 WebSocket 客户端已停止")

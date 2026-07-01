@@ -6,7 +6,6 @@
 """
 
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +18,10 @@ CATEGORY_FAILED = "failed"            # 分析失败
 
 
 def compute_document_category(
-    ai_analysis_status: Optional[str],
-    impact_level: Optional[str],
-    focus_required: Optional[bool],
-    archive_recommended: Optional[bool],
+    ai_analysis_status: str | None,
+    impact_level: str | None,
+    focus_required: bool | None,
+    archive_recommended: bool | None,
 ) -> str:
     """
     根据 AI 分析结果计算法规分类
@@ -45,19 +44,19 @@ def compute_document_category(
     # AI 分析失败
     if ai_analysis_status == "failed":
         return CATEGORY_FAILED
-    
+
     # AI 未完成
     if ai_analysis_status != "completed":
         return CATEGORY_GENERAL  # 默认分类
-    
+
     # 高影响或需要重点关注
     if impact_level == "high" or focus_required is True:
         return CATEGORY_ATTENTION
-    
+
     # 无影响或建议归档
     if impact_level == "none" or archive_recommended is True:
         return CATEGORY_ARCHIVE
-    
+
     # 中/低影响
     return CATEGORY_GENERAL
 

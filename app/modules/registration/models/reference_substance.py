@@ -1,6 +1,5 @@
 """Reference substance ORM models."""
 
-import uuid
 
 from sqlalchemy import String, Text
 from sqlalchemy.orm import Mapped, mapped_column

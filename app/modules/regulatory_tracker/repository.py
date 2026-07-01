@@ -1,20 +1,19 @@
 """Regulatory Tracker repository layer."""
 
 import uuid
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select, func, and_, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.regulatory_tracker.models import (
-    DataSource,
     DataChannel,
+    DataSource,
     RegulatoryDocument,
     SyncJob,
     SyncJobPage,
 )
-
 
 # ============ DataSource ============
 
@@ -189,8 +188,8 @@ async def update_sync_job_page(
 
 async def get_summary_stats(db: AsyncSession) -> dict[str, Any]:
     """获取统计摘要数据"""
-    from datetime import date, timedelta
-    
+    from datetime import date
+
     # 总文档数
     total_result = await db.execute(
         select(func.count(RegulatoryDocument.id)).where(
@@ -198,7 +197,7 @@ async def get_summary_stats(db: AsyncSession) -> dict[str, Any]:
         )
     )
     total_count = total_result.scalar() or 0
-    
+
     # 今日新增数
     today = date.today()
     today_start = datetime.combine(today, datetime.min.time())
@@ -209,7 +208,7 @@ async def get_summary_stats(db: AsyncSession) -> dict[str, Any]:
         )
     )
     today_new_count = today_new_result.scalar() or 0
-    
+
     # 未读新增数
     unread_result = await db.execute(
         select(func.count(RegulatoryDocument.id)).where(
@@ -218,7 +217,7 @@ async def get_summary_stats(db: AsyncSession) -> dict[str, Any]:
         )
     )
     unread_new_count = unread_result.scalar() or 0
-    
+
     # 最近同步任务
     last_sync_result = await db.execute(
         select(SyncJob)
@@ -227,7 +226,7 @@ async def get_summary_stats(db: AsyncSession) -> dict[str, Any]:
         .limit(1)
     )
     last_sync = last_sync_result.scalar_one_or_none()
-    
+
     return {
         "totalCount": total_count,
         "todayNewCount": today_new_count,
@@ -412,7 +411,7 @@ async def get_sync_jobs_list(
         select(func.count(SyncJob.id))
     )
     total = count_result.scalar() or 0
-    
+
     # 分页查询
     offset = (page - 1) * page_size
     result = await db.execute(
@@ -422,7 +421,7 @@ async def get_sync_jobs_list(
         .limit(page_size)
     )
     jobs = list(result.scalars().all())
-    
+
     return jobs, total
 
 
@@ -516,7 +515,6 @@ async def get_classification_stats(db: AsyncSession) -> dict[str, int]:
 
 async def get_source_status(db: AsyncSession) -> list[dict[str, Any]]:
     """获取各数据源状态（含今日新增数、最近同步时间）"""
-    from datetime import timedelta
 
     today_start = datetime.combine(date.today(), datetime.min.time())
 
@@ -712,8 +710,8 @@ async def get_impact_stats(db: AsyncSession) -> dict[str, int]:
 
 async def get_priority_documents(db: AsyncSession, limit: int = 10) -> list[RegulatoryDocument]:
     """获取重点关注法规（high/medium impact）。"""
-    from sqlalchemy import cast, String
-    
+    from sqlalchemy import String, cast
+
     result = await db.execute(
         select(RegulatoryDocument)
         .where(
@@ -733,7 +731,7 @@ async def get_priority_documents(db: AsyncSession, limit: int = 10) -> list[Regu
 async def get_today_new_stats(db: AsyncSession) -> dict[str, int]:
     """Get today's new document counts by impact level."""
     today_start = datetime.combine(date.today(), datetime.min.time())
-    
+
     # Total today new
     total_result = await db.execute(
         select(func.count(RegulatoryDocument.id)).where(
@@ -742,7 +740,7 @@ async def get_today_new_stats(db: AsyncSession) -> dict[str, int]:
         )
     )
     total = total_result.scalar() or 0
-    
+
     # High impact today (attention category)
     high_result = await db.execute(
         select(func.count(RegulatoryDocument.id)).where(
@@ -752,10 +750,10 @@ async def get_today_new_stats(db: AsyncSession) -> dict[str, int]:
         )
     )
     high = high_result.scalar() or 0
-    
+
     # General today (non-attention)
     general = total - high
-    
+
     return {
         "total": total,
         "high": high,
@@ -800,7 +798,7 @@ async def get_source_status_v2(db: AsyncSession) -> list[dict[str, Any]]:
         ).order_by(DataSource.code)
     )
     sources = sources_result.scalars().all()
-    
+
     status_list = []
     for source in sources:
         # Get latest sync job
@@ -814,14 +812,14 @@ async def get_source_status_v2(db: AsyncSession) -> list[dict[str, Any]]:
             .limit(1)
         )
         last_sync = sync_result.scalar_one_or_none()
-        
+
         status_list.append({
             "code": source.code,
             "name": source.name,
             "lastSyncTime": last_sync.finished_at.isoformat() if last_sync and last_sync.finished_at else None,
             "lastSyncStatus": last_sync.status if last_sync else None,
         })
-    
+
     return status_list
 
 

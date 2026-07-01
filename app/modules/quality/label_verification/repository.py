@@ -1,6 +1,6 @@
 """Quality database queries live here."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from uuid import UUID
 
 from sqlalchemy import asc, desc, func, select

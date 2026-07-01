@@ -3,10 +3,11 @@
 """
 import json
 import time
-import httpx
-from bs4 import BeautifulSoup
 from datetime import datetime
 from urllib.parse import urljoin
+
+import httpx
+from bs4 import BeautifulSoup
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -64,11 +65,11 @@ def test_nmpa():
             date_span = item.select_one("span") or item.select_one(".date")
             pub_date = date_span.get_text(strip=True) if date_span else ""
             samples.append({"title": title, "pub_date": pub_date, "link": link, "type": "法规文件", "source": "NMPA", "effective_date": "", "attachment_link": "", "content_preview": ""})
-        
+
         issues = []
         if len(items) == 0:
             issues.append("未找到列表项，可能需要JS渲染")
-        
+
         results.append(make_result(
             "NMPA", "法规文件", url, status, samples, issues,
             "中" if len(samples) < 3 else "低",
@@ -99,11 +100,11 @@ def test_cde():
             date_span = item.select_one("span") or item.select_one(".date")
             pub_date = date_span.get_text(strip=True) if date_span else ""
             samples.append({"title": title, "pub_date": pub_date, "link": link, "type": "指导原则", "source": "CDE", "effective_date": "", "attachment_link": "", "content_preview": ""})
-        
+
         issues = []
         if len(items) == 0:
             issues.append("未找到列表项，可能需要JS渲染")
-        
+
         results.append(make_result(
             "CDE", "指导原则", url, status, samples, issues,
             "中" if len(samples) < 3 else "低",
@@ -134,11 +135,11 @@ def test_cfdi():
             date_span = item.select_one("span") or item.select_one(".date")
             pub_date = date_span.get_text(strip=True) if date_span else ""
             samples.append({"title": title, "pub_date": pub_date, "link": link, "type": "公告通告", "source": "CFDI", "effective_date": "", "attachment_link": "", "content_preview": ""})
-        
+
         issues = []
         if len(items) == 0:
             issues.append("未找到列表项，可能需要JS渲染")
-        
+
         results.append(make_result(
             "CFDI", "公告通告", url, status, samples, issues,
             "中" if len(samples) < 3 else "低",
@@ -174,11 +175,11 @@ def test_chp():
             date_span = item.select_one("span") or item.select_one(".date")
             pub_date = date_span.get_text(strip=True) if date_span else ""
             samples.append({"title": title, "pub_date": pub_date, "link": link, "type": "公告", "source": "国家药典委", "effective_date": "", "attachment_link": "", "content_preview": ""})
-        
+
         issues = []
         if len(samples) < 3:
             issues.append("页面结构复杂，需进一步适配栏目选择器")
-        
+
         results.append(make_result(
             "国家药典委", "公告", url, status, samples, issues,
             "中" if len(samples) < 3 else "低",
@@ -211,11 +212,11 @@ def test_gdpa():
             date_span = item.select_one("span") or item.select_one(".date")
             pub_date = date_span.get_text(strip=True) if date_span else ""
             samples.append({"title": title, "pub_date": pub_date, "link": link, "type": "法规文件", "source": "广东省药监局", "effective_date": "", "attachment_link": "", "content_preview": ""})
-        
+
         issues = []
         if len(samples) < 3:
             issues.append("页面结构复杂，需进一步适配栏目选择器")
-        
+
         results.append(make_result(
             "广东省药监局", "法规文件", url, status, samples, issues,
             "中" if len(samples) < 3 else "低",
@@ -248,11 +249,11 @@ def test_fda():
             date_span = item.select_one("time") or item.select_one(".date") or item.select_one("span")
             pub_date = date_span.get_text(strip=True) if date_span else ""
             samples.append({"title": title, "pub_date": pub_date, "link": link, "type": "Guidance", "source": "FDA", "effective_date": "", "attachment_link": "", "content_preview": ""})
-        
+
         issues = []
         if len(samples) < 3:
             issues.append("FDA页面结构复杂，可能需要调整选择器或使用RSS")
-        
+
         results.append(make_result(
             "FDA", "Guidance Documents", url, status, samples, issues,
             "低" if len(samples) >= 3 else "中",
@@ -285,11 +286,11 @@ def test_ema():
             date_span = item.select_one("time") or item.select_one(".ecl-date-block") or item.select_one("span")
             pub_date = date_span.get_text(strip=True) if date_span else ""
             samples.append({"title": title, "pub_date": pub_date, "link": link, "type": "Public Consultation", "source": "EMA", "effective_date": "", "attachment_link": "", "content_preview": ""})
-        
+
         issues = []
         if len(samples) < 3:
             issues.append("EMA页面可能需要调整选择器")
-        
+
         results.append(make_result(
             "EMA", "Public Consultations", url, status, samples, issues,
             "低" if len(samples) >= 3 else "中",
@@ -322,11 +323,11 @@ def test_edqm():
             date_span = item.select_one("time") or item.select_one(".date") or item.select_one("span")
             pub_date = date_span.get_text(strip=True) if date_span else ""
             samples.append({"title": title, "pub_date": pub_date, "link": link, "type": "News", "source": "EDQM", "effective_date": "", "attachment_link": "", "content_preview": ""})
-        
+
         issues = []
         if len(samples) < 3:
             issues.append("EDQM页面可能需要调整选择器")
-        
+
         results.append(make_result(
             "EDQM", "News & Events", url, status, samples, issues,
             "低" if len(samples) >= 3 else "中",
@@ -359,11 +360,11 @@ def test_ich():
             date_span = item.select_one("time") or item.select_one(".date") or item.select_one("span")
             pub_date = date_span.get_text(strip=True) if date_span else ""
             samples.append({"title": title, "pub_date": pub_date, "link": link, "type": "Guideline", "source": "ICH", "effective_date": "", "attachment_link": "", "content_preview": ""})
-        
+
         issues = []
         if len(samples) < 3:
             issues.append("ICH页面可能需要调整选择器")
-        
+
         results.append(make_result(
             "ICH", "Guidelines", url, status, samples, issues,
             "低" if len(samples) >= 3 else "中",
@@ -382,12 +383,12 @@ def generate_report():
     report += "## 测试结果汇总\n\n"
     report += "| 来源 | 栏目 | HTTP状态 | 样例数 | 风险等级 | 技术栈 | 主要问题 |\n"
     report += "|------|------|----------|--------|----------|--------|----------|\n"
-    
+
     for r in results:
         issues_str = "; ".join(r["issues"]) if r["issues"] else "无"
         tech_str = ", ".join(r["recommended_tech_stack"])
         report += f"| {r['source']} | {r['column']} | {r['http_status']} | {len(r['samples'])} | {r['risk_level']} | {tech_str} | {issues_str} |\n"
-    
+
     report += "\n## 详细分析\n\n"
     for r in results:
         report += f"### {r['source']} - {r['column']}\n\n"
@@ -402,11 +403,11 @@ def generate_report():
         if r["issues"]:
             report += f"- **问题**: {'; '.join(r['issues'])}\n"
         if r["samples"]:
-            report += f"- **样例**:\n"
+            report += "- **样例**:\n"
             for s in r["samples"]:
                 report += f"  - {s['title']} ({s['pub_date']})\n"
         report += "\n"
-    
+
     report += "## 结论与建议\n\n"
     low = sum(1 for r in results if r["risk_level"] == "低")
     mid = sum(1 for r in results if r["risk_level"] == "中")
@@ -414,14 +415,14 @@ def generate_report():
     report += f"- **低风险（可稳定抓取）**: {low} 个来源\n"
     report += f"- **中风险（需适配）**: {mid} 个来源\n"
     report += f"- **高风险（需人工兜底）**: {high} 个来源\n\n"
-    
+
     if high > 0:
         report += "### 高风险来源建议\n\n"
         for r in results:
             if r["risk_level"] == "高":
                 report += f"- **{r['source']}**: {'; '.join(r['issues'])}\n"
         report += "\n建议使用 Playwright 进行浏览器渲染后抓取。\n"
-    
+
     return report
 
 
@@ -429,7 +430,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print("法规自动监控可行性 POC 测试")
     print("=" * 60)
-    
+
     test_nmpa()
     time.sleep(1)
     test_cde()
@@ -447,21 +448,21 @@ if __name__ == "__main__":
     test_edqm()
     time.sleep(1)
     test_ich()
-    
+
     # 保存 JSON 结果
     with open("scripts/regulatory_poc/feasibility_sample.json", "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
-    
+
     # 生成报告
     report = generate_report()
     with open("scripts/regulatory_poc/feasibility_report.md", "w", encoding="utf-8") as f:
         f.write(report)
-    
+
     print("\n" + "=" * 60)
     print(f"测试完成！共测试 {len(results)} 个来源")
     print(f"  低风险: {sum(1 for r in results if r['risk_level'] == '低')}")
     print(f"  中风险: {sum(1 for r in results if r['risk_level'] == '中')}")
     print(f"  高风险: {sum(1 for r in results if r['risk_level'] == '高')}")
-    print(f"\n输出文件:")
-    print(f"  - scripts/regulatory_poc/feasibility_sample.json")
-    print(f"  - scripts/regulatory_poc/feasibility_report.md")
+    print("\n输出文件:")
+    print("  - scripts/regulatory_poc/feasibility_sample.json")
+    print("  - scripts/regulatory_poc/feasibility_report.md")

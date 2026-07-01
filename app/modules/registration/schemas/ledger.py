@@ -2,27 +2,25 @@
 
 from datetime import date, datetime
 from uuid import UUID
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
-
 
 # ── Domestic Approval ──────────────────────────────────────────────
 
 class DomesticApprovalBase(BaseModel):
     product_name: str
-    certificate_name: Optional[str] = None
-    batch_no: Optional[str] = None
-    issuing_authority: Optional[str] = None
-    issue_date: Optional[date] = None
-    valid_until: Optional[date] = None
-    product_scope: Optional[str] = None
-    quality_standard: Optional[str] = None
-    registration_no: Optional[str] = None
-    is_expired: Optional[str] = None
-    production_workshop: Optional[str] = None
-    product_validity: Optional[str] = None
-    storage_condition: Optional[str] = None
+    certificate_name: str | None = None
+    batch_no: str | None = None
+    issuing_authority: str | None = None
+    issue_date: date | None = None
+    valid_until: date | None = None
+    product_scope: str | None = None
+    quality_standard: str | None = None
+    registration_no: str | None = None
+    is_expired: str | None = None
+    production_workshop: str | None = None
+    product_validity: str | None = None
+    storage_condition: str | None = None
 
 
 class DomesticApprovalCreate(DomesticApprovalBase):
@@ -30,7 +28,7 @@ class DomesticApprovalCreate(DomesticApprovalBase):
 
 
 class DomesticApprovalUpdate(DomesticApprovalBase):
-    product_name: Optional[str] = None
+    product_name: str | None = None
 
 
 class DomesticApprovalResponse(DomesticApprovalBase):
@@ -45,17 +43,17 @@ class DomesticApprovalResponse(DomesticApprovalBase):
 
 class OverseasApprovalBase(BaseModel):
     product_name: str
-    certificate_name: Optional[str] = None
-    batch_no: Optional[str] = None
-    issuing_authority: Optional[str] = None
-    issue_date: Optional[date] = None
-    valid_until: Optional[date] = None
-    product_scope: Optional[str] = None
-    quality_standard: Optional[str] = None
-    is_expired: Optional[str] = None
-    production_workshop: Optional[str] = None
-    product_validity: Optional[str] = None
-    storage_condition: Optional[str] = None
+    certificate_name: str | None = None
+    batch_no: str | None = None
+    issuing_authority: str | None = None
+    issue_date: date | None = None
+    valid_until: date | None = None
+    product_scope: str | None = None
+    quality_standard: str | None = None
+    is_expired: str | None = None
+    production_workshop: str | None = None
+    product_validity: str | None = None
+    storage_condition: str | None = None
 
 
 class OverseasApprovalCreate(OverseasApprovalBase):
@@ -63,7 +61,7 @@ class OverseasApprovalCreate(OverseasApprovalBase):
 
 
 class OverseasApprovalUpdate(OverseasApprovalBase):
-    product_name: Optional[str] = None
+    product_name: str | None = None
 
 
 class OverseasApprovalResponse(OverseasApprovalBase):
@@ -78,14 +76,14 @@ class OverseasApprovalResponse(OverseasApprovalBase):
 
 class InternationalReviewBase(BaseModel):
     product_name: str
-    approved_countries: Optional[str] = None
-    approved_country_count: Optional[int] = None
-    approved_clients: Optional[str] = None
-    approved_client_count: Optional[int] = None
-    reviewing_countries: Optional[str] = None
-    reviewing_country_count: Optional[int] = None
-    reviewing_clients: Optional[str] = None
-    reviewing_client_count: Optional[int] = None
+    approved_countries: str | None = None
+    approved_country_count: int | None = None
+    approved_clients: str | None = None
+    approved_client_count: int | None = None
+    reviewing_countries: str | None = None
+    reviewing_country_count: int | None = None
+    reviewing_clients: str | None = None
+    reviewing_client_count: int | None = None
 
 
 class InternationalReviewCreate(InternationalReviewBase):
@@ -93,7 +91,7 @@ class InternationalReviewCreate(InternationalReviewBase):
 
 
 class InternationalReviewUpdate(InternationalReviewBase):
-    product_name: Optional[str] = None
+    product_name: str | None = None
 
 
 class InternationalReviewResponse(InternationalReviewBase):
@@ -108,14 +106,14 @@ class InternationalReviewResponse(InternationalReviewBase):
 
 class CoppCertificateBase(BaseModel):
     product_name: str
-    certificate_name: Optional[str] = None
-    batch_no: Optional[str] = None
-    issuing_authority: Optional[str] = None
-    issue_date: Optional[date] = None
-    valid_until: Optional[date] = None
-    product_scope: Optional[str] = None
-    applicable_countries: Optional[str] = None
-    is_expired: Optional[str] = None
+    certificate_name: str | None = None
+    batch_no: str | None = None
+    issuing_authority: str | None = None
+    issue_date: date | None = None
+    valid_until: date | None = None
+    product_scope: str | None = None
+    applicable_countries: str | None = None
+    is_expired: str | None = None
 
 
 class CoppCertificateCreate(CoppCertificateBase):
@@ -123,7 +121,7 @@ class CoppCertificateCreate(CoppCertificateBase):
 
 
 class CoppCertificateUpdate(CoppCertificateBase):
-    product_name: Optional[str] = None
+    product_name: str | None = None
 
 
 class CoppCertificateResponse(CoppCertificateBase):
@@ -138,13 +136,13 @@ class CoppCertificateResponse(CoppCertificateBase):
 
 class WcCertificateBase(BaseModel):
     product_name: str
-    certificate_name: Optional[str] = None
-    batch_no: Optional[str] = None
-    issuing_authority: Optional[str] = None
-    issue_date: Optional[date] = None
-    valid_until: Optional[date] = None
-    product_scope: Optional[str] = None
-    is_expired: Optional[str] = None
+    certificate_name: str | None = None
+    batch_no: str | None = None
+    issuing_authority: str | None = None
+    issue_date: date | None = None
+    valid_until: date | None = None
+    product_scope: str | None = None
+    is_expired: str | None = None
 
 
 class WcCertificateCreate(WcCertificateBase):
@@ -152,7 +150,7 @@ class WcCertificateCreate(WcCertificateBase):
 
 
 class WcCertificateUpdate(WcCertificateBase):
-    product_name: Optional[str] = None
+    product_name: str | None = None
 
 
 class WcCertificateResponse(WcCertificateBase):

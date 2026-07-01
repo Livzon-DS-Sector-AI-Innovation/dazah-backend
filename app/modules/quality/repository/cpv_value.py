@@ -43,7 +43,7 @@ async def get_values_by_batch_ids(
     """根据批次ID列表获取参数值"""
     if not batch_ids:
         return []
-    
+
     result = await db.execute(
         select(CpvValue).where(
             CpvValue.batch_id.in_(batch_ids),
@@ -79,10 +79,10 @@ async def update_value(
     value = await get_value(db, batch_id, parameter_id)
     if not value:
         return None
-    
+
     for key, val in data.items():
         setattr(value, key, val)
-    
+
     await db.flush()
     return value
 
@@ -90,7 +90,7 @@ async def update_value(
 async def delete_values_by_batch_id(db: AsyncSession, batch_id: uuid.UUID) -> int:
     """删除批次的所有参数值（软删除）"""
     from sqlalchemy import update
-    
+
     result = await db.execute(
         update(CpvValue)
         .where(

@@ -11,8 +11,8 @@ import logging
 from datetime import date, datetime
 from typing import Any
 
-from app.platform.integrations.feishu.bitable import BitableClient, _to_ms_timestamp
 from app.core.config import get_settings
+from app.platform.integrations.feishu.bitable import BitableClient, _to_ms_timestamp
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()

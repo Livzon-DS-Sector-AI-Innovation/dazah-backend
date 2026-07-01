@@ -4,16 +4,16 @@ Other modules should import from this file instead of directly accessing
 internal service/repository/models.
 """
 
-from app.modules.production.service import ProductionService
+from app.modules.production.models import LabelVerification
 from app.modules.production.repository import ProductionRepository
 from app.modules.production.schemas import (
     BatchCreate,
-    BatchUpdate,
     BatchResponse,
+    BatchUpdate,
     ProductionPlanCreate,
     ProductionPlanResponse,
 )
-from app.modules.production.models import LabelVerification
+from app.modules.production.service import ProductionService
 
 __all__ = [
     "ProductionService",

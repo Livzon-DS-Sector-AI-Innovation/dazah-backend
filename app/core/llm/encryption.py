@@ -1,7 +1,9 @@
 """Fernet encryption for API keys."""
 
 import os
+
 from cryptography.fernet import Fernet, InvalidToken
+
 from .exceptions import LLMConfigError
 
 

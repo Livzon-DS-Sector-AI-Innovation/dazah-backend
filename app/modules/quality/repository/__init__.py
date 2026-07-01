@@ -1,11 +1,18 @@
 """Quality module repository layer: re-export all public functions."""
 
-from app.modules.quality.repository.cpv_product import (
-    create_product,
-    delete_product,
-    get_product_by_id,
-    get_products,
-    update_product,
+from app.modules.quality.repository.cpv_batch import (
+    count_batches,
+    create_batch,
+    delete_batches_by_product,
+    get_batch_by_id,
+    get_batch_by_no,
+    get_batches,
+)
+from app.modules.quality.repository.cpv_import_task import (
+    create_import_task,
+    get_import_task_by_id,
+    get_import_tasks,
+    update_import_task,
 )
 from app.modules.quality.repository.cpv_parameter import (
     count_parameters,
@@ -15,13 +22,12 @@ from app.modules.quality.repository.cpv_parameter import (
     get_parameters,
     update_parameter,
 )
-from app.modules.quality.repository.cpv_batch import (
-    count_batches,
-    create_batch,
-    delete_batches_by_product,
-    get_batch_by_id,
-    get_batch_by_no,
-    get_batches,
+from app.modules.quality.repository.cpv_product import (
+    create_product,
+    delete_product,
+    get_product_by_id,
+    get_products,
+    update_product,
 )
 from app.modules.quality.repository.cpv_value import (
     create_value,
@@ -31,12 +37,6 @@ from app.modules.quality.repository.cpv_value import (
     get_values_by_batch_id,
     get_values_by_batch_ids,
     update_value,
-)
-from app.modules.quality.repository.cpv_import_task import (
-    create_import_task,
-    get_import_task_by_id,
-    get_import_tasks,
-    update_import_task,
 )
 from app.modules.quality.repository.quality_management import (
     create_attachment_review,
@@ -58,8 +58,8 @@ from app.modules.quality.repository.quality_management import (
     get_department_contact_by_department,
     get_department_contact_by_id,
     get_department_contacts,
-    get_deviations,
     get_deviation_by_id,
+    get_deviations,
     get_weekly_confirmation_by_department_week,
     get_weekly_confirmation_by_id,
     get_weekly_confirmations,

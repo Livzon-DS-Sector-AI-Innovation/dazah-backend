@@ -1,10 +1,11 @@
 """通用字段映射模型 + AI 填充相关模型"""
 import uuid
 from datetime import datetime
-from typing import Optional
-from sqlalchemy import String, Text, Integer, Float, DateTime, ForeignKey, Boolean, func
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
 from app.shared.base_model import BaseModel
 
 
@@ -27,11 +28,11 @@ class FieldMapping(BaseModel):
         String(50), nullable=False, default="paragraph",
         comment="模板中的位置类型: paragraph/table/appendix/inline_image"
     )
-    location_hint: Mapped[Optional[str]] = mapped_column(
+    location_hint: Mapped[str | None] = mapped_column(
         Text, nullable=True,
         comment="位置语义提示：描述在模板中的位置，如'包装形式字段在包装材料类型章节的段落中'"
     )
-    extraction_prompt: Mapped[Optional[str]] = mapped_column(
+    extraction_prompt: Mapped[str | None] = mapped_column(
         Text, nullable=True,
         comment="AI 提取提示：告诉 LLM 如何从素材中识别此字段的值"
     )
@@ -39,15 +40,15 @@ class FieldMapping(BaseModel):
         String(50), nullable=False, default="asset_extract",
         comment="值来源类型: asset_extract(AI从素材提取)/asset_image(素材转图片)/fixed(固定值)/manual(手动)"
     )
-    source_category: Mapped[Optional[str]] = mapped_column(
+    source_category: Mapped[str | None] = mapped_column(
         String(200), nullable=True,
         comment="素材分类名：指向 AssetCategory.category_name，限定 AI 只在对应分类的素材中查找"
     )
-    fixed_value: Mapped[Optional[str]] = mapped_column(
+    fixed_value: Mapped[str | None] = mapped_column(
         Text, nullable=True,
         comment="固定值：当 source_type=fixed 时使用"
     )
-    appendix_slot: Mapped[Optional[str]] = mapped_column(
+    appendix_slot: Mapped[str | None] = mapped_column(
         String(100), nullable=True,
         comment="附录编号：当 field_type=image_appendix 时，对应模板中的附录位置"
     )
@@ -86,16 +87,16 @@ class FieldFillResult(BaseModel):
     field_name: Mapped[str] = mapped_column(
         String(200), nullable=False, comment="字段名（冗余存储便于查询）"
     )
-    filled_value: Mapped[Optional[str]] = mapped_column(
+    filled_value: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="填充的值"
     )
-    source_asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    source_asset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("dossier_writer.chapter_assets.id", ondelete="SET NULL"),
         nullable=True,
         comment="值来自哪个素材文件"
     )
-    source_location: Mapped[Optional[str]] = mapped_column(
+    source_location: Mapped[str | None] = mapped_column(
         String(500), nullable=True,
         comment="在素材中的位置，如 paragraph[5] 或 table[0].row[3].cell[2]"
     )
@@ -103,10 +104,10 @@ class FieldFillResult(BaseModel):
         String(50), nullable=False, default="ai",
         comment="填充方式: ai/rule/manual"
     )
-    confidence: Mapped[Optional[float]] = mapped_column(
+    confidence: Mapped[float | None] = mapped_column(
         Float, nullable=True, comment="置信度（AI填充时用，0-1）"
     )
-    ai_reasoning: Mapped[Optional[str]] = mapped_column(
+    ai_reasoning: Mapped[str | None] = mapped_column(
         Text, nullable=True,
         comment="AI 的推理过程，用于用户审核"
     )
@@ -114,7 +115,7 @@ class FieldFillResult(BaseModel):
         String(50), nullable=False, default="pending",
         comment="状态: pending/extracted/filled/reviewed/rejected"
     )
-    reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+    reviewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, comment="审核时间"
     )
 
@@ -135,11 +136,11 @@ class AssetCategory(BaseModel):
         String(50), nullable=False, default="document",
         comment="分类类型: document(文字提取)/image_appendix(图片插入)/both(两者皆可)"
     )
-    appendix_slot: Mapped[Optional[str]] = mapped_column(
+    appendix_slot: Mapped[str | None] = mapped_column(
         String(100), nullable=True,
         comment="对应模板中的附录编号，如 附录1"
     )
-    description: Mapped[Optional[str]] = mapped_column(
+    description: Mapped[str | None] = mapped_column(
         Text, nullable=True,
         comment="分类说明，帮助用户理解这个分类包含什么内容"
     )
@@ -165,17 +166,17 @@ class AssetPageSplit(BaseModel):
     page_type: Mapped[str] = mapped_column(
         String(200), nullable=False, comment="AI 识别的页面类型"
     )
-    content_summary: Mapped[Optional[str]] = mapped_column(
+    content_summary: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="页面内容摘要"
     )
-    ocr_text: Mapped[Optional[str]] = mapped_column(
+    ocr_text: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="OCR 提取的页面文本"
     )
-    appendix_slot: Mapped[Optional[str]] = mapped_column(
+    appendix_slot: Mapped[str | None] = mapped_column(
         String(100), nullable=True,
         comment="用户确认的附录编号"
     )
-    image_path: Mapped[Optional[str]] = mapped_column(
+    image_path: Mapped[str | None] = mapped_column(
         String(500), nullable=True, comment="转换后的图片路径"
     )
     status: Mapped[str] = mapped_column(

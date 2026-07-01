@@ -1,7 +1,7 @@
 """Dashboard summary schemas."""
 
 import uuid
-from datetime import date, datetime
+from datetime import date
 
 from pydantic import BaseModel
 

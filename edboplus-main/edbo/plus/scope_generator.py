@@ -1,8 +1,9 @@
 
 import itertools
-import pandas as pd
 import os
 from pathlib import Path
+
+import pandas as pd
 
 
 def create_reaction_scope(components, directory='./', filename='reaction.csv',

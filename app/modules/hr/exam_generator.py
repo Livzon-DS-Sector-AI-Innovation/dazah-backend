@@ -12,7 +12,6 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 from pydantic import BaseModel
 
-
 # ─── Pydantic schemas (previously in app/platform/ai/schemas.py) ───
 
 

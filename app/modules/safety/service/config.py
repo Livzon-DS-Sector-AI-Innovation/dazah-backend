@@ -1,7 +1,7 @@
 """Safety AI 模型工厂."""
 
 import logging
-import os
+
 from app.shared.config_reader import get_module_setting
 
 logger = logging.getLogger(__name__)

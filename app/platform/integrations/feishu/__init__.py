@@ -52,10 +52,11 @@ __all__ = [
 
 async def _start_platform_ws():
     """Start platform-level Feishu WebSocket client."""
-    from app.platform.integrations.feishu.ws_client import start_ws_client
-    from app.platform.integrations.feishu.event_handler import set_main_loop
     import asyncio
-    
+
+    from app.platform.integrations.feishu.event_handler import set_main_loop
+    from app.platform.integrations.feishu.ws_client import start_ws_client
+
     set_main_loop(asyncio.get_running_loop())
     await start_ws_client()
 

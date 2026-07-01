@@ -9,29 +9,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
-from app.core.response import success_response, error_response
+from app.core.response import error_response, success_response
 from app.modules.regulatory_tracker import repository as repo
-from app.modules.regulatory_tracker.utils.excel_export import generate_regulatory_excel
 from app.modules.regulatory_tracker.schemas import (
-    RegulatoryDocumentRead,
-    SyncJobRead,
-    SyncTriggerRequest,
     BatchReadRequest,
+    SyncTriggerRequest,
 )
 from app.modules.regulatory_tracker.services.classification_service import (
     get_category_display_name,
 )
+from app.modules.regulatory_tracker.utils.excel_export import generate_regulatory_excel
 
 router = APIRouter()
 
 
 def _extract_impact_data(doc) -> dict:
     """从文档中提取影响评估数据。"""
-    from app.modules.regulatory_tracker.services.ai_analysis_service import score_to_impact_level
-    
+    from app.modules.regulatory_tracker.services.ai_analysis_service import (
+        score_to_impact_level,
+    )
+
     key_points = doc.ai_key_points or {}
     score = doc.ai_relevance_score or 0.0
-    
+
     if isinstance(key_points, dict):
         # 优先使用 key_points 中的 impact_level，否则根据 score 计算
         impact_level = key_points.get("impact_level") or score_to_impact_level(score)
@@ -44,7 +44,7 @@ def _extract_impact_data(doc) -> dict:
             "recommended_actions": key_points.get("recommended_actions", []),
             "notification_required": key_points.get("notification_required", False),
         }
-    
+
     # 旧数据格式或无结构化数据
     return {
         "impact_level": score_to_impact_level(score) if score > 0 else "low",
@@ -77,21 +77,21 @@ async def get_dashboard(current_user: CurrentUser, db: AsyncSession = Depends(ge
     week_stats = await repo.get_week_stats(db)
     source_status = await repo.get_source_status_v2(db)
     priority_docs = await repo.get_priority_documents_v2(db, limit=10)
-    
+
     # 二级信息
     trend = await repo.get_7day_trend(db)
     classification = await repo.get_classification_stats(db)
-    
+
     # 格式化今日值得关注法规
     priority_documents = []
     for doc in priority_docs:
         source = await repo.get_data_source_by_id(db, doc.source_id)
         impact_data = _extract_impact_data(doc)
-        
+
         # 从 ai_key_points 提取法规类型
         key_points = doc.ai_key_points or {}
         regulation_type = key_points.get("regulation_type", "") if isinstance(key_points, dict) else ""
-        
+
         priority_documents.append({
             "id": str(doc.id),
             "title": doc.title,
@@ -106,7 +106,7 @@ async def get_dashboard(current_user: CurrentUser, db: AsyncSession = Depends(ge
             "originalUrl": doc.original_url,
             "impactLevel": impact_data["impact_level"],
         })
-    
+
     return {
         "code": 200,
         "message": "success",
@@ -241,7 +241,6 @@ async def get_document_detail(current_user: CurrentUser, doc_id: uuid.UUID, db: 
         return error_response("文档不存在", status_code=404)
 
     # 获取相关法规
-    from app.modules.regulatory_tracker.models.regulatory_document import RegulatoryDocument
     doc = await repo.get_document_by_id(db, doc_id)
     related_docs = []
     if doc:
@@ -257,7 +256,7 @@ async def get_document_detail(current_user: CurrentUser, doc_id: uuid.UUID, db: 
         ]
 
     doc_detail["relatedDocuments"] = related_docs
-    
+
     # 添加系统分类显示名称
     doc_detail["documentCategoryName"] = get_category_display_name(
         doc_detail.get("documentCategory") or "general"

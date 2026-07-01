@@ -1,5 +1,6 @@
+
 import httpx
-import os
+
 from app.core.config import get_settings
 
 EDBO_SERVICE_URL = get_settings().EDBO_SERVICE_URL
@@ -19,7 +20,7 @@ async def run_edbo_optimization(
         files = {
             "file": ("input.csv", csv_content.encode(), "text/csv")
         }
-        
+
         # EDBO service expects form data
         data = {
             "objectives": ",".join(objectives),
@@ -27,14 +28,14 @@ async def run_edbo_optimization(
             "batch_size": str(batch_size),
             "save_prediction": str(save_prediction).lower()
         }
-        
+
         response = await client.post(
             f"{EDBO_SERVICE_URL}/optimize",
             files=files,
             data=data
         )
-        
+
         if response.status_code != 200:
             raise RuntimeError(f"EDBO+ service error: {response.text}")
-        
+
         return response.json()

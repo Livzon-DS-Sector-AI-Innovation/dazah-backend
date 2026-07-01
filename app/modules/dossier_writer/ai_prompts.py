@@ -1,12 +1,12 @@
 """AI 填充服务的 Prompt 模板"""
-from typing import List, Dict, Any
+from typing import Any
 
 
 def build_extract_fields_prompt(
-    fields: List[Dict[str, str]],
-    asset_texts: Dict[str, str],
+    fields: list[dict[str, str]],
+    asset_texts: dict[str, str],
     product_name: str,
-) -> List[Dict[str, str]]:
+) -> list[dict[str, str]]:
     """构建字段提取的 Prompt
 
     Args:
@@ -63,9 +63,9 @@ def build_extract_fields_prompt(
 
 
 def build_split_pages_prompt(
-    page_texts: List[Dict[str, Any]],
-    available_appendix_slots: List[str],
-) -> List[Dict[str, str]]:
+    page_texts: list[dict[str, Any]],
+    available_appendix_slots: list[str],
+) -> list[dict[str, str]]:
     """构建多页文档拆分的 Prompt
 
     Args:
@@ -117,10 +117,10 @@ def build_split_pages_prompt(
 
 
 def build_fill_location_prompt(
-    template_paragraphs: List[Dict[str, Any]],
-    template_tables: List[Dict[str, Any]],
-    extracted_fields: List[Dict[str, Any]],
-) -> List[Dict[str, str]]:
+    template_paragraphs: list[dict[str, Any]],
+    template_tables: list[dict[str, Any]],
+    extracted_fields: list[dict[str, Any]],
+) -> list[dict[str, str]]:
     """构建模板填充定位的 Prompt
 
     告诉 LLM：这是模板文档的结构，这是提取到的字段值，请告诉我每个值应该填到哪个位置。

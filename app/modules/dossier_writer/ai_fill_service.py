@@ -1,26 +1,27 @@
 """AI 填充服务 - 编排素材提取、AI 解析、模板填充的完整流程"""
-import json
+import logging
 import subprocess
 import tempfile
 import uuid
-import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 from docx import Document
+
 _logger = logging.getLogger(__name__)
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .field_models import FieldMapping, FieldFillResult, AssetCategory, AssetPageSplit
-from .models import ChapterAsset, DossierChapter, ProductDossier
-from app.core.llm import llm_client, LLMError
+from app.core.llm import LLMError, llm_client
+
 from .ai_prompts import (
     build_extract_fields_prompt,
-    build_split_pages_prompt,
     build_fill_location_prompt,
+    build_split_pages_prompt,
 )
 from .asset_text_extractor import AssetTextExtractor
+from .field_models import AssetCategory, AssetPageSplit, FieldFillResult, FieldMapping
+from .models import ChapterAsset, DossierChapter, ProductDossier
 
 
 class AIFillService:
@@ -31,7 +32,7 @@ class AIFillService:
         self.llm = llm_client
         self.extractor = AssetTextExtractor()
 
-    async def get_asset_categories(self, chapter_code: str) -> List[Dict]:
+    async def get_asset_categories(self, chapter_code: str) -> list[dict]:
         """获取章节的素材分类列表"""
         stmt = select(AssetCategory).where(
             and_(
@@ -53,7 +54,7 @@ class AIFillService:
             for c in categories
         ]
 
-    async def get_field_mappings(self, chapter_code: str) -> List[FieldMapping]:
+    async def get_field_mappings(self, chapter_code: str) -> list[FieldMapping]:
         """获取章节的字段映射配置"""
         stmt = select(FieldMapping).where(
             and_(
@@ -64,10 +65,10 @@ class AIFillService:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_chapter_assets(self, chapter_id: uuid.UUID) -> List[ChapterAsset]:
+    async def get_chapter_assets(self, chapter_id: uuid.UUID) -> list[ChapterAsset]:
         """获取章节的素材列表（附带分类名称）"""
         from .field_models import AssetCategory
-        
+
         stmt = (
             select(ChapterAsset, AssetCategory.category_name)
             .outerjoin(AssetCategory, ChapterAsset.category_id == AssetCategory.id)
@@ -91,7 +92,7 @@ class AIFillService:
         self,
         dossier: ProductDossier,
         chapter: DossierChapter,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """预览 AI 提取结果（不写入文档，只返回提取值供用户确认）"""
         if False:  # Config check handled by core.llm
             return {"success": False, "message": "LLM 服务未配置"}
@@ -123,7 +124,7 @@ class AIFillService:
             })
 
         # 按 source_category 分组提取
-        category_groups: Dict[str, List[FieldMapping]] = {}
+        category_groups: dict[str, list[FieldMapping]] = {}
         for m in extract_fields:
             cat = m.source_category or "_default"
             category_groups.setdefault(cat, []).append(m)
@@ -150,7 +151,7 @@ class AIFillService:
             # 处理 table 类型字段：直接从素材文档中提取表格数据
             table_fields = [m for m in group_mappings if m.field_type == "table"]
             non_table_fields = [m for m in group_mappings if m.field_type != "table"]
-            
+
             for m in table_fields:
                 table_data = None
                 for asset in category_assets:
@@ -166,7 +167,7 @@ class AIFillService:
                             "source_category": m.source_category,
                         })
                         break
-                
+
                 if not table_data:
                     results.append({
                         "field_name": m.field_name,
@@ -177,7 +178,7 @@ class AIFillService:
                         "field_mapping_id": str(m.id),
                         "source_category": m.source_category,
                     })
-            
+
             if not non_table_fields:
                 continue
 
@@ -273,8 +274,8 @@ class AIFillService:
         self,
         dossier: ProductDossier,
         chapter: DossierChapter,
-        user_confirmed_fields: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        user_confirmed_fields: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """用户确认后，将字段值写入文档"""
         working_path = Path(dossier.working_path) / chapter.working_file
         if not working_path.exists():
@@ -312,7 +313,7 @@ class AIFillService:
             for t in template_tables:
                 _logger.info(f"  T[{t['index']}]: {t['rows']}x{t['cols']} preview={t['preview'][:2]}")
             _logger.info(f"[Fill] Fields to fill: {[f['field_name'] for f in text_fields]}")
-            
+
             messages = build_fill_location_prompt(
                 template_paragraphs=template_paragraphs,
                 template_tables=template_tables,
@@ -425,8 +426,8 @@ class AIFillService:
     async def preview_page_splits(
         self,
         asset: ChapterAsset,
-        available_appendix_slots: List[str],
-    ) -> Dict[str, Any]:
+        available_appendix_slots: list[str],
+    ) -> dict[str, Any]:
         """预览多页 PDF 的拆分结果"""
         if False:  # Config check handled by core.llm
             return {"success": False, "message": "LLM 服务未配置"}
@@ -477,8 +478,8 @@ class AIFillService:
         self,
         dossier: ProductDossier,
         chapter: DossierChapter,
-        splits: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        splits: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """用户确认页拆分后，将各页转为图片插入模板"""
         working_path = Path(dossier.working_path) / chapter.working_file
         if not working_path.exists():
@@ -536,9 +537,9 @@ class AIFillService:
 
     def _filter_assets_by_category(
         self,
-        assets: List[ChapterAsset],
+        assets: list[ChapterAsset],
         category_name: str,
-    ) -> List[ChapterAsset]:
+    ) -> list[ChapterAsset]:
         """按素材分类 ID 精确过滤（基于用户确认的 category_id）"""
         if category_name == "_default":
             return assets
@@ -563,7 +564,7 @@ class AIFillService:
 
         return matched
 
-    def _resolve_docx_path(self, file_path: Path) -> Optional[Path]:
+    def _resolve_docx_path(self, file_path: Path) -> Path | None:
         """将 .doc 文件解析为可用的 .docx 路径（优先使用已转换版本，否则调用 libreoffice）"""
         if file_path.suffix.lower() == ".docx":
             return file_path if file_path.exists() else None
@@ -591,7 +592,7 @@ class AIFillService:
 
         return None
 
-    def _extract_table_from_asset(self, asset: ChapterAsset) -> Optional[List[List[str]]]:
+    def _extract_table_from_asset(self, asset: ChapterAsset) -> list[list[str]] | None:
         """直接从素材文档中提取检验项目表格数据（跳过 AI）"""
         file_path = Path(asset.file_path)
         docx_path = self._resolve_docx_path(file_path)
@@ -600,12 +601,12 @@ class AIFillService:
 
         try:
             doc = Document(str(docx_path))
-            
+
             # Find the table with "检验项目" or "企业内控标准" header
             for table in doc.tables:
                 if len(table.rows) < 3:
                     continue
-                
+
                 # Check all rows for header keywords
                 header_row_idx = None
                 for idx, row in enumerate(table.rows):
@@ -613,10 +614,10 @@ class AIFillService:
                     if "检验项目" in row_text and "企业内控标准" in row_text:
                         header_row_idx = idx
                         break
-                
+
                 if header_row_idx is None:
                     continue
-                
+
                 # Found the table - extract data rows after header
                 data_rows = []
                 for row in table.rows[header_row_idx + 1:]:
@@ -632,14 +633,14 @@ class AIFillService:
                     if deduped[0].startswith("备注"):
                         continue
                     data_rows.append(deduped)
-                
+
                 return data_rows if data_rows else None
         except Exception:
             logger.warning("Data processing failed")
-        
+
         return None
 
-    def _execute_fill(self, doc: Document, instruction: Dict, value: Any) -> bool:
+    def _execute_fill(self, doc: Document, instruction: dict, value: Any) -> bool:
         """执行单个字段的文档填充"""
         action = instruction.get("fill_action")
         target = instruction.get("target", {})
@@ -656,7 +657,7 @@ class AIFillService:
         except Exception:
             return False
 
-    def _fill_paragraph_replace(self, doc: Document, target: Dict, value: str) -> bool:
+    def _fill_paragraph_replace(self, doc: Document, target: dict, value: str) -> bool:
         """替换段落中冒号后的内容"""
         para_idx = target.get("paragraph_index")
         keyword = target.get("keyword", "")
@@ -692,7 +693,7 @@ class AIFillService:
                     return True
         return False
 
-    def _fill_table_cell(self, doc: Document, target: Dict, value: str) -> bool:
+    def _fill_table_cell(self, doc: Document, target: dict, value: str) -> bool:
         """填充表格中关键词对应的单元格"""
         table_idx = target.get("table_index", 0)
         keyword = target.get("keyword", "")
@@ -726,12 +727,13 @@ class AIFillService:
                     return True
         return False
 
-    def _fill_table_rows(self, doc: Document, target: Dict, value: Any) -> bool:
+    def _fill_table_rows(self, doc: Document, target: dict, value: Any) -> bool:
         """替换表格数据行（用于完整表格字段）"""
+        from copy import deepcopy
+
         from docx.oxml import parse_xml
         from docx.oxml.ns import qn
-        from copy import deepcopy
-        
+
         table_idx = target.get("table_index", 1)
         if table_idx >= len(doc.tables):
             return False
@@ -741,39 +743,39 @@ class AIFillService:
 
         table = doc.tables[table_idx]
         header_rows = target.get("header_rows", 2)
-        
+
         if len(table.rows) <= header_rows:
             return False
 
         # Get the table XML element
         tbl_elem = table._tbl
-        
+
         # Find the first data row to use as template (row after header)
         first_data_row = table.rows[header_rows]
         template_row = first_data_row._tr
-        
+
         # Find footer row (last row, if it has merged cells or "备注")
         footer_row = None
         last_row = table.rows[-1]
         last_row_text = last_row.cells[0].text.strip()
-        if "备注" in last_row_text or any(cell._tc.find(qn('w:tcPr')) is not None and 
+        if "备注" in last_row_text or any(cell._tc.find(qn('w:tcPr')) is not None and
                                            cell._tc.find(qn('w:tcPr')).find(qn('w:gridSpan')) is not None
                                            for cell in last_row.cells):
             footer_row = last_row._tr
-        
+
         # Remove all data rows (between header and footer)
         rows_to_remove = table.rows[header_rows:-1] if footer_row is not None else table.rows[header_rows:]
         for row in rows_to_remove:
             tbl_elem.remove(row._tr)
-        
+
         # Add new rows based on extracted data
         for idx, row_data in enumerate(value):
             if not isinstance(row_data, list):
                 continue
-            
+
             # Clone the template row
             new_tr = deepcopy(template_row)
-            
+
             # Remove vMerge from all cells (each row is independent)
             cells = new_tr.findall(qn('w:tc'))
             for j, cell_elem in enumerate(cells):
@@ -782,7 +784,7 @@ class AIFillService:
                     vmerge = tcPr.find(qn('w:vMerge'))
                     if vmerge is not None:
                         tcPr.remove(vmerge)
-            
+
             # Fill in the cell values
             for j, cell_value in enumerate(row_data):
                 if j < len(cells):
@@ -790,20 +792,20 @@ class AIFillService:
                     # Clear existing paragraphs
                     for p in cell_elem.findall(qn('w:p')):
                         cell_elem.remove(p)
-                    
+
                     # Add new paragraph with text
                     new_p = parse_xml(
                         '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
                         f'<w:r><w:t>{cell_value if cell_value else ""}</w:t></w:r></w:p>'
                     )
                     cell_elem.append(new_p)
-            
+
             # Insert before footer or append to end
             if footer_row is not None:
                 footer_row.addprevious(new_tr)
             else:
                 tbl_elem.append(new_tr)
-        
+
         return True
 
     def _fallback_fill(self, doc: Document, field_name: str, value: Any, field_type: str) -> bool:
@@ -845,9 +847,9 @@ class AIFillService:
         self,
         doc: Document,
         field_name: str,
-        field_data: Dict[str, Any],
+        field_data: dict[str, Any],
         chapter: DossierChapter,
-        chapter_assets: List[ChapterAsset],
+        chapter_assets: list[ChapterAsset],
     ) -> bool:
         """自动从素材中提取图片并插入到文档的附录位置
         
@@ -856,17 +858,17 @@ class AIFillService:
         import logging
         _logger = logging.getLogger(__name__)
         from .field_models import FieldMapping
-        
+
         # 1. 通过 field_mapping_id 查找 FieldMapping，获取 source_category
         mapping_id = field_data.get("field_mapping_id")
         source_category = None
-        
+
         if mapping_id:
             mapping = await self.db.get(FieldMapping, uuid.UUID(mapping_id))
             if mapping:
                 source_category = mapping.source_category
                 _logger.info(f"[ImageInsert] {field_name}: field_mapping source_category={source_category}")
-        
+
         # 2. 使用 _filter_assets_by_category 精确匹配素材
         target_asset = None
         if source_category:
@@ -874,7 +876,7 @@ class AIFillService:
             if matched_assets:
                 target_asset = matched_assets[0]
                 _logger.info(f"[ImageInsert] {field_name}: matched asset via source_category: {target_asset.original_filename}")
-        
+
         # 3. 如果 FieldMapping 匹配失败，回退到 AssetCategory.category_type 匹配
         if not target_asset:
             from .field_models import AssetCategory
@@ -887,7 +889,7 @@ class AIFillService:
             )
             cat_result = await self.db.execute(cat_stmt)
             image_categories = list(cat_result.scalars().all())
-            
+
             for cat in image_categories:
                 matched = self._filter_assets_by_category(chapter_assets, cat.category_name)
                 if matched:
@@ -897,7 +899,7 @@ class AIFillService:
                         target_asset = matched[0]
                         _logger.info(f"[ImageInsert] {field_name}: matched via appendix_slot: {target_asset.original_filename}")
                         break
-            
+
             # 如果附录编号不匹配，取第一个图片类素材
             if not target_asset:
                 for cat in image_categories:
@@ -906,38 +908,38 @@ class AIFillService:
                         target_asset = matched[0]
                         _logger.info(f"[ImageInsert] {field_name}: fallback to image category asset: {target_asset.original_filename}")
                         break
-        
+
         if not target_asset:
             _logger.warning(f"[ImageInsert] {field_name}: no matching asset found (source_category={source_category})")
             return False
-        
+
         # 4. 转换素材的第一页为图片
         file_path = Path(target_asset.file_path)
         if not file_path.exists():
             _logger.warning(f"[ImageInsert] {field_name}: file not found {file_path}")
             return False
-        
+
         img_path = self.extractor.pdf_page_to_image(file_path, 1)
         if not img_path:
             _logger.warning(f"[ImageInsert] {field_name}: failed to convert to image (only PDF supported)")
             return False
-        
+
         # 5. 在文档中查找附录位置并插入图片
         appendix_slot = field_data.get("value", "")
         if not appendix_slot or appendix_slot == "待插入":
             appendix_slot = field_name.replace("图片", "")
-        
+
         success = self._insert_image_at_appendix(doc, appendix_slot, img_path)
         if not success:
             success = self._insert_image_at_appendix(doc, field_name, img_path)
-        
+
         _logger.info(f"[ImageInsert] {field_name}: insert result = {success}")
         return success
 
     def _insert_image_at_appendix(self, doc: Document, appendix_slot: str, img_path: Path) -> bool:
         """在模板的附录位置插入图片"""
         from docx.shared import Cm
-        
+
         for i, para in enumerate(doc.paragraphs):
             text = para.text.strip()
             # Skip TOC entries (contain tabs and page numbers)
@@ -946,7 +948,7 @@ class AIFillService:
             # Skip if this is just the appendix slot name without full title
             if text == appendix_slot:
                 continue
-            
+
             # Found the appendix title in content area
             # Find the first empty paragraph after this title
             insert_idx = i + 1
@@ -967,7 +969,7 @@ class AIFillService:
                     next_para._element.addprevious(new_para._element)
                     return True
                 insert_idx += 1
-            
+
             # If no empty paragraph found, append at end
             new_para = doc.add_paragraph()
             run = new_para.add_run()

@@ -4,12 +4,10 @@ CDE 反检测浏览器探测脚本
 使用反自动化指纹措施 + Xvfb 有头模式
 """
 
-import os
-import sys
 import json
+import os
 import time
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
 
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/playwright-browsers"
 
@@ -376,7 +374,7 @@ def main():
 
     if report["api_data"]:
         ad = report["api_data"]
-        print(f"\n  API 数据:")
+        print("\n  API 数据:")
         print(f"    URL: {ad.get('url', 'N/A')[:150]}")
         print(f"    Status: {ad.get('status')}")
         if ad.get("is_json"):
@@ -390,7 +388,7 @@ def main():
 
     if report["pagination_data"]:
         pd = report["pagination_data"]
-        print(f"\n  分页数据:")
+        print("\n  分页数据:")
         print(f"    Page2 current: {pd.get('page2_current')}")
         print(f"    Page2 records: {pd.get('page2_records_len')}")
         if pd.get("page2_first_record"):
@@ -398,7 +396,7 @@ def main():
 
     if report["detail_page_data"]:
         dd = report["detail_page_data"]
-        print(f"\n  详情页:")
+        print("\n  详情页:")
         print(f"    zdyzIdCODE: {dd.get('zdyzIdCODE')}")
         print(f"    URL: {dd.get('detail_url')}")
         print(f"    Status: {dd.get('http_status')}")

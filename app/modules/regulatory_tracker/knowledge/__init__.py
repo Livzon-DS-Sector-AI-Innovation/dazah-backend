@@ -22,14 +22,14 @@ def _load_yaml(filename: str) -> dict:
     """加载 YAML 文件，带缓存。"""
     if filename in _cache:
         return _cache[filename]
-    
+
     filepath = KNOWLEDGE_DIR / filename
     if not filepath.exists():
         logger.warning(f"Knowledge file not found: {filepath}")
         return {}
-    
+
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         _cache[filename] = data
         return data
@@ -70,16 +70,16 @@ def build_prompt_summary() -> str:
     impact_rules = get_impact_rules()
     keyword_rules = get_keyword_rules()
     action_guidance = get_action_guidance()
-    
+
     lines = []
-    
+
     # 高影响法规主题
     lines.append("## 默认高影响法规（直接涉及原料药/API）")
     lines.append("以下法规主题默认 impact_level=high, relevance_level=related：")
     for rule in impact_rules.get("high_impact_rules", []):
         keywords_str = "、".join(rule.get("keywords", [])[:5])
         lines.append(f"- {rule['topic']}（关键词：{keywords_str}）")
-    
+
     # 中影响法规主题
     lines.append("")
     lines.append("## 默认中影响法规（通用要求类）")
@@ -87,7 +87,7 @@ def build_prompt_summary() -> str:
     for rule in impact_rules.get("medium_impact_rules", []):
         keywords_str = "、".join(rule.get("keywords", [])[:5])
         lines.append(f"- {rule['topic']}（关键词：{keywords_str}）")
-    
+
     # 低影响法规及升级条件
     lines.append("")
     lines.append("## 默认低影响法规（可升级）")
@@ -99,7 +99,7 @@ def build_prompt_summary() -> str:
         for upgrade in rule.get("upgrade_conditions", []):
             upgrade_kw = "、".join(upgrade.get("keywords", [])[:3])
             lines.append(f"  升级条件：包含 {upgrade_kw} → 升级为 medium/related")
-    
+
     # 无影响法规及升级条件
     lines.append("")
     lines.append("## 默认无影响法规（可升级）")
@@ -111,7 +111,7 @@ def build_prompt_summary() -> str:
         for upgrade in rule.get("upgrade_conditions", []):
             upgrade_kw = "、".join(upgrade.get("keywords", [])[:3])
             lines.append(f"  升级条件：包含 {upgrade_kw} → 升级为 low/weak_related")
-    
+
     # 建议行动模板
     lines.append("")
     lines.append("## 建议行动措辞要求")
@@ -126,7 +126,7 @@ def build_prompt_summary() -> str:
     forbidden = action_guidance.get("forbidden_expressions", [])
     for expr in forbidden[:5]:
         lines.append(f"- {expr}")
-    
+
     return "\n".join(lines)
 
 

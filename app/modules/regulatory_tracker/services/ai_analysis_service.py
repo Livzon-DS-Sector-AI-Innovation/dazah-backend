@@ -1,23 +1,20 @@
 """AI 分析服务 - 原料药企业法规影响评估 V6。"""
 
 import asyncio
-import json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.llm import llm_client, LLMError
+from app.core.llm import LLMError, llm_client
 from app.modules.regulatory_tracker import repository as repo
-from app.modules.regulatory_tracker.models.regulatory_document import RegulatoryDocument
 from app.modules.regulatory_tracker.knowledge import (
     build_prompt_summary,
-    get_action_guidance,
-    get_impact_rules,
 )
+from app.modules.regulatory_tracker.models.regulatory_document import RegulatoryDocument
 from app.modules.regulatory_tracker.services.classification_service import (
     compute_document_category,
 )
@@ -114,14 +111,14 @@ def _rewrite_action_to_assessment(action: str) -> str:
     """将命令式表达改写为评估型表达。"""
     if not action or not isinstance(action, str):
         return action
-    
+
     # 如果已经是评估型，直接返回
     if _action_is_assessment_style(action):
         return action
-    
+
     # 尝试改写
     rewritten = action
-    
+
     # "立即更新..." → "评估是否需要更新..."
     rewritten = re.sub(r"^立即\s*", "评估是否需要", rewritten)
     # "必须修改..." → "评估是否需要修改..."
@@ -140,11 +137,11 @@ def _rewrite_action_to_assessment(action: str) -> str:
     rewritten = re.sub(r"^确保\s*", "评估如何确保", rewritten)
     # "制定..." → "评估是否需要制定..."
     rewritten = re.sub(r"^制定\s*", "评估是否需要制定", rewritten)
-    
+
     # 如果改写后仍然不是评估型，添加前缀
     if not _action_is_assessment_style(rewritten):
         rewritten = f"评估是否需要：{action}"
-    
+
     return rewritten
 
 
@@ -153,18 +150,18 @@ def build_analysis_prompt(document: RegulatoryDocument) -> list[dict]:
     title = document.title or ""
     classification = document.classification or "未知"
     status_text = document.status_text or "未知"
-    
+
     # 从 raw_data 提取更多信息
     raw_data = document.raw_data or {}
     content_summary = raw_data.get("contentSummary", "") or raw_data.get("summary", "")
     detail_text = raw_data.get("detail_text", "") or ""
-    
+
     # 组合正文内容（限制长度）
     content_text = detail_text[:3000] if detail_text else content_summary[:1500]
-    
+
     # 从知识库获取规则摘要
     rules_summary = build_prompt_summary()
-    
+
     prompt = f"""你是一名服务于原料药生产企业的法规事务、质量保证、GMP 和注册申报专家。请分析以下法规文档，评估其对原料药企业的影响。
 
 ## 文档信息
@@ -326,32 +323,32 @@ def build_analysis_prompt(document: RegulatoryDocument) -> list[dict]:
 
 def validate_impact_result(result: dict) -> dict:
     """验证和规范化影响评估结果，包含规则兜底逻辑。"""
-    
+
     # ===== 基础字段验证 =====
-    
+
     # 验证 impact_level
     valid_levels = {"high", "medium", "low", "none"}
     if result.get("impact_level") not in valid_levels:
         result["impact_level"] = "low"
-    
+
     # 验证 impact_score
     try:
         score = float(result.get("impact_score", 0.5))
         result["impact_score"] = max(0.0, min(1.0, score))
     except (ValueError, TypeError):
         result["impact_score"] = 0.5
-    
+
     # 确保 impact_level 与 impact_score 一致
     expected_level = score_to_impact_level(result["impact_score"])
     if result["impact_level"] != expected_level:
         logger.warning(f"Impact level mismatch: score={result['impact_score']}, level={result['impact_level']}, expected={expected_level}")
         result["impact_level"] = expected_level
-    
+
     # 验证 relevance_level（带 fallback）
     relevance = result.get("relevance_level")
     if relevance not in VALID_RELEVANCE_LEVELS:
         result["relevance_level"] = impact_level_to_relevance(result["impact_level"])
-    
+
     # 验证 lifecycle_impacts
     if not isinstance(result.get("lifecycle_impacts"), list):
         result["lifecycle_impacts"] = []
@@ -365,38 +362,38 @@ def validate_impact_result(result: dict) -> dict:
                 item["affected"] = False
             if "reason" not in item:
                 item["reason"] = ""
-    
+
     # 过滤数组字段
     array_fields = ["departments", "ctd_sections", "recommended_actions", "evidence", "evidence_excerpts"]
     for field in array_fields:
         if not isinstance(result.get(field), list):
             result[field] = []
-    
+
     # 过滤 departments 为有效值
     result["departments"] = [d for d in result["departments"] if d in VALID_DEPARTMENTS]
-    
+
     # 过滤 ctd_sections 为有效值
     result["ctd_sections"] = [c for c in result["ctd_sections"] if c in VALID_CTD_SECTIONS]
-    
+
     # 验证 confidence
     try:
         confidence = float(result.get("confidence", 0.5))
         result["confidence"] = max(0.0, min(1.0, confidence))
     except (ValueError, TypeError):
         result["confidence"] = 0.5
-    
+
     # 确保字符串字段
     for field in ["executive_summary", "regulation_type"]:
         if not isinstance(result.get(field), str):
             result[field] = ""
-    
+
     # 确保 evidence_excerpts 是字符串数组
     result["evidence_excerpts"] = [e for e in result["evidence_excerpts"] if isinstance(e, str)]
-    
+
     # ===== 规则兜底逻辑 =====
-    
+
     impact_level = result["impact_level"]
-    
+
     # --- none / unrelated 法规兜底 ---
     if impact_level == "none":
         result["relevance_level"] = "unrelated"
@@ -415,7 +412,7 @@ def validate_impact_result(result: dict) -> dict:
             result["recommended_actions"] = ["与原料药企业无关，归档留存"]
         else:
             result["recommended_actions"] = result["recommended_actions"][:1]
-    
+
     # --- low / weak_related 法规兜底 ---
     elif impact_level == "low":
         if result["relevance_level"] == "unrelated":
@@ -436,20 +433,20 @@ def validate_impact_result(result: dict) -> dict:
         # 无明确依据时清空 CTD 章节
         if not result.get("evidence") or len(result["evidence"]) < 2:
             result["ctd_sections"] = []
-    
+
     # --- high 法规兜底 ---
     elif impact_level == "high":
         result["relevance_level"] = "related"
         result["focus_required"] = True
         result["archive_recommended"] = False
-    
+
     # --- medium 法规兜底 ---
     elif impact_level == "medium":
         if result["relevance_level"] == "unrelated":
             result["relevance_level"] = "related"
         result["focus_required"] = False
         result["archive_recommended"] = False
-    
+
     # ===== 建议行动措辞校验 =====
     actions = result.get("recommended_actions", [])
     cleaned_actions = []
@@ -459,7 +456,7 @@ def validate_impact_result(result: dict) -> dict:
                 action = _rewrite_action_to_assessment(action)
             cleaned_actions.append(action)
     result["recommended_actions"] = cleaned_actions
-    
+
     # ===== 最终 focus_required / archive_recommended 兜底 =====
     if not isinstance(result.get("focus_required"), bool):
         result["focus_required"] = impact_level_to_focus_required(impact_level)
@@ -467,23 +464,23 @@ def validate_impact_result(result: dict) -> dict:
         result["archive_recommended"] = impact_level_to_archive_recommended(impact_level)
     if not isinstance(result.get("notification_required"), bool):
         result["notification_required"] = impact_level in ("high", "medium")
-    
+
     return result
 
 
 async def analyze_document(document: RegulatoryDocument) -> dict[str, Any]:
     """使用 AI 分析单个文档的原料药企业影响。"""
     messages = build_analysis_prompt(document)
-    
+
     try:
         result = await llm_client.chat_json(
             messages,
             expected_keys=["executive_summary", "impact_score", "impact_level"],
         )
-        
+
         # 验证和规范化结果
         result = validate_impact_result(result)
-        
+
         return {
             "executive_summary": result.get("executive_summary", ""),
             "regulation_type": result.get("regulation_type", ""),
@@ -502,7 +499,7 @@ async def analyze_document(document: RegulatoryDocument) -> dict[str, Any]:
             "evidence_excerpts": result.get("evidence_excerpts", []),
             "status": "completed",
         }
-        
+
     except LLMError as e:
         logger.error(f"AI 分析文档失败 [{document.document_id}]: {e}")
         return {
@@ -546,29 +543,29 @@ async def analyze_and_update(
     """
     doc_id = str(document.id)[:8]
     doc_title = document.title[:50]
-    
+
     start_time = time.time()
-    
+
     # ===== 防重复调用检查 =====
     if not force and document.ai_analysis_status == "completed":
         logger.info(f"[{doc_id}] 法规已分析，跳过: {doc_title}")
         return True
-    
+
     if not force and document.ai_analysis_status == "pending":
         logger.info(f"[{doc_id}] 法规正在分析中，跳过: {doc_title}")
         return True
-    
+
     # ===== 标记为分析中 =====
     logger.info(f"[{doc_id}] AI 分析开始: {doc_title}")
     await repo.update_document(db, document.id, {
         "ai_analysis_status": "pending",
     })
     await db.commit()
-    
+
     # ===== 执行 AI 分析（带重试） =====
     retry_count = 0
     result = None
-    
+
     while retry_count < MAX_RETRY_ATTEMPTS:
         try:
             result = await analyze_document(document)
@@ -584,10 +581,10 @@ async def analyze_and_update(
             if retry_count < MAX_RETRY_ATTEMPTS:
                 logger.warning(f"[{doc_id}] AI 分析异常，重试 {retry_count}/{MAX_RETRY_ATTEMPTS}: {e}")
                 await asyncio.sleep(2 ** retry_count)
-    
+
     # ===== 更新分析结果 =====
     elapsed_time = time.time() - start_time
-    
+
     if result and result["status"] == "completed":
         # 计算系统分类（不由 AI 输出）
         document_category = compute_document_category(
@@ -596,10 +593,10 @@ async def analyze_and_update(
             focus_required=result["focus_required"],
             archive_recommended=result["archive_recommended"],
         )
-        
+
         update_data = {
             "ai_analysis_status": "completed",
-            "ai_analyzed_at": datetime.now(timezone.utc),
+            "ai_analyzed_at": datetime.now(UTC),
             "ai_summary": result["executive_summary"],
             "ai_key_points": {
                 "regulation_type": result["regulation_type"],
@@ -619,10 +616,10 @@ async def analyze_and_update(
             "ai_relevance_score": result["impact_score"],
             "document_category": document_category,  # 系统计算的分类
         }
-        
+
         await repo.update_document(db, document.id, update_data)
         await db.commit()
-        
+
         logger.info(
             f"[{doc_id}] AI 分析完成: {doc_title} | "
             f"等级={result['impact_level']} | 评分={result['impact_score']:.2f} | "
@@ -633,7 +630,7 @@ async def analyze_and_update(
     else:
         # 分析失败
         error_msg = result.get("error", "未知错误") if result else "未知错误"
-        
+
         # 计算失败分类
         document_category = compute_document_category(
             ai_analysis_status="failed",
@@ -641,14 +638,14 @@ async def analyze_and_update(
             focus_required=None,
             archive_recommended=None,
         )
-        
+
         await repo.update_document(db, document.id, {
             "ai_analysis_status": "failed",
-            "ai_analyzed_at": datetime.now(timezone.utc),
+            "ai_analyzed_at": datetime.now(UTC),
             "document_category": document_category,
         })
         await db.commit()
-        
+
         logger.error(
             f"[{doc_id}] AI 分析失败: {doc_title} | "
             f"重试次数={retry_count} | 错误={error_msg} | "
@@ -663,31 +660,31 @@ async def analyze_new_documents(
     limit: int = 10,
 ) -> dict[str, int]:
     """批量分析新文档。"""
-    from sqlalchemy import select, and_
-    
+    from sqlalchemy import and_, select
+
     stmt = select(RegulatoryDocument).where(
         and_(
             RegulatoryDocument.is_deleted == False,
             RegulatoryDocument.ai_analysis_status == None,
         )
     )
-    
+
     if channel_id:
         stmt = stmt.where(RegulatoryDocument.channel_id == channel_id)
-    
+
     stmt = stmt.order_by(RegulatoryDocument.first_found_at.desc()).limit(limit)
-    
+
     result = await db.execute(stmt)
     documents = result.scalars().all()
-    
+
     stats = {"analyzed": 0, "failed": 0, "skipped": 0}
-    
+
     for doc in documents:
         success = await analyze_and_update(db, doc)
         if success:
             stats["analyzed"] += 1
         else:
             stats["failed"] += 1
-    
+
     logger.info(f"批量分析完成: {stats}")
     return stats

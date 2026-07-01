@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -11,10 +10,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.llm import llm_client
 from app.modules.registration.models.validation_audit import (
     ValidationAuditFile,
     ValidationAuditIssue,
-    ValidationAuditKnowledgeBase,
     ValidationAuditReport,
     ValidationAuditTask,
 )
@@ -44,7 +43,6 @@ from app.modules.registration.schemas.validation_audit import (
     ValidationAuditTaskCreate,
     ValidationAuditTaskUpdate,
 )
-from app.core.llm import llm_client
 from app.platform.integrations.ai.document_parser import DocumentParser
 
 logger = logging.getLogger(__name__)
@@ -148,7 +146,7 @@ class ValidationAuditService:
         """解析任务下所有待解析文件"""
         files = await self.file_repo.list_by_task_id(task.id)
         pending_files = [f for f in files if f.parse_status in ("pending", "failed")]
-        
+
         if not pending_files:
             return
 

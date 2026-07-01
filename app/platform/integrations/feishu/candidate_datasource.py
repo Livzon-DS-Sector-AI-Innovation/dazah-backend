@@ -8,12 +8,10 @@ Adapts Feishu Bitable API for the candidate table:
 """
 
 import logging
-from datetime import date
 from typing import Any
 
-from app.platform.integrations.feishu.bitable import BitableClient
-from app.platform.integrations.feishu.datasource import BitableDataSource
 from app.core.config import get_settings
+from app.platform.integrations.feishu.datasource import BitableDataSource
 
 logger = logging.getLogger(__name__)
 _settings = get_settings()

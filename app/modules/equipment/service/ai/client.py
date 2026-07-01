@@ -1,9 +1,8 @@
 """千文 (Qwen) API 客户端 — OpenAI 兼容接口。"""
 
-import os
-from app.shared.config_reader import get_module_setting
-
 import httpx
+
+from app.shared.config_reader import get_module_setting
 
 
 class QwenClient:

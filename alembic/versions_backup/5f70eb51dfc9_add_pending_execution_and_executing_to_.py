@@ -4,17 +4,15 @@ Revision ID: 5f70eb51dfc9
 Revises: f068904911a9
 Create Date: 2026-06-05 16:10:03.279684
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
-import sqlalchemy as sa
-
 
 # revision identifiers, used by Alembic.
 revision: str = '5f70eb51dfc9'
-down_revision: Union[str, None] = 'f068904911a9'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'f068904911a9'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

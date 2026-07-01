@@ -4,87 +4,41 @@
 
 import uuid
 
-from datetime import datetime
-
-from typing import Any
-
-
-
 from fastapi import APIRouter, Depends, Query
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-
 from app.core.database import get_db
-
 from app.core.deps import CurrentUser, get_current_user
-
 from app.core.response import ApiResponse
-
 from app.modules.production.schemas import (
-
     BatchCreate,
-
     BatchMaterialCreate,
-
     BatchMaterialResponse,
-
     BatchMaterialUpdate,
-
     BatchResponse,
-
     BatchStatusUpdate,
-
     BatchUpdate,
-
-    MaterialBalanceCalculate,
-
     MaterialBalanceResponse,
-
     MaterialBalanceUpdate,
-
-    OperationType,
-
     PlanTaskCreate,
-
     PlanTaskResponse,
-
     PlanTaskUpdate,
-
     ProcessParameterCreate,
-
     ProcessParameterResponse,
-
     ProcessSpecCreate,
-
     ProcessSpecResponse,
-
     ProcessSpecUpdate,
-
     ProcessStepCreate,
-
     ProcessStepResponse,
-
     ProcessStepUpdate,
-
     ProductionPlanCreate,
-
     ProductionPlanResponse,
-
     ProductionPlanUpdate,
-
     ProductionRecordCreate,
-
     ProductionRecordResponse,
-
     ProductionRecordUpdate,
-
 )
-
 from app.modules.production.service import ProductionService
-
-
 
 router = APIRouter()
 
@@ -1287,7 +1241,5 @@ async def update_material_balance(
 # ============ 压差统计路由 ============
 
 from app.modules.production.pressure import router as pressure_router
-
-
 
 router.include_router(pressure_router, tags=["压差统计"])

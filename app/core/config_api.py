@@ -1,18 +1,15 @@
 """Module settings API — CRUD for runtime configuration."""
 
-import uuid
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
-from app.platform.identity.deps import get_current_user
 from app.core.config_model import ModuleSetting
+from app.core.database import get_db
 from app.core.response import ApiResponse
-
+from app.platform.identity.deps import get_current_user
 
 router = APIRouter(prefix="/module-settings", tags=["Module Settings"])
 
@@ -27,7 +24,7 @@ class ModuleSettingResponse(BaseModel):
     key: str
     value: str
     value_type: str
-    description: Optional[str] = None
+    description: str | None = None
     created_at: str
     updated_at: str
 
@@ -43,7 +40,7 @@ class ModuleSettingCreate(BaseModel):
     key: str = Field(..., max_length=100, description="Setting key")
     value: str = Field(..., description="Setting value")
     value_type: str = Field(default="string", pattern="^(string|int|bool|json)$")
-    description: Optional[str] = None
+    description: str | None = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────
@@ -51,21 +48,21 @@ class ModuleSettingCreate(BaseModel):
 
 @router.get("", response_model=ApiResponse)
 async def list_settings(
-    module: Optional[str] = Query(None, description="Filter by module name"),
+    module: str | None = Query(None, description="Filter by module name"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """List all module settings, optionally filtered by module."""
     query = select(ModuleSetting).where(ModuleSetting.is_deleted == False)
-    
+
     if module:
         query = query.where(ModuleSetting.module == module)
-    
+
     query = query.order_by(ModuleSetting.module, ModuleSetting.key)
-    
+
     result = await db.execute(query)
     settings = result.scalars().all()
-    
+
     return ApiResponse(data=[
         ModuleSettingResponse(
             id=str(s.id),
@@ -97,10 +94,10 @@ async def get_setting(
         )
     )
     setting = result.scalar_one_or_none()
-    
+
     if not setting:
         return ApiResponse(code=404, message="Setting not found")
-    
+
     return ApiResponse(data=ModuleSettingResponse(
         id=str(setting.id),
         module=setting.module,
@@ -130,16 +127,16 @@ async def update_setting(
         )
     )
     setting = result.scalar_one_or_none()
-    
+
     if not setting:
         return ApiResponse(code=404, message="Setting not found")
-    
+
     setting.value = data.value
     setting.updated_by = current_user.id if current_user else None
-    
+
     await db.commit()
     await db.refresh(setting)
-    
+
     return ApiResponse(data=ModuleSettingResponse(
         id=str(setting.id),
         module=setting.module,
@@ -170,7 +167,7 @@ async def create_setting(
     existing = result.scalar_one_or_none()
     if existing:
         return ApiResponse(code=409, message="Setting already exists")
-    
+
     setting = ModuleSetting(
         module=data.module,
         key=data.key,
@@ -180,11 +177,11 @@ async def create_setting(
         created_by=current_user.id if current_user else None,
         updated_by=current_user.id if current_user else None,
     )
-    
+
     db.add(setting)
     await db.commit()
     await db.refresh(setting)
-    
+
     return ApiResponse(data=ModuleSettingResponse(
         id=str(setting.id),
         module=setting.module,
@@ -213,12 +210,12 @@ async def delete_setting(
         )
     )
     setting = result.scalar_one_or_none()
-    
+
     if not setting:
         return ApiResponse(code=404, message="Setting not found")
-    
+
     setting.is_deleted = True
     setting.updated_by = current_user.id if current_user else None
-    
+
     await db.commit()
     return ApiResponse(message="Setting deleted")

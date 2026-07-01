@@ -196,7 +196,7 @@ async def import_equipment():
                 print(f"[!] 导入失败 {eq_no} {name}: {e}")
 
     print()
-    print(f"=== 导入完成 ===")
+    print("=== 导入完成 ===")
     print(f"总行数: {len(rows)}")
     print(f"导入: {imported}")
     print(f"跳过（已存在）: {skipped}")

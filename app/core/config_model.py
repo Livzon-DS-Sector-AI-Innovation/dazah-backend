@@ -18,33 +18,33 @@ class ModuleSetting(BaseModel):
         sa.UniqueConstraint("module", "key", name="uq_module_setting"),
         {"schema": "core", "comment": "Module runtime configuration settings"},
     )
-    
+
     module: Mapped[str] = mapped_column(
-        String(50), 
-        nullable=False, 
+        String(50),
+        nullable=False,
         index=True,
         comment="Module name (safety, equipment, energy, hr, regulatory_tracker)",
     )
     key: Mapped[str] = mapped_column(
-        String(100), 
-        nullable=False, 
+        String(100),
+        nullable=False,
         index=True,
         comment="Setting key (e.g., SAFETY_AI_TEXT_MODEL)",
     )
     value: Mapped[str] = mapped_column(
-        Text, 
-        nullable=False, 
+        Text,
+        nullable=False,
         comment="Setting value (stored as string, parsed based on value_type)",
     )
     value_type: Mapped[str] = mapped_column(
-        String(20), 
-        default="string", 
+        String(20),
+        default="string",
         server_default="string",
         nullable=False,
         comment="Type hint: string, int, bool, json",
     )
     description: Mapped[str | None] = mapped_column(
-        Text, 
-        nullable=True, 
+        Text,
+        nullable=True,
         comment="Human-readable description for UI display",
     )

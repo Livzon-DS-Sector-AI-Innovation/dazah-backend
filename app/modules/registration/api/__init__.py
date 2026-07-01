@@ -1,16 +1,26 @@
 """Registration API routes."""
 
-from app.modules.registration.api.authorization_letters import router as auth_letters_router
+from app.modules.registration.api.authorization_letters import (
+    router as auth_letters_router,
+)
 from app.modules.registration.api.certificates import router as certificates_router
 from app.modules.registration.api.dashboard import router as dashboard_router
 from app.modules.registration.api.drugs import router as drugs_router
 from app.modules.registration.api.holidays import router as holidays_router
 from app.modules.registration.api.ledger import router as ledger_router
 from app.modules.registration.api.projects import router as projects_router
-from app.modules.registration.api.reference_standards import router as ref_standards_router
-from app.modules.registration.api.reference_substances import router as ref_substances_router
-from app.modules.registration.api.supplementary_replies import router as supp_replies_router
-from app.modules.registration.api.validation_audit import router as validation_audit_router
+from app.modules.registration.api.reference_standards import (
+    router as ref_standards_router,
+)
+from app.modules.registration.api.reference_substances import (
+    router as ref_substances_router,
+)
+from app.modules.registration.api.supplementary_replies import (
+    router as supp_replies_router,
+)
+from app.modules.registration.api.validation_audit import (
+    router as validation_audit_router,
+)
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
 

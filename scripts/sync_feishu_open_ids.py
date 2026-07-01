@@ -1,20 +1,21 @@
 """Batch sync Feishu open_id for all employees with mobile numbers."""
 
 import asyncio
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from dotenv import load_dotenv
+
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import select, update, text
 
-from app.platform.integrations.feishu.im import FeishuIM
 from app.core.config import get_settings
+from app.platform.integrations.feishu.im import FeishuIM
 
 
 async def main():
@@ -75,7 +76,7 @@ async def main():
             # 每批提交一次
             await session.commit()
 
-        print(f"\n=== Done ===")
+        print("\n=== Done ===")
         print(f"Success: {updated}")
         print(f"Failed: {failed}")
 

@@ -2,71 +2,39 @@
 
 
 
-import uuid
 
 from datetime import date, datetime
-
 from uuid import UUID
 
-
-
 from fastapi import Depends, Query
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-
 from app.core.database import get_db
-
 from app.core.deps import CurrentUser
-
 from app.core.response import paginated_response, success_response
-
-from .schemas import (
-
-    AuditRequest,
-
-    BatchAuditRequest,
-
-    BatchCreateDataMasterRequest,
-
-    BatchDeleteMergedRowsRequest,
-
-    BatchManualEntryRequest,
-
-    CreateManualRecordRequest,
-
-    CreateOcrRecordRequest,
-
-    CreateOcrTaskRequest,
-
-    DataMasterCreate,
-
-    DataMasterUpdate,
-
-    DeleteMergedRowRequest,
-
-    DeleteRecordsRequest,
-
-    PointMappingCreate,
-
-    PointMappingUpdate,
-
-    SubmitOcrTaskResultRequest,
-
-    UpdateMergedRowRequest,
-
-)
-
-from .service import PressureService
-
 from app.shared.module_api import create_module_router
-
 from app.shared.module_registry import MODULES_BY_CODE
-
 from app.shared.schemas import PageParams
 
-
+from .schemas import (
+    AuditRequest,
+    BatchAuditRequest,
+    BatchCreateDataMasterRequest,
+    BatchDeleteMergedRowsRequest,
+    BatchManualEntryRequest,
+    CreateManualRecordRequest,
+    CreateOcrRecordRequest,
+    CreateOcrTaskRequest,
+    DataMasterCreate,
+    DataMasterUpdate,
+    DeleteMergedRowRequest,
+    DeleteRecordsRequest,
+    PointMappingCreate,
+    PointMappingUpdate,
+    SubmitOcrTaskResultRequest,
+    UpdateMergedRowRequest,
+)
+from .service import PressureService
 
 router = create_module_router(MODULES_BY_CODE["production"])
 

@@ -1,7 +1,6 @@
 """Pressure differential inspection ORM models."""
 
 from datetime import date, datetime
-from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
@@ -14,7 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel

@@ -1,7 +1,6 @@
 """工作流编排引擎 — 逐步执行，人工确认"""
 
 import logging
-from app.core.tasks import spawn_task
 import uuid
 from datetime import UTC, datetime
 
@@ -9,6 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
+from app.core.tasks import spawn_task
 from app.modules.research.models import PilotWorkflow, PilotWorkflowStep
 from app.modules.research.pilot_workflow.step1_param_extraction import (
     execute_param_extraction,
@@ -139,8 +139,7 @@ async def start_workflow(workflow_id: uuid.UUID) -> None:
 
 async def approve_step(workflow_id: uuid.UUID) -> dict:
     """确认当前步骤，异步执行下一步。返回执行结果信息。"""
-    import asyncio
-    
+
     async with async_session_factory() as session:
         # 获取工作流
         result = await session.execute(
@@ -199,16 +198,16 @@ async def approve_step(workflow_id: uuid.UUID) -> dict:
                 step_key = s.step_code
                 accumulated_results[step_key] = s.output_data
         next_step.input_data = accumulated_results
-        
+
         # 标记下一步为运行中
         next_step.status = "running"
         next_step.started_at = datetime.now(UTC)
-        
+
         await session.commit()
-        
+
         # 在后台异步执行下一步
         spawn_task(_execute_next_step_async(workflow_id, next_idx), name="research.workflow_step")
-        
+
         return {
             "status": "running",
             "step_order": next_step.step_order,
@@ -225,7 +224,7 @@ async def _execute_next_step_async(workflow_id: uuid.UUID, step_idx: int) -> Non
             select(PilotWorkflow).where(PilotWorkflow.id == workflow_id)
         )
         workflow = result.scalar_one()
-        
+
         # 获取步骤
         result = await session.execute(
             select(PilotWorkflowStep)
@@ -235,7 +234,7 @@ async def _execute_next_step_async(workflow_id: uuid.UUID, step_idx: int) -> Non
         steps = list(result.scalars().all())
         step = steps[step_idx]
         step_defn = STEP_DEFINITIONS[step_idx]
-        
+
         try:
             await _execute_step(session, step, step_defn, workflow)
             await session.commit()

@@ -7,8 +7,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import get_settings
-from app.shared.config_reader import get_module_setting_bool
 from app.core.database import async_session_factory
+from app.shared.config_reader import get_module_setting_bool
 
 logger = logging.getLogger(__name__)
 

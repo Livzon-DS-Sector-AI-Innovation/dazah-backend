@@ -1,11 +1,9 @@
 """Tests for regulatory_tracker SchedulerEngine integration."""
 from __future__ import annotations
 
-import pytest
-
 from app.modules.regulatory_tracker.tasks.sync_tasks import (
-    daily_sync_task,
     daily_ai_analysis_task,
+    daily_sync_task,
 )
 from app.platform.scheduler import ScheduleStrategy
 

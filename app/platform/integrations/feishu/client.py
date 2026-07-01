@@ -73,7 +73,7 @@ class FeishuClient(IntegrationClient):
         )
         try:
             resp.raise_for_status()
-        except Exception as exc:
+        except Exception:
             error_body = ""
             try:
                 error_body = resp.text

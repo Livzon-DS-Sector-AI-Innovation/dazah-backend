@@ -1,11 +1,11 @@
 """Dossier Writer database queries."""
-from typing import Optional, List
 from uuid import UUID
-from sqlalchemy import select, func, and_
+
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import ProductDossier, DossierTemplate, DossierChapter, ChapterAsset
+from .models import ChapterAsset, DossierChapter, DossierTemplate, ProductDossier
 
 
 class DossierRepository:
@@ -18,7 +18,7 @@ class DossierRepository:
 
     async def check_duplicate(
         self, product_name: str, manufacturer: str, sterile_type: str
-    ) -> Optional[ProductDossier]:
+    ) -> ProductDossier | None:
         """检查是否存在相同的品种资料"""
         stmt = (
             select(ProductDossier)
@@ -40,7 +40,7 @@ class DossierRepository:
         await self.db.flush()
         return dossier
 
-    async def get_product_dossier(self, dossier_id: UUID) -> Optional[ProductDossier]:
+    async def get_product_dossier(self, dossier_id: UUID) -> ProductDossier | None:
         """获取品种资料详情"""
         stmt = (
             select(ProductDossier)
@@ -52,7 +52,7 @@ class DossierRepository:
 
     async def list_product_dossiers(
         self, skip: int = 0, limit: int = 100
-    ) -> tuple[List[ProductDossier], int]:
+    ) -> tuple[list[ProductDossier], int]:
         """获取品种资料列表"""
         # 查询总数
         count_stmt = select(func.count()).select_from(ProductDossier).where(
@@ -76,7 +76,7 @@ class DossierRepository:
 
     async def update_product_dossier(
         self, dossier_id: UUID, **kwargs
-    ) -> Optional[ProductDossier]:
+    ) -> ProductDossier | None:
         """更新品种资料"""
         dossier = await self.get_product_dossier(dossier_id)
         if not dossier:
@@ -104,7 +104,7 @@ class DossierRepository:
         await self.db.flush()
         return template
 
-    async def get_template_by_filename(self, dossier_id: UUID, filename: str) -> Optional[DossierTemplate]:
+    async def get_template_by_filename(self, dossier_id: UUID, filename: str) -> DossierTemplate | None:
         """根据文件名查找模板（用于覆盖更新），返回最新的一条"""
         stmt = (
             select(DossierTemplate)
@@ -120,7 +120,7 @@ class DossierRepository:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_templates(self, dossier_id: UUID) -> List[DossierTemplate]:
+    async def list_templates(self, dossier_id: UUID) -> list[DossierTemplate]:
         """获取模板列表"""
         stmt = (
             select(DossierTemplate)
@@ -138,7 +138,7 @@ class DossierRepository:
         await self.db.flush()
         return chapter
 
-    async def bulk_create_chapters(self, chapters: List[DossierChapter]) -> None:
+    async def bulk_create_chapters(self, chapters: list[DossierChapter]) -> None:
         """批量创建章节"""
         self.db.add_all(chapters)
         await self.db.flush()
@@ -156,7 +156,7 @@ class DossierRepository:
         await self.db.flush()
         return count
 
-    async def get_chapter_tree(self, dossier_id: UUID) -> List[DossierChapter]:
+    async def get_chapter_tree(self, dossier_id: UUID) -> list[DossierChapter]:
         """获取章节树（扁平列表，前端组装树）"""
         stmt = (
             select(DossierChapter)
@@ -167,7 +167,7 @@ class DossierRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_chapter(self, chapter_id: UUID) -> Optional[DossierChapter]:
+    async def get_chapter(self, chapter_id: UUID) -> DossierChapter | None:
         """获取章节详情"""
         stmt = (
             select(DossierChapter)
@@ -177,7 +177,7 @@ class DossierRepository:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def update_chapter(self, chapter_id: UUID, **kwargs) -> Optional[DossierChapter]:
+    async def update_chapter(self, chapter_id: UUID, **kwargs) -> DossierChapter | None:
         """更新章节"""
         chapter = await self.get_chapter(chapter_id)
         if not chapter:
@@ -206,7 +206,7 @@ class DossierRepository:
         await self.db.flush()
         return asset
 
-    async def list_assets(self, chapter_id: UUID) -> List[ChapterAsset]:
+    async def list_assets(self, chapter_id: UUID) -> list[ChapterAsset]:
         """获取章节素材列表"""
         stmt = (
             select(ChapterAsset)
@@ -216,7 +216,7 @@ class DossierRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_asset(self, asset_id: UUID) -> Optional[ChapterAsset]:
+    async def get_asset(self, asset_id: UUID) -> ChapterAsset | None:
         """获取素材详情"""
         stmt = select(ChapterAsset).where(ChapterAsset.id == asset_id)
         result = await self.db.execute(stmt)

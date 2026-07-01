@@ -3,7 +3,7 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, String, Text, Uuid
+from sqlalchemy import CheckConstraint, Date, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel

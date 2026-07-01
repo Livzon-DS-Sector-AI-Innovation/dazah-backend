@@ -1,12 +1,12 @@
 """Registration ledger API endpoints."""
 
-from fastapi import APIRouter, Depends, UploadFile, File
-from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.response import success_response, error_response
+from app.core.response import error_response, success_response
 from app.modules.registration.schemas.ledger import (
     CoppCertificateCreate,
     CoppCertificateResponse,
@@ -55,10 +55,10 @@ async def import_domestic_approvals(
         content = await file.read()
         file_size = len(content)
         filename = file.filename or "unknown.xlsx"
-        
+
         # 解析 Excel
         parse_result = ledger_service.import_domestic_approvals_from_excel(content)
-        
+
         # 记录日志
         import logging
         logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ async def import_domestic_approvals(
         logger.info(f"📊 Parse result: total={parse_result['total_rows']}, success={parse_result['success_count']}, skipped={parse_result['skipped_count']}, errors={parse_result['error_count']}")
         if parse_result['errors']:
             logger.info(f"⚠️ Parse errors: {parse_result['errors'][:5]}")
-        
+
         # 如果解析失败，直接返回
         if parse_result['success_count'] == 0:
             error_msg = parse_result['errors'][0] if parse_result['errors'] else "未解析到有效数据"
@@ -79,7 +79,7 @@ async def import_domestic_approvals(
                 "error_count": parse_result['error_count'],
                 "errors": parse_result['errors']
             })
-        
+
         # 写入数据库
         created = []
         db_errors = []
@@ -87,18 +87,18 @@ async def import_domestic_approvals(
             try:
                 obj = await ledger_service.create_domestic_approval(db, item)
                 created.append(obj)
-            except IntegrityError as e:
+            except IntegrityError:
                 await db.rollback()
                 db_errors.append(f"第{i}行: 数据冲突或格式错误")
-            except SQLAlchemyError as e:
+            except SQLAlchemyError:
                 await db.rollback()
                 db_errors.append(f"第{i}行: 数据库错误")
-        
+
         all_errors = parse_result['errors'] + db_errors
         message = f"成功导入 {len(created)} 条记录"
         if db_errors:
             message += f"，{len(db_errors)} 条数据库写入失败"
-        
+
         return success_response(data={
             "count": len(created),
             "message": message,
@@ -121,7 +121,7 @@ async def export_domestic_approvals(
 ):
     items = await ledger_service.list_domestic_approvals(db)
     excel_bytes = ledger_service.export_domestic_approvals_to_excel(items)
-    
+
     return StreamingResponse(
         iter([excel_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -159,18 +159,18 @@ async def import_overseas_approvals(
         content = await file.read()
         file_size = len(content)
         filename = file.filename or "unknown.xlsx"
-        
+
         # 记录日志
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"📥 Import file: {filename}, size: {file_size} bytes")
-        
+
         parse_result = ledger_service.import_overseas_approvals_from_excel(content)
-        
+
         logger.info(f"📊 Parse result: total={parse_result['total_rows']}, success={parse_result['success_count']}, skipped={parse_result['skipped_count']}, errors={parse_result['error_count']}")
         if parse_result['errors']:
             logger.info(f"⚠️ Parse errors: {parse_result['errors'][:5]}")
-        
+
         if parse_result['success_count'] == 0:
             error_msg = parse_result['errors'][0] if parse_result['errors'] else "未解析到有效数据"
             return success_response(data={
@@ -179,7 +179,7 @@ async def import_overseas_approvals(
                 "skipped_count": parse_result['skipped_count'], "error_count": parse_result['error_count'],
                 "errors": parse_result['errors']
             })
-        
+
         created = []
         db_errors = []
         for i, item in enumerate(parse_result['items'], 1):
@@ -192,12 +192,12 @@ async def import_overseas_approvals(
             except SQLAlchemyError:
                 await db.rollback()
                 db_errors.append(f"第{i}行: 数据库错误")
-        
+
         all_errors = parse_result['errors'] + db_errors
         message = f"成功导入 {len(created)} 条记录"
         if db_errors:
             message += f"，{len(db_errors)} 条数据库写入失败"
-        
+
         return success_response(data={
             "count": len(created), "message": message,
             "total_rows": parse_result['total_rows'], "success_count": len(created),
@@ -214,7 +214,7 @@ async def export_overseas_approvals(
 ):
     items = await ledger_service.list_overseas_approvals(db)
     excel_bytes = ledger_service.export_overseas_approvals_to_excel(items)
-    
+
     return StreamingResponse(
         iter([excel_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -251,7 +251,7 @@ async def import_international_reviews(
     try:
         content = await file.read()
         parse_result = ledger_service.import_international_reviews_from_excel(content)
-        
+
         if parse_result['success_count'] == 0:
             error_msg = parse_result['errors'][0] if parse_result['errors'] else "未解析到有效数据"
             return success_response(data={
@@ -260,7 +260,7 @@ async def import_international_reviews(
                 "skipped_count": parse_result['skipped_count'], "error_count": parse_result['error_count'],
                 "errors": parse_result['errors']
             })
-        
+
         created = []
         db_errors = []
         for i, item in enumerate(parse_result['items'], 1):
@@ -273,12 +273,12 @@ async def import_international_reviews(
             except SQLAlchemyError:
                 await db.rollback()
                 db_errors.append(f"第{i}行: 数据库错误")
-        
+
         all_errors = parse_result['errors'] + db_errors
         message = f"成功导入 {len(created)} 条记录"
         if db_errors:
             message += f"，{len(db_errors)} 条数据库写入失败"
-        
+
         return success_response(data={
             "count": len(created), "message": message,
             "total_rows": parse_result['total_rows'], "success_count": len(created),
@@ -295,7 +295,7 @@ async def export_international_reviews(
 ):
     items = await ledger_service.list_international_reviews(db)
     excel_bytes = ledger_service.export_international_reviews_to_excel(items)
-    
+
     return StreamingResponse(
         iter([excel_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -332,7 +332,7 @@ async def import_copp_certificates(
     try:
         content = await file.read()
         parse_result = ledger_service.import_copp_certificates_from_excel(content)
-        
+
         if parse_result['success_count'] == 0:
             error_msg = parse_result['errors'][0] if parse_result['errors'] else "未解析到有效数据"
             return success_response(data={
@@ -341,7 +341,7 @@ async def import_copp_certificates(
                 "skipped_count": parse_result['skipped_count'], "error_count": parse_result['error_count'],
                 "errors": parse_result['errors']
             })
-        
+
         created = []
         db_errors = []
         for i, item in enumerate(parse_result['items'], 1):
@@ -354,12 +354,12 @@ async def import_copp_certificates(
             except SQLAlchemyError:
                 await db.rollback()
                 db_errors.append(f"第{i}行: 数据库错误")
-        
+
         all_errors = parse_result['errors'] + db_errors
         message = f"成功导入 {len(created)} 条记录"
         if db_errors:
             message += f"，{len(db_errors)} 条数据库写入失败"
-        
+
         return success_response(data={
             "count": len(created), "message": message,
             "total_rows": parse_result['total_rows'], "success_count": len(created),
@@ -376,7 +376,7 @@ async def export_copp_certificates(
 ):
     items = await ledger_service.list_copp_certificates(db)
     excel_bytes = ledger_service.export_copp_certificates_to_excel(items)
-    
+
     return StreamingResponse(
         iter([excel_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -413,7 +413,7 @@ async def import_wc_certificates(
     try:
         content = await file.read()
         parse_result = ledger_service.import_wc_certificates_from_excel(content)
-        
+
         if parse_result['success_count'] == 0:
             error_msg = parse_result['errors'][0] if parse_result['errors'] else "未解析到有效数据"
             return success_response(data={
@@ -422,7 +422,7 @@ async def import_wc_certificates(
                 "skipped_count": parse_result['skipped_count'], "error_count": parse_result['error_count'],
                 "errors": parse_result['errors']
             })
-        
+
         created = []
         db_errors = []
         for i, item in enumerate(parse_result['items'], 1):
@@ -435,12 +435,12 @@ async def import_wc_certificates(
             except SQLAlchemyError:
                 await db.rollback()
                 db_errors.append(f"第{i}行: 数据库错误")
-        
+
         all_errors = parse_result['errors'] + db_errors
         message = f"成功导入 {len(created)} 条记录"
         if db_errors:
             message += f"，{len(db_errors)} 条数据库写入失败"
-        
+
         return success_response(data={
             "count": len(created), "message": message,
             "total_rows": parse_result['total_rows'], "success_count": len(created),
@@ -457,7 +457,7 @@ async def export_wc_certificates(
 ):
     items = await ledger_service.list_wc_certificates(db)
     excel_bytes = ledger_service.export_wc_certificates_to_excel(items)
-    
+
     return StreamingResponse(
         iter([excel_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -482,13 +482,14 @@ async def list_reviewing_drugs(
     db: AsyncSession = Depends(get_db),
 ):
     """从 drugs 表获取审评中的品种"""
-    from app.modules.registration.models.drug import Drug, DrugNode
     from sqlalchemy import select
-    
+
+    from app.modules.registration.models.drug import Drug, DrugNode
+
     stmt = select(Drug).where(Drug.is_deleted == False).order_by(Drug.acceptance_date.desc())
     result = await db.execute(stmt)
     drugs = result.scalars().all()
-    
+
     items = []
     for drug in drugs:
         # 获取节点信息
@@ -498,11 +499,11 @@ async def list_reviewing_drugs(
         ).order_by(DrugNode.node_index)
         node_result = await db.execute(node_stmt)
         nodes = node_result.scalars().all()
-        
+
         node_info = {}
         for node in nodes:
             node_info[f"node_{node.node_index}"] = node.actual_date.isoformat() if node.actual_date else None
-        
+
         items.append({
             "id": str(drug.id),
             "product_name": drug.name,
@@ -513,5 +514,5 @@ async def list_reviewing_drugs(
             "created_at": drug.created_at.isoformat() if drug.created_at else None,
             "updated_at": drug.updated_at.isoformat() if drug.updated_at else None,
         })
-    
+
     return items

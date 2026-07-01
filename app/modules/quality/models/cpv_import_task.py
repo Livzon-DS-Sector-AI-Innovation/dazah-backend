@@ -1,6 +1,6 @@
 """CPV Import Task ORM model."""
 
-from sqlalchemy import ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel

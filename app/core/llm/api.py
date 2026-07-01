@@ -1,7 +1,7 @@
 """LLM configuration API endpoints."""
 
 import uuid
-from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
@@ -9,10 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.platform.identity.deps import get_current_user
-from app.shared.base_model import BaseModel as DBBaseModel
+
 from .config import LLMConfigModel
 from .encryption import encrypt_api_key, mask_api_key
-
 
 router = APIRouter(prefix="/llm/configs", tags=["LLM Configuration"])
 
@@ -27,20 +26,20 @@ class LLMConfigCreate(BaseModel):
     temperature: float = Field(default=0.1, ge=0, le=2)
     timeout_seconds: int = Field(default=120, ge=10, le=600)
     is_active: bool = False
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class LLMConfigUpdate(BaseModel):
     """Request body for updating LLM config."""
-    config_name: Optional[str] = Field(None, max_length=128)
-    config_type: Optional[str] = Field(None, pattern="^(text|vision)$")
-    api_base_url: Optional[str] = Field(None, max_length=500)
-    api_key: Optional[str] = Field(None, max_length=500)
-    model_name: Optional[str] = Field(None, max_length=128)
-    temperature: Optional[float] = Field(None, ge=0, le=2)
-    timeout_seconds: Optional[int] = Field(None, ge=10, le=600)
-    is_active: Optional[bool] = None
-    notes: Optional[str] = None
+    config_name: str | None = Field(None, max_length=128)
+    config_type: str | None = Field(None, pattern="^(text|vision)$")
+    api_base_url: str | None = Field(None, max_length=500)
+    api_key: str | None = Field(None, max_length=500)
+    model_name: str | None = Field(None, max_length=128)
+    temperature: float | None = Field(None, ge=0, le=2)
+    timeout_seconds: int | None = Field(None, ge=10, le=600)
+    is_active: bool | None = None
+    notes: str | None = None
 
 
 class LLMConfigResponse(BaseModel):
@@ -54,28 +53,28 @@ class LLMConfigResponse(BaseModel):
     temperature: float
     timeout_seconds: int
     is_active: bool
-    notes: Optional[str]
+    notes: str | None
     created_at: str
     updated_at: str
 
 
 @router.get("", response_model=list[LLMConfigResponse])
 async def list_configs(
-    config_type: Optional[str] = Query(None, pattern="^(text|vision)$"),
+    config_type: str | None = Query(None, pattern="^(text|vision)$"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """List all LLM configurations."""
     query = select(LLMConfigModel).where(LLMConfigModel.is_deleted == False)
-    
+
     if config_type:
         query = query.where(LLMConfigModel.config_type == config_type)
-    
+
     query = query.order_by(LLMConfigModel.created_at.desc())
-    
+
     result = await db.execute(query)
     configs = result.scalars().all()
-    
+
     return [
         LLMConfigResponse(
             id=str(config.id),
@@ -112,7 +111,7 @@ async def create_config(
             )
             .values(is_active=False)
         )
-    
+
     config = LLMConfigModel(
         config_name=data.config_name,
         config_type=data.config_type,
@@ -126,11 +125,11 @@ async def create_config(
         created_by=current_user.id if current_user else None,
         updated_by=current_user.id if current_user else None,
     )
-    
+
     db.add(config)
     await db.commit()
     await db.refresh(config)
-    
+
     return LLMConfigResponse(
         id=str(config.id),
         config_name=config.config_name,
@@ -161,10 +160,10 @@ async def get_config(
         )
     )
     config = result.scalar_one_or_none()
-    
+
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
-    
+
     return LLMConfigResponse(
         id=str(config.id),
         config_name=config.config_name,
@@ -196,10 +195,10 @@ async def update_config(
         )
     )
     config = result.scalar_one_or_none()
-    
+
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
-    
+
     # If activating this config, deactivate others of same type
     if data.is_active and not config.is_active:
         await db.execute(
@@ -211,22 +210,22 @@ async def update_config(
             )
             .values(is_active=False)
         )
-    
+
     # Update fields
     update_data = data.model_dump(exclude_unset=True)
-    
+
     # Encrypt API key if provided
     if "api_key" in update_data:
         update_data["encrypted_api_key"] = encrypt_api_key(update_data.pop("api_key"))
-    
+
     for field, value in update_data.items():
         setattr(config, field, value)
-    
+
     config.updated_by = current_user.id if current_user else None
-    
+
     await db.commit()
     await db.refresh(config)
-    
+
     return LLMConfigResponse(
         id=str(config.id),
         config_name=config.config_name,
@@ -257,13 +256,13 @@ async def delete_config(
         )
     )
     config = result.scalar_one_or_none()
-    
+
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
-    
+
     config.is_deleted = True
     config.updated_by = current_user.id if current_user else None
-    
+
     await db.commit()
 
 

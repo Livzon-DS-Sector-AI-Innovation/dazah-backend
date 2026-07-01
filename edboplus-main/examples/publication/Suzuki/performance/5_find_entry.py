@@ -1,7 +1,6 @@
 
 import pandas as pd
 
-
 df = pd.read_csv('../data/dataset_B1.csv')
 
 c_ligand, c_base, c_leq, c_solvent = 'SPhos', 'NaOH(aq.)', 0.0625, 'DMF'

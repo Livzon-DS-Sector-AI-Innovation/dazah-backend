@@ -4,11 +4,11 @@ CDE 国内药品技术指导原则页面监听脚本
 直接打开目标页面，只监听不构造
 """
 
-import os
 import json
+import os
 import time
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/playwright-browsers"
 
@@ -190,12 +190,12 @@ def main():
     print("   截图: /tmp/cde_domestic_guide_page.png")
 
     # 统计
-    print(f"\n[5] 监听结果:")
+    print("\n[5] 监听结果:")
     print(f"   总 XHR/Fetch: {len(output['all_xhr_fetch'])}")
     print(f"   getDomesticGuideList: {len(output['getDomesticGuideList_captured'])}")
 
     # 列出所有接口
-    print(f"\n[6] 所有接口列表:")
+    print("\n[6] 所有接口列表:")
     for i, entry in enumerate(output["all_xhr_fetch"], 1):
         url_short = entry["url"].split("?")[0]
         api_name = url_short.split("/")[-1]
@@ -246,7 +246,7 @@ def _print_summary(output):
     print(f"  getDomesticGuideList: {len(output['getDomesticGuideList_captured'])}")
 
     if output["getDomesticGuideList_captured"]:
-        print(f"\n  getDomesticGuideList 详情:")
+        print("\n  getDomesticGuideList 详情:")
         for i, cap in enumerate(output["getDomesticGuideList_captured"], 1):
             print(f"\n  [{i}] {cap['method']} {cap['url'][:150]}")
             print(f"      Status: {cap['status']}")

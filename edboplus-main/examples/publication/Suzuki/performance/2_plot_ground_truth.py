@@ -1,23 +1,24 @@
 
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
+
 sns.set_style("ticks")
 sns.despine()
 import matplotlib as mpl
+
 mpl.rcParams['grid.linestyle'] = ':'
 mpl.rcParams['grid.linewidth'] = 0.1
 plt.rcParams['font.family'] = 'Helvetica'
 plt.rcParams['font.size'] = 10
 import pareto
+
+# Hue: Color (ligand), shape (base), filling (solvent), alpha (ligand_eq).
+import seaborn as sns
 from edbo.plus.benchmark.multiobjective_benchmark import is_pareto
 from pymoo.mcdm.high_tradeoff import HighTradeoffPoints
 from sklearn.preprocessing import MinMaxScaler
-
-# Hue: Color (ligand), shape (base), filling (solvent), alpha (ligand_eq).
-
-import seaborn as sns
 
 dataset = 'dft'
 acq = 'EHVI'

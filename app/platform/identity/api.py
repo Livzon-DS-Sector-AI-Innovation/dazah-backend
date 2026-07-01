@@ -1,6 +1,4 @@
-import asyncio
 import logging
-from app.core.tasks import spawn_task
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -9,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.response import success_response
+from app.core.tasks import spawn_task
 from app.platform.identity.deps import CurrentUser
 from app.platform.identity.repository import DepartmentRepository, UserRepository
 from app.platform.identity.schemas import (

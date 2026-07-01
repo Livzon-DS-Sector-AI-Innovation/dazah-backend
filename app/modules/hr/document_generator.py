@@ -1,9 +1,9 @@
 """Generate onboarding training record documents from templates."""
 
+import copy
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-import copy
 
 from docx import Document
 

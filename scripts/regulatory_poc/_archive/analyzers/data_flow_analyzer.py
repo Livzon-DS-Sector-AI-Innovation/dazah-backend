@@ -5,13 +5,13 @@
 分析每个栏目的数据获取链路
 """
 
-import sys
 import json
 import os
+import sys
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
-from browser import create_browser
+from urllib.parse import parse_qs, urlparse
 
+from browser import create_browser
 
 # 目标栏目配置
 TARGETS = [
@@ -194,7 +194,7 @@ class DataFlowAnalyzer:
             # Step 4: Analyze XHR/Fetch requests
             result["total_requests"] = len(self.requests_log)
             result["xhr_fetch_count"] = len(self.api_calls)
-            print(f"\n[4] 网络请求统计:")
+            print("\n[4] 网络请求统计:")
             print(f"   总请求数: {result['total_requests']}")
             print(f"   XHR/Fetch: {result['xhr_fetch_count']}")
 
@@ -222,7 +222,7 @@ class DataFlowAnalyzer:
             print(f"   Other:    {len(other_apis)}")
 
             # Step 5: Analyze JSON APIs in detail
-            print(f"\n[5] JSON API 详情:")
+            print("\n[5] JSON API 详情:")
             for i, api in enumerate(json_apis, 1):
                 parsed = urlparse(api["url"])
                 short_url = parsed.path
@@ -279,7 +279,7 @@ class DataFlowAnalyzer:
                 result["json_apis"].append(json_apis_clean)
 
             # Step 6: Check for dynamic tokens
-            print(f"\n[6] Token 分析:")
+            print("\n[6] Token 分析:")
             token_indicators = []
 
             # Check request headers for tokens
@@ -308,7 +308,7 @@ class DataFlowAnalyzer:
 
             # Check for 瑞数 dynamic JS
             try:
-                rs_scripts = page.evaluate("""() => {
+                rs_scripts = page.evaluate(r"""() => {
                     const scripts = document.querySelectorAll('script[src]');
                     return Array.from(scripts).map(s => s.src).filter(s =>
                         s.includes('/fjgs') || s.includes('/dynamic') ||
@@ -331,7 +331,7 @@ class DataFlowAnalyzer:
                 print("   未检测到动态 Token")
 
             # Step 7: Check if browser is required
-            print(f"\n[7] 浏览器必要性分析:")
+            print("\n[7] 浏览器必要性分析:")
             browser_required_reasons = []
 
             # If no JSON APIs found, data might be server-rendered
@@ -358,7 +358,7 @@ class DataFlowAnalyzer:
                 print("   ✅ 可能不需要完整浏览器")
 
             # Step 8: Try pagination click
-            print(f"\n[8] 翻页测试:")
+            print("\n[8] 翻页测试:")
             before_api_count = len(self.api_calls)
 
             # Look for pagination elements
@@ -401,12 +401,12 @@ class DataFlowAnalyzer:
                                     "trigger": "click_next_page",
                                 }
                 else:
-                    print(f"   翻页后无新 API 请求 (可能服务端渲染)")
+                    print("   翻页后无新 API 请求 (可能服务端渲染)")
             else:
-                print(f"   未找到翻页按钮")
+                print("   未找到翻页按钮")
 
             # Step 9: Key findings summary
-            print(f"\n[9] 关键发现:")
+            print("\n[9] 关键发现:")
             if result["json_apis"]:
                 result["key_findings"].append(f"发现 {len(result['json_apis'])} 个 JSON API")
                 print(f"   ✅ 发现 {len(result['json_apis'])} 个 JSON API")
@@ -414,20 +414,20 @@ class DataFlowAnalyzer:
                     print(f"      → {api['method']} {api['url'][:100]}")
             else:
                 result["key_findings"].append("未发现 JSON API")
-                print(f"   ❌ 未发现 JSON API")
+                print("   ❌ 未发现 JSON API")
 
             if result["pagination_detected"]:
                 result["key_findings"].append("检测到分页机制")
-                print(f"   ✅ 检测到分页机制")
+                print("   ✅ 检测到分页机制")
             else:
-                print(f"   ❌ 未检测到分页机制")
+                print("   ❌ 未检测到分页机制")
 
             if result["anti_bot_detected"]:
-                result["key_findings"].append(f"检测到反爬机制")
-                print(f"   ⚠️ 检测到反爬机制")
+                result["key_findings"].append("检测到反爬机制")
+                print("   ⚠️ 检测到反爬机制")
 
             # Print all XHR URLs for reference
-            print(f"\n[附录] 所有 XHR/Fetch URL:")
+            print("\n[附录] 所有 XHR/Fetch URL:")
             for i, url in enumerate(result["all_xhr_urls"], 1):
                 print(f"   {i}. {url[:150]}")
 

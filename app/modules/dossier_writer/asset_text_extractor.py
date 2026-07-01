@@ -1,9 +1,8 @@
 """素材文本提取器 - 将各种格式的素材统一转为纯文本，供 AI 解析"""
-import logging
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 from docx import Document
 
@@ -12,7 +11,7 @@ class AssetTextExtractor:
     """素材文本提取器"""
 
     @staticmethod
-    def extract(file_path: Path) -> Dict[str, Any]:
+    def extract(file_path: Path) -> dict[str, Any]:
         """统一提取接口：根据文件类型选择提取方式
 
         Returns:
@@ -39,7 +38,7 @@ class AssetTextExtractor:
             return {"text": "", "error": f"不支持的文件类型: {suffix}"}
 
     @staticmethod
-    def _extract_docx(file_path: Path) -> Dict[str, Any]:
+    def _extract_docx(file_path: Path) -> dict[str, Any]:
         """从 docx 提取段落和表格"""
         try:
             doc = Document(str(file_path))
@@ -69,7 +68,7 @@ class AssetTextExtractor:
             return {"text": "", "error": f"docx 提取失败: {str(e)}"}
 
     @staticmethod
-    def _extract_doc(file_path: Path) -> Dict[str, Any]:
+    def _extract_doc(file_path: Path) -> dict[str, Any]:
         """从 .doc 提取：先转 docx 再提取"""
         # 查找同目录下是否有已转换的 .docx 版本
         docx_path = file_path.with_suffix(".docx")
@@ -97,7 +96,7 @@ class AssetTextExtractor:
             return {"text": "", "error": f"doc 转换失败: {str(e)}"}
 
     @staticmethod
-    def _extract_pdf(file_path: Path) -> Dict[str, Any]:
+    def _extract_pdf(file_path: Path) -> dict[str, Any]:
         """从 PDF 提取：优先用 pdfplumber，失败则用 PaddleOCR PP-StructureV3"""
         # 尝试 pdfplumber（对文字型 PDF 更快更准）
         try:
@@ -122,13 +121,13 @@ class AssetTextExtractor:
         try:
             from app.shared.ocr_service import get_ocr_service
             ocr_service = get_ocr_service()
-            
+
             # 使用 PP-StructureV3 提取 Markdown（保持表格、公式等结构）
             markdown_text = ocr_service.extract_markdown(file_path)
-            
+
             # 也可以获取结构化数据
             structure = ocr_service.extract_structure(file_path)
-            
+
             return {
                 "text": markdown_text,
                 "page_count": 1,  # PP-StructureV3 不直接提供页数
@@ -139,7 +138,7 @@ class AssetTextExtractor:
             return {"text": "", "error": f"PDF 提取失败: {str(e)}"}
 
     @staticmethod
-    def _extract_text(file_path: Path) -> Dict[str, Any]:
+    def _extract_text(file_path: Path) -> dict[str, Any]:
         """从纯文本文件提取"""
         try:
             text = file_path.read_text(encoding="utf-8", errors="replace")
@@ -153,7 +152,7 @@ class AssetTextExtractor:
             return {"text": "", "error": f"文本提取失败: {str(e)}"}
 
     @staticmethod
-    def pdf_page_to_image(file_path: Path, page_number: int, dpi: int = 200) -> Optional[Path]:
+    def pdf_page_to_image(file_path: Path, page_number: int, dpi: int = 200) -> Path | None:
         """将 PDF 指定页转为图片，返回图片路径"""
         try:
             from pdf2image import convert_from_path

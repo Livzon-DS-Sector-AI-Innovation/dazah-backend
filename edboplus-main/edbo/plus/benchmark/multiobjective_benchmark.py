@@ -1,18 +1,20 @@
 
+import copy
 import os
-from pymoo.mcdm.high_tradeoff import HighTradeoffPoints
-from sklearn.preprocessing import MinMaxScaler
-import pareto
+
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-from edbo.plus.optimizer_botorch import EDBOplus
-from edbo.plus.optimizer import EDBOplus as EDBO
+import pareto
+import seaborn as sns
 import torch
 from botorch.utils.multi_objective.hypervolume import Hypervolume
+from pymoo.mcdm.high_tradeoff import HighTradeoffPoints
 from scipy.spatial.distance import euclidean
-import copy
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.preprocessing import MinMaxScaler
+
+from edbo.plus.optimizer import EDBOplus as EDBO
+from edbo.plus.optimizer_botorch import EDBOplus
 
 
 def is_pareto(objectives):
@@ -35,7 +37,7 @@ def is_pareto(objectives):
     return is_efficient
 
 
-class Benchmark():
+class Benchmark:
 
     """
     Class for Benchmarking HTE datasets.

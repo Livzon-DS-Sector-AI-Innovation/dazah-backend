@@ -8,7 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.response import success_response
-from app.modules.registration.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
+from app.modules.registration.schemas.project import (
+    ProjectCreate,
+    ProjectResponse,
+    ProjectUpdate,
+)
 from app.modules.registration.service import project as project_service
 
 router = APIRouter()

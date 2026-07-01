@@ -1,17 +1,15 @@
 """员工上岗评估表 文档生成器."""
 
-from datetime import date
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Side, Font
 from docx import Document
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, Side
 
 from app.modules.hr.models import Employee
 from app.modules.hr.schemas import OnboardingEvaluationInput
-
 
 NEW_TEMPLATE_NAME = "R-GN-2002 E 员工上岗评估表.docx"
 

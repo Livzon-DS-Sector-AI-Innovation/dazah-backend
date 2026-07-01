@@ -6,15 +6,15 @@ from app.modules.energy import router as energy_router
 from app.modules.environment import router as environment_router
 from app.modules.equipment import router as equipment_router
 from app.modules.hr import router as hr_router
-from app.modules.product import router as product_router
 from app.modules.procurement import router as procurement_router
+from app.modules.product import router as product_router
 from app.modules.production import router as production_router
 from app.modules.production.product_api import router as workshop_product_router
 from app.modules.production.product_output_api import router as product_output_router
 from app.modules.quality import router as quality_router
+from app.modules.quality.label_verification import router as label_verification_router
 from app.modules.registration import router as registration_router
 from app.modules.regulatory_tracker import router as regulatory_tracker_router
-from app.modules.quality.label_verification import router as label_verification_router
 from app.modules.research import router as research_router
 from app.modules.safety import router as safety_router
 from app.modules.warehouse import router as warehouse_router
@@ -30,7 +30,6 @@ from app.platform.identity.api import (
     router as identity_router,
 )
 from app.platform.permission.api import router as permission_router
-from app.platform.ai import router as ai_router
 from app.platform.system import router as system_router
 
 api_router = APIRouter()
@@ -84,7 +83,9 @@ api_router.include_router(
     tags=["申报资料撰写"],
 )
 from app.core.llm.api import router as llm_router
+
 api_router.include_router(llm_router, tags=["LLM配置"])
 from app.core.config_api import router as module_settings_router
+
 api_router.include_router(module_settings_router, tags=["模块配置"])
 api_router.include_router(permission_router, prefix="/permission", tags=["权限管理"])

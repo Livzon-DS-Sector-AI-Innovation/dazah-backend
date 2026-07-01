@@ -3,16 +3,18 @@
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.tasks import spawn_task
 from app.modules.regulatory_tracker import repository as repo
-from app.modules.regulatory_tracker.crawler.cde_crawler import CdeDomesticGuidelineAdapter
+from app.modules.regulatory_tracker.crawler.cde_crawler import (
+    CdeDomesticGuidelineAdapter,
+)
 from app.modules.regulatory_tracker.crawler.nmpa_crawler import NmpaRecordAdapter
 from app.modules.regulatory_tracker.models import DataChannel, DataSource
-from app.core.tasks import spawn_task
 from app.modules.regulatory_tracker.services.ai_workflow import get_ai_workflow
 
 logger = logging.getLogger(__name__)
@@ -54,7 +56,7 @@ async def upsert_document(
         # 已存在：更新 last_checked_at，标记为非新文档
         logger.debug(f"法规已存在，更新: {existing.title[:40]}...")
         await repo.update_document(db, existing.id, {
-            "last_checked_at": datetime.now(timezone.utc),
+            "last_checked_at": datetime.now(UTC),
             "is_new": False,
             "title": normalized.get("title", existing.title),
             "publish_date": normalized.get("publish_date") or existing.publish_date,
@@ -77,8 +79,8 @@ async def upsert_document(
         "original_url": normalized.get("original_url"),
         "raw_data": normalized.get("raw_data"),
         "is_new": True,
-        "first_found_at": datetime.now(timezone.utc),
-        "last_checked_at": datetime.now(timezone.utc),
+        "first_found_at": datetime.now(UTC),
+        "last_checked_at": datetime.now(UTC),
     })
     await db.flush()  # 确保 doc.id 可用
     return ("created", doc)
@@ -107,7 +109,7 @@ async def sync_page_to_db(
         "total_records_on_page": 0,
         "new_records": 0,
         "status": "running",
-        "started_at": datetime.now(timezone.utc),
+        "started_at": datetime.now(UTC),
     })
 
     try:
@@ -117,7 +119,7 @@ async def sync_page_to_db(
         if not result.get("success"):
             await repo.update_sync_job_page(db, page_record.id, {
                 "status": "failed",
-                "finished_at": datetime.now(timezone.utc),
+                "finished_at": datetime.now(UTC),
                 "error_message": result.get("error", "未知错误"),
             })
             return stats
@@ -151,14 +153,14 @@ async def sync_page_to_db(
         await repo.update_sync_job_page(db, page_record.id, {
             "new_records": new_on_page,
             "status": "synced",
-            "finished_at": datetime.now(timezone.utc),
+            "finished_at": datetime.now(UTC),
         })
 
     except Exception as e:
         logger.exception(f"同步第 {page_num} 页异常")
         await repo.update_sync_job_page(db, page_record.id, {
             "status": "failed",
-            "finished_at": datetime.now(timezone.utc),
+            "finished_at": datetime.now(UTC),
             "error_message": str(e),
         })
 
@@ -193,14 +195,14 @@ async def run_sync_job(
     """
     sync_start_time = time.time()
     logger.info(f"===== 同步任务开始: {source.code}/{channel.code} =====")
-    
+
     # 创建同步任务
     job = await repo.create_sync_job(db, {
         "source_id": source.id,
         "channel_id": channel.id,
         "job_type": job_type,
         "status": "running",
-        "started_at": datetime.now(timezone.utc),
+        "started_at": datetime.now(UTC),
     })
 
     total_stats = {"checked": 0, "new": 0, "updated": 0, "failed": 0}
@@ -250,7 +252,7 @@ async def run_sync_job(
     # 更新任务状态
     await repo.update_sync_job(db, job.id, {
         "status": status,
-        "finished_at": datetime.now(timezone.utc),
+        "finished_at": datetime.now(UTC),
         "checked_count": total_stats["checked"],
         "new_count": total_stats["new"],
         "updated_count": total_stats["updated"],
@@ -271,7 +273,6 @@ async def run_sync_job(
             workflow = get_ai_workflow()
             # 注意：这里不 await，让 AI 分析在后台执行
             # 在实际部署中，这应该是一个独立的后台任务或队列
-            import asyncio
             spawn_task(workflow.submit_documents(new_doc_ids), name="submit-documents")
         except Exception as e:
             logger.error(f"提交 AI 工作流失败: {e}", exc_info=True)

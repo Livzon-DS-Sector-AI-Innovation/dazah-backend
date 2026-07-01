@@ -1,10 +1,10 @@
 
-import shutil
-from edbo.plus.benchmark.multiobjective_benchmark import Benchmark
 import os
+import shutil
+
 import numpy as np
 import pandas as pd
-
+from edbo.plus.benchmark.multiobjective_benchmark import Benchmark
 
 #######################
 # Benchmark inputs

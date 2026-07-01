@@ -17,14 +17,12 @@ import json
 import os
 import zipfile
 from datetime import datetime
-from pathlib import Path
-from typing import Optional
 from uuid import UUID
 
 import asyncpg
 
 
-def parse_json_field(value: Optional[str]) -> Optional[dict | list]:
+def parse_json_field(value: str | None) -> dict | list | None:
     """Parse JSON field, return None if empty."""
     if not value or value in ('{}', '[]', ''):
         return None
@@ -34,7 +32,7 @@ def parse_json_field(value: Optional[str]) -> Optional[dict | list]:
         return None
 
 
-def parse_date(value: Optional[str]) -> Optional[datetime]:
+def parse_date(value: str | None) -> datetime | None:
     """Parse ISO date string."""
     if not value:
         return None
@@ -44,21 +42,21 @@ def parse_date(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def parse_pg_array(value: Optional[str]) -> list[str]:
+def parse_pg_array(value: str | None) -> list[str]:
     """Parse PostgreSQL array format {val1,val2}."""
     if not value or value in ('{}', ''):
         return []
     return value.strip('{}').split(',')
 
 
-def load_user_mapping(path: Optional[str]) -> dict[str, str]:
+def load_user_mapping(path: str | None) -> dict[str, str]:
     """Load user ID mapping from JSON file.
     
     Expected format: {"old_id": "new_uuid", ...}
     """
     if not path or not os.path.exists(path):
         return {}
-    with open(path, 'r') as f:
+    with open(path) as f:
         return json.load(f)
 
 
@@ -69,7 +67,7 @@ async def import_deviations(
 ) -> int:
     """Import deviation.csv to quality.deviations."""
     reader = csv.DictReader(io.StringIO(csv_data))
-    
+
     sql = """
         INSERT INTO quality.deviations (
             id, deviation_code, title, department, discovery_date, discovery_time,
@@ -91,22 +89,22 @@ async def import_deviations(
             description = EXCLUDED.description,
             updated_at = EXCLUDED.updated_at
     """
-    
+
     count = 0
     for row in reader:
         # Map user IDs if mapping provided
         reporter_id = None
         if row.get('reporter') and row['reporter'] in user_mapping:
             reporter_id = UUID(user_mapping[row['reporter']])
-        
+
         created_by = None
         if row.get('_created_by') and row['_created_by'] in user_mapping:
             created_by = UUID(user_mapping[row['_created_by']])
-        
+
         updated_by = None
         if row.get('_updated_by') and row['_updated_by'] in user_mapping:
             updated_by = UUID(user_mapping[row['_updated_by']])
-        
+
         await conn.execute(sql,
             UUID(row['id']),
             row['code'],  # deviation_code
@@ -143,7 +141,7 @@ async def import_deviations(
             False  # is_deleted
         )
         count += 1
-    
+
     return count
 
 
@@ -154,7 +152,7 @@ async def import_capas(
 ) -> int:
     """Import capa.csv to quality.capas."""
     reader = csv.DictReader(io.StringIO(csv_data))
-    
+
     sql = """
         INSERT INTO quality.capas (
             id, capa_code, title, status, deviation_id, source, source_code,
@@ -181,30 +179,30 @@ async def import_capas(
             capa_content = EXCLUDED.capa_content,
             updated_at = EXCLUDED.updated_at
     """
-    
+
     count = 0
     for row in reader:
         # Map user IDs
         qa_reviewer_id = None
         if row.get('qa_reviewer') and row['qa_reviewer'] in user_mapping:
             qa_reviewer_id = UUID(user_mapping[row['qa_reviewer']])
-        
+
         q_head_approver_id = None
         if row.get('q_head_approver') and row['q_head_approver'] in user_mapping:
             q_head_approver_id = UUID(user_mapping[row['q_head_approver']])
-        
+
         evaluation_confirmer_id = None
         if row.get('evaluation_confirmer') and row['evaluation_confirmer'] in user_mapping:
             evaluation_confirmer_id = UUID(user_mapping[row['evaluation_confirmer']])
-        
+
         created_by = None
         if row.get('_created_by') and row['_created_by'] in user_mapping:
             created_by = UUID(user_mapping[row['_created_by']])
-        
+
         updated_by = None
         if row.get('_updated_by') and row['_updated_by'] in user_mapping:
             updated_by = UUID(user_mapping[row['_updated_by']])
-        
+
         await conn.execute(sql,
             UUID(row['id']),
             row['code'],  # capa_code
@@ -254,7 +252,7 @@ async def import_capas(
             False  # is_deleted
         )
         count += 1
-    
+
     return count
 
 
@@ -265,7 +263,7 @@ async def import_department_contacts(
 ) -> int:
     """Import department_contact.csv to quality.department_contacts."""
     reader = csv.DictReader(io.StringIO(csv_data))
-    
+
     sql = """
         INSERT INTO quality.department_contacts (
             id, department, dept_head_id, qa_staff_ids, gmp_staff_ids,
@@ -281,30 +279,30 @@ async def import_department_contacts(
             gmp_staff_ids = EXCLUDED.gmp_staff_ids,
             updated_at = EXCLUDED.updated_at
     """
-    
+
     count = 0
     for row in reader:
         # Map user IDs
         dept_head_id = None
         if row.get('dept_head') and row['dept_head'] in user_mapping:
             dept_head_id = UUID(user_mapping[row['dept_head']])
-        
+
         production_head_id = None
         if row.get('production_head') and row['production_head'] in user_mapping:
             production_head_id = UUID(user_mapping[row['production_head']])
-        
+
         quality_head_id = None
         if row.get('quality_head') and row['quality_head'] in user_mapping:
             quality_head_id = UUID(user_mapping[row['quality_head']])
-        
+
         created_by = None
         if row.get('_created_by') and row['_created_by'] in user_mapping:
             created_by = UUID(user_mapping[row['_created_by']])
-        
+
         updated_by = None
         if row.get('_updated_by') and row['_updated_by'] in user_mapping:
             updated_by = UUID(user_mapping[row['_updated_by']])
-        
+
         await conn.execute(sql,
             UUID(row['id']),
             row['department'],
@@ -322,7 +320,7 @@ async def import_department_contacts(
             False  # is_deleted
         )
         count += 1
-    
+
     return count
 
 
@@ -333,7 +331,7 @@ async def import_weekly_confirmations(
 ) -> int:
     """Import department_weekly_confirmation.csv to quality.department_weekly_confirmations."""
     reader = csv.DictReader(io.StringIO(csv_data))
-    
+
     sql = """
         INSERT INTO quality.department_weekly_confirmations (
             id, department, week_key, production_status, deviation_status,
@@ -348,22 +346,22 @@ async def import_weekly_confirmations(
             confirmed_at = EXCLUDED.confirmed_at,
             updated_at = EXCLUDED.updated_at
     """
-    
+
     count = 0
     for row in reader:
         # Map user IDs
         confirmed_by_id = None
         if row.get('confirmed_by') and row['confirmed_by'] in user_mapping:
             confirmed_by_id = UUID(user_mapping[row['confirmed_by']])
-        
+
         created_by = None
         if row.get('_created_by') and row['_created_by'] in user_mapping:
             created_by = UUID(user_mapping[row['_created_by']])
-        
+
         updated_by = None
         if row.get('_updated_by') and row['_updated_by'] in user_mapping:
             updated_by = UUID(user_mapping[row['_updated_by']])
-        
+
         await conn.execute(sql,
             UUID(row['id']),
             row['department'],
@@ -379,7 +377,7 @@ async def import_weekly_confirmations(
             False  # is_deleted
         )
         count += 1
-    
+
     return count
 
 
@@ -390,12 +388,12 @@ async def main():
     parser.add_argument('--db-url', default='postgresql://erp_user:LivzonSyntpharm@postgres:5432/erp',
                         help='Database URL')
     args = parser.parse_args()
-    
+
     # Load user mapping
     user_mapping = load_user_mapping(args.user_mapping)
     if user_mapping:
         print(f"Loaded {len(user_mapping)} user ID mappings")
-    
+
     # Extract CSVs from zip
     print(f"Reading {args.zip_file}...")
     with zipfile.ZipFile(args.zip_file, 'r') as z:
@@ -403,32 +401,32 @@ async def main():
         capa_csv = z.read('capa.csv').decode('utf-8')
         dept_csv = z.read('department_contact.csv').decode('utf-8')
         weekly_csv = z.read('department_weekly_confirmation.csv').decode('utf-8')
-    
+
     # Connect to database
     print("Connecting to database...")
     conn = await asyncpg.connect(args.db_url)
-    
+
     try:
         async with conn.transaction():
             print("Importing deviations...")
             dev_count = await import_deviations(conn, deviation_csv, user_mapping)
             print(f"  → {dev_count} rows")
-            
+
             print("Importing capas...")
             capa_count = await import_capas(conn, capa_csv, user_mapping)
             print(f"  → {capa_count} rows")
-            
+
             print("Importing department contacts...")
             dept_count = await import_department_contacts(conn, dept_csv, user_mapping)
             print(f"  → {dept_count} rows")
-            
+
             print("Importing weekly confirmations...")
             weekly_count = await import_weekly_confirmations(conn, weekly_csv, user_mapping)
             print(f"  → {weekly_count} rows")
-        
-        print(f"\n✓ Migration completed successfully!")
+
+        print("\n✓ Migration completed successfully!")
         print(f"  Total: {dev_count + capa_count + dept_count + weekly_count} rows imported")
-        
+
     except Exception as e:
         print(f"\n✗ Migration failed: {e}")
         raise

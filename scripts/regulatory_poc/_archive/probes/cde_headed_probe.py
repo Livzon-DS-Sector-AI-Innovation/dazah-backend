@@ -4,18 +4,15 @@ CDE 有头浏览器探测脚本
 在真实浏览器窗口环境下监听 getDomesticGuideList 接口
 """
 
-import os
-import sys
 import json
+import os
 import time
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
 
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/playwright-browsers"
 # DISPLAY is set by xvfb-run
 
 from playwright.sync_api import sync_playwright
-
 
 LAUNCH_ARGS = [
     "--no-sandbox",
@@ -127,7 +124,7 @@ def probe():
         # 检查是否是目标 API
         if "getDomesticGuideList" in url:
             report["api_found"] = True
-            print(f"\n   🎯🎯🎯 捕获到 getDomesticGuideList!")
+            print("\n   🎯🎯🎯 捕获到 getDomesticGuideList!")
             print(f"       状态: {response.status}")
             if entry.get("is_json"):
                 print(f"       JSON keys: {entry.get('json_keys')}")
@@ -137,7 +134,7 @@ def probe():
                     print(f"       total: {entry['field_total']}")
                 report["api_data"] = entry
             else:
-                print(f"       非 JSON 响应")
+                print("       非 JSON 响应")
 
     page.on("request", on_request)
     page.on("response", on_response)
@@ -287,7 +284,7 @@ def main():
     print(f"  Cookie 数: {len(report['cookies_after'])}")
 
     if report["api_data"]:
-        print(f"\n  API 数据:")
+        print("\n  API 数据:")
         print(f"    URL: {report['api_data'].get('url', 'N/A')}")
         print(f"    Status: {report['api_data'].get('status')}")
         if report['api_data'].get('is_json'):
@@ -300,7 +297,7 @@ def main():
                 print(f"    首条记录: {json.dumps(report['api_data']['first_record'], ensure_ascii=False)[:300]}")
 
     if report["errors"]:
-        print(f"\n  错误:")
+        print("\n  错误:")
         for e in report["errors"]:
             print(f"    - {e}")
 

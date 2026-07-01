@@ -1,7 +1,6 @@
 """Drug database queries."""
 
 import uuid
-from datetime import date
 from typing import Any
 
 from sqlalchemy import select

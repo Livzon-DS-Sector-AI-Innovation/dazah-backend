@@ -3,74 +3,64 @@
 
 
 import uuid
-
 from uuid import UUID
 
-from typing import Optional
-
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
-
+from fastapi import Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-
 from app.core.database import get_db
-
 from app.core.deps import CurrentUser
-
-from app.platform.identity.permissions import require_permission, require_role, RequireManager, RequireMember
-
-from app.core.response import paginated_response, success_response, error_response
-
+from app.core.response import error_response, paginated_response, success_response
 from app.modules.research import service
-
 from app.modules.research.schemas import (
-
+    RdDeliverableTemplateCreate,
+    RdDeliverableTemplateResponse,
+    RdDeliverableTemplateUpdate,
+    RdExperimentLogCreate,
+    RdExperimentLogResponse,
+    RdExperimentLogUpdate,
+    RdInitiationCreate,
+    RdInitiationResponse,
+    RdInitiationUpdate,
+    RdMilestoneCreate,
+    RdMilestoneResponse,
+    RdMilestoneUpdate,
+    RdPilotStudyCreate,
+    RdPilotStudyResponse,
+    RdPilotStudyUpdate,
+    RdProcessValidationCreate,
+    RdProcessValidationResponse,
+    RdProcessValidationUpdate,
+    RdProjectCreate,
+    RdProjectResponse,
+    RdProjectUpdate,
+    RdRegistrationFilingCreate,
+    RdRegistrationFilingResponse,
+    RdRegistrationFilingUpdate,
+    RdReportCreate,
+    RdReportGenerateRequest,
+    RdReportResponse,
+    RdReportUpdate,
+    RdResearchFindingCreate,
+    RdResearchFindingResponse,
+    RdResearchFindingUpdate,
+    RdResearchTrackCreate,
+    RdResearchTrackResponse,
+    RdResearchTrackUpdate,
+    RdStageDeliverableCreate,
+    RdStageDeliverableResponse,
+    RdStageDeliverableUpdate,
+    RdStageRecordCreate,
+    RdStageRecordResponse,
+    RdStageRecordUpdate,
+    RdTrackConclusionVersionCreate,
     ResearchProjectCreate,
-
     ResearchProjectResponse,
-
     ResearchProjectUpdate,
-
-    RdProjectCreate, RdProjectUpdate, RdProjectResponse,
-
-    RdMilestoneCreate, RdMilestoneUpdate, RdMilestoneResponse,
-
-    RdStageRecordCreate, RdStageRecordUpdate, RdStageRecordResponse,
-
-    RdResearchTrackCreate, RdResearchTrackUpdate, RdResearchTrackResponse,
-
-    RdResearchFindingCreate, RdResearchFindingUpdate, RdResearchFindingResponse,
-
-    RdPilotStudyCreate, RdPilotStudyUpdate, RdPilotStudyResponse,
-
-    RdProcessValidationCreate, RdProcessValidationUpdate, RdProcessValidationResponse,
-
-    RdRegistrationFilingCreate, RdRegistrationFilingUpdate, RdRegistrationFilingResponse,
-
-    RdStageDeliverableCreate, RdStageDeliverableUpdate, RdStageDeliverableResponse,
-
-    RdExperimentLogCreate, RdExperimentLogUpdate, RdExperimentLogResponse,
-
-    RdReportCreate, RdReportUpdate, RdReportResponse,
-
-    RdInitiationCreate, RdInitiationUpdate, RdInitiationResponse,
-
-    RdDeliverableTemplateCreate, RdDeliverableTemplateUpdate, RdDeliverableTemplateResponse,
-
-    RdReportGenerateRequest, RdReportGenerateResponse,
-
-    RdTrackConclusionVersionCreate, RdTrackConclusionVersionResponse,
-
 )
-
 from app.shared.module_api import create_module_router
-
 from app.shared.module_registry import MODULES_BY_CODE
-
-
 
 router = create_module_router(MODULES_BY_CODE["research"])
 
@@ -401,7 +391,6 @@ async def edbo_optimize(
     """
 
     from app.modules.research.edbo_runner import run_edbo_optimization
-
     from app.modules.research.schemas import EDBOOptimizeResponse
 
 
@@ -533,19 +522,14 @@ async def edbo_generate_scope(
 
     """
 
+    import io
     import itertools
-
+    import logging
     import math
 
     import pandas as pd
 
-    from fastapi.responses import StreamingResponse
 
-    import io
-
-    import logging
-
-    
 
     logger = logging.getLogger(__name__)
 
@@ -555,7 +539,7 @@ async def edbo_generate_scope(
 
     logger.info(f"generate-scope batch_size: {batch_size}")
 
-    
+
 
     def count_significant_digits(num):
 
@@ -593,7 +577,7 @@ async def edbo_generate_scope(
 
             return len(num_str.lstrip('0'))
 
-    
+
 
     def round_to_significant_digits(num, sig_digits):
 
@@ -613,7 +597,7 @@ async def edbo_generate_scope(
 
         return rounded
 
-    
+
 
     def generate_numeric_values(lower, upper, data_points):
 
@@ -625,9 +609,9 @@ async def edbo_generate_scope(
 
         if data_points <= 1:
 
-            raise ValueError(f"数据点数必须大于 1")
+            raise ValueError("数据点数必须大于 1")
 
-        
+
 
         values = []
 
@@ -635,11 +619,11 @@ async def edbo_generate_scope(
 
             return [lower, upper]
 
-        
+
 
         interval = (upper - lower) / (data_points - 1)
 
-        
+
 
         # Check for extreme case: too many data points for small intervals
 
@@ -649,9 +633,9 @@ async def edbo_generate_scope(
 
             if relative_interval < 1e-6:
 
-                raise ValueError(f"数据点过多，间隔过小")
+                raise ValueError("数据点过多，间隔过小")
 
-        
+
 
         # Determine significant digits
 
@@ -661,7 +645,7 @@ async def edbo_generate_scope(
 
         target_sig_digits = min(lower_sig_digits, upper_sig_digits)
 
-        
+
 
         # Check if first in-between value rounds to lower limit
 
@@ -687,7 +671,7 @@ async def edbo_generate_scope(
 
                 current_sig_digits += 1
 
-        
+
 
         # Generate all values
 
@@ -705,11 +689,11 @@ async def edbo_generate_scope(
 
                 values.append(rounded_value)
 
-        
+
 
         return values
 
-    
+
 
     # Validate input
 
@@ -717,7 +701,7 @@ async def edbo_generate_scope(
 
         raise HTTPException(status_code=400, detail="组件定义不能为空")
 
-    
+
 
     # Process each component
 
@@ -803,7 +787,7 @@ async def edbo_generate_scope(
 
             )
 
-    
+
 
     # Calculate total combinations
 
@@ -813,7 +797,7 @@ async def edbo_generate_scope(
 
         n_combinations *= len(values)
 
-    
+
 
     if n_combinations > 10000:
 
@@ -825,7 +809,7 @@ async def edbo_generate_scope(
 
         )
 
-    
+
 
     # Generate Cartesian product
 
@@ -833,13 +817,13 @@ async def edbo_generate_scope(
 
     values = [processed_components[key] for key in keys]
 
-    
+
 
     scope = [dict(zip(keys, combination)) for combination in itertools.product(*values)]
 
     df_scope = pd.DataFrame(scope)
 
-    
+
 
     # Convert to CSV (without objective columns - EDBO+ will add them)
 
@@ -851,7 +835,7 @@ async def edbo_generate_scope(
 
     scope_csv = csv_buffer.getvalue()
 
-    
+
 
     # If objectives are defined, run EDBO+ to get initial sampling recommendations
 
@@ -873,7 +857,7 @@ async def edbo_generate_scope(
 
             objective_modes = ['max'] * len(objectives)
 
-            
+
 
             result = await run_edbo_optimization(
 
@@ -889,7 +873,7 @@ async def edbo_generate_scope(
 
             )
 
-            
+
 
             result_csv = result.get("csv_data", scope_csv)
 
@@ -925,7 +909,7 @@ async def edbo_generate_scope(
 
             scope_csv_with_pending = csv_buffer.getvalue()
 
-            
+
 
             return {
 
@@ -941,7 +925,7 @@ async def edbo_generate_scope(
 
             }
 
-    
+
 
     return {
 
@@ -964,35 +948,21 @@ async def edbo_generate_scope(
 
 
 import os
-
 import uuid as uuid_module
 
-
-
 from app.modules.research import repository as pilot_repo
-
 from app.modules.research.pilot_workflow.engine import (
-
-    start_workflow as start_workflow_engine,
-
     approve_step as approve_step_engine,
-
 )
-
+from app.modules.research.pilot_workflow.engine import (
+    start_workflow as start_workflow_engine,
+)
 from app.modules.research.schemas import (
-
     PilotWorkflowCreate,
-
     PilotWorkflowListResponse,
-
     PilotWorkflowResponse,
-
     PilotWorkflowStepResponse,
-
 )
-
-
-
 
 
 @router.post("/pilot/workflow", summary="创建中试研究")
@@ -1331,19 +1301,18 @@ async def analyze_literature(
 
     """解析上传的文献文件（PDF/TXT），提取合成路线 - SSE 流式响应"""
 
-    import json
-
     import asyncio
+    import json
 
     from app.modules.research.literature_service import analyze_literature_with_ai
 
-    
+
 
     # 读取文件内容
 
     content = await file.read()
 
-    
+
 
     # 根据文件类型提取文本
 
@@ -1351,13 +1320,13 @@ async def analyze_literature(
 
     filename = file.filename.lower() if file.filename else ""
 
-    
+
 
     async def event_stream():
 
         nonlocal text
 
-        
+
 
         # 进度 10%: 开始解析文件
 
@@ -1365,7 +1334,7 @@ async def analyze_literature(
 
         await asyncio.sleep(0.1)
 
-        
+
 
         try:
 
@@ -1383,9 +1352,9 @@ async def analyze_literature(
 
                 yield f"data: {json.dumps({'progress': 20, 'status': 'extracting', 'message': '正在提取 PDF 文本...'})}\n\n"
 
-                from pypdf import PdfReader
-
                 import io
+
+                from pypdf import PdfReader
 
                 reader = PdfReader(io.BytesIO(content))
 
@@ -1399,9 +1368,9 @@ async def analyze_literature(
 
                 yield f"data: {json.dumps({'progress': 20, 'status': 'extracting', 'message': '正在提取 Word 文档...'})}\n\n"
 
-                import docx
-
                 import io
+
+                import docx
 
                 doc = docx.Document(io.BytesIO(content))
 
@@ -1447,7 +1416,7 @@ async def analyze_literature(
 
             return
 
-        
+
 
         # 进度 30%: 文件提取完成
 
@@ -1455,13 +1424,13 @@ async def analyze_literature(
 
         await asyncio.sleep(0.1)
 
-        
+
 
         # 进度 40%: 开始 AI 分析
 
         yield f"data: {json.dumps({'progress': 40, 'status': 'analyzing', 'message': 'AI 正在分析文献，提取合成路线...'})}\n\n"
 
-        
+
 
         try:
 
@@ -1469,7 +1438,7 @@ async def analyze_literature(
 
             result = await analyze_literature_with_ai(text)
 
-            
+
 
             # 进度 90%: AI 分析完成
 
@@ -1477,7 +1446,7 @@ async def analyze_literature(
 
             await asyncio.sleep(0.1)
 
-            
+
 
             # 进度 100%: 完成
 
@@ -1487,7 +1456,7 @@ async def analyze_literature(
 
             yield f"data: {json.dumps({'progress': 100, 'status': 'error', 'error': f'AI 解析失败: {str(e)}'})}\n\n"
 
-    
+
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -1522,17 +1491,17 @@ async def get_routes(
 
 ) -> JSONResponse:
 
-    from app.modules.research.models import RouteDevelopment, RouteExperiment
+    from sqlalchemy import func, or_, select
 
-    from sqlalchemy import select, func, or_
+    from app.modules.research.models import RouteDevelopment
 
-    
+
 
     query = select(RouteDevelopment).where(RouteDevelopment.is_deleted == False)
 
     count_query = select(func.count()).select_from(RouteDevelopment).where(RouteDevelopment.is_deleted == False)
 
-    
+
 
     if project_id:
 
@@ -1562,7 +1531,7 @@ async def get_routes(
 
         count_query = count_query.where(like_filter)
 
-    
+
 
     total = (await db.execute(count_query)).scalar_one()
 
@@ -1572,7 +1541,7 @@ async def get_routes(
 
     items = result.scalars().all()
 
-    
+
 
     data = []
 
@@ -1624,7 +1593,7 @@ async def get_routes(
 
         })
 
-    
+
 
     return paginated_response(data=data, page=page, page_size=page_size, total=total)
 
@@ -1643,11 +1612,11 @@ async def get_route(
 
 ) -> JSONResponse:
 
-    from app.modules.research.models import RouteDevelopment, RouteExperiment
-
     from sqlalchemy import select
 
-    
+    from app.modules.research.models import RouteDevelopment, RouteExperiment
+
+
 
     result = await db.execute(
 
@@ -1667,7 +1636,7 @@ async def get_route(
 
         raise HTTPException(status_code=404, detail="路线不存在")
 
-    
+
 
     # Load experiments
 
@@ -1685,7 +1654,7 @@ async def get_route(
 
     experiments = exp_result.scalars().all()
 
-    
+
 
     data = {
 
@@ -1773,7 +1742,7 @@ async def get_route(
 
     }
 
-    
+
 
     return success_response(data=data)
 
@@ -1792,13 +1761,12 @@ async def create_route(
 
 ) -> JSONResponse:
 
-    from app.modules.research.models import RouteDevelopment, RouteExperiment
-
     import uuid as uuid_mod
-
     from datetime import date as date_mod
 
-    
+    from app.modules.research.models import RouteDevelopment
+
+
 
     route = RouteDevelopment(
 
@@ -1828,7 +1796,7 @@ async def create_route(
 
     await db.flush()
 
-    
+
 
     return success_response(data={"id": str(route.id), "route_no": route.route_no})
 
@@ -1849,11 +1817,11 @@ async def update_route(
 
 ) -> JSONResponse:
 
-    from app.modules.research.models import RouteDevelopment, RouteExperiment
-
     from sqlalchemy import select
 
-    
+    from app.modules.research.models import RouteDevelopment
+
+
 
     result = await db.execute(
 
@@ -1873,7 +1841,7 @@ async def update_route(
 
         raise HTTPException(status_code=404, detail="路线不存在")
 
-    
+
 
     # Update fields
 
@@ -1895,13 +1863,13 @@ async def update_route(
 
             setattr(route, field, data[field])
 
-    
+
 
     if current_user:
 
         route.updated_by = current_user.id
 
-    
+
 
     await db.flush()
 
@@ -1922,11 +1890,11 @@ async def delete_route(
 
 ) -> JSONResponse:
 
-    from app.modules.research.models import RouteDevelopment, RouteExperiment
-
     from sqlalchemy import select
 
-    
+    from app.modules.research.models import RouteDevelopment
+
+
 
     # 先查询路线是否存在（包括已删除的）
 
@@ -1946,7 +1914,7 @@ async def delete_route(
 
         raise HTTPException(status_code=404, detail="路线不存在")
 
-    
+
 
     # 如果已经删除，直接返回成功（幂等性）
 
@@ -1954,7 +1922,7 @@ async def delete_route(
 
         return success_response(data={"message": "已删除"})
 
-    
+
 
     route.is_deleted = True
 
@@ -1983,17 +1951,13 @@ async def create_experiment(
 
 ) -> JSONResponse:
 
-    from app.modules.research.models import RouteDevelopment, RouteExperiment
-
     import uuid as uuid_mod
-
     from datetime import date as date_mod
 
-    
-
     # Count existing experiments for this route
+    from sqlalchemy import func, select
 
-    from sqlalchemy import select, func
+    from app.modules.research.models import RouteExperiment
 
     count_result = await db.execute(
 
@@ -2009,7 +1973,7 @@ async def create_experiment(
 
     count = count_result.scalar_one()
 
-    
+
 
     exp = RouteExperiment(
 
@@ -2049,7 +2013,7 @@ async def create_experiment(
 
     await db.flush()
 
-    
+
 
     return success_response(data={"id": str(exp.id), "experiment_no": exp.experiment_no})
 
@@ -2070,13 +2034,13 @@ async def update_experiment(
 
 ) -> JSONResponse:
 
-    from app.modules.research.models import RouteDevelopment, RouteExperiment
+    from datetime import date as date_mod
 
     from sqlalchemy import select
 
-    from datetime import date as date_mod
+    from app.modules.research.models import RouteExperiment
 
-    
+
 
     result = await db.execute(
 
@@ -2096,7 +2060,7 @@ async def update_experiment(
 
         raise HTTPException(status_code=404, detail="实验记录不存在")
 
-    
+
 
     updatable = [
 
@@ -2112,7 +2076,7 @@ async def update_experiment(
 
             setattr(exp, field, data[field])
 
-    
+
 
     if "date" in data and data["date"]:
 
@@ -2130,7 +2094,7 @@ async def update_experiment(
 
         exp.updated_by = current_user.id
 
-    
+
 
     await db.flush()
 
@@ -2151,11 +2115,11 @@ async def delete_experiment(
 
 ) -> JSONResponse:
 
-    from app.modules.research.models import RouteDevelopment, RouteExperiment
-
     from sqlalchemy import select
 
-    
+    from app.modules.research.models import RouteExperiment
+
+
 
     result = await db.execute(
 
@@ -2175,7 +2139,7 @@ async def delete_experiment(
 
         raise HTTPException(status_code=404, detail="实验记录不存在")
 
-    
+
 
     exp.is_deleted = True
 
@@ -2210,7 +2174,7 @@ async def get_optimizations(
 
 ) -> JSONResponse:
 
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
 
     from app.modules.research.models import ProcessOptimization
 
@@ -2286,7 +2250,7 @@ async def get_optimizations(
 
             "doe_experiment": opt.doe_experiment,
 
-            
+
 
             "impurity_study": opt.impurity_study,
 
@@ -2296,7 +2260,7 @@ async def get_optimizations(
 
             "scale_up_study": opt.scale_up_study,
 
-            
+
 
             "start_date": str(opt.start_date) if opt.start_date else None,
 
@@ -2369,7 +2333,7 @@ async def get_optimization(
 
         "doe_experiment": opt.doe_experiment,
 
-        
+
 
         "impurity_study": opt.impurity_study,
 
@@ -2379,7 +2343,7 @@ async def get_optimization(
 
         "scale_up_study": opt.scale_up_study,
 
-        
+
 
         "start_date": str(opt.start_date) if opt.start_date else None,
 
@@ -2407,7 +2371,6 @@ async def create_optimization(
 ) -> JSONResponse:
 
     import uuid
-
     from datetime import date
 
     from app.modules.research.models import ProcessOptimization
@@ -2580,43 +2543,17 @@ async def delete_optimization(
 
 
 
-import uuid as _uuid
-
-from datetime import datetime, timezone
 
 
 
-from app.modules.research.models import PilotWorkflow, PilotWorkflowStep
+
 
 from app.modules.research.schemas import (
-
     PilotWorkflowCreate,
-
-    PilotWorkflowResponse,
-
-    PilotWorkflowStepResponse,
-
-    PilotWorkflowListItem,
-
 )
-
-
 
 # Rd Project schemas
 
-from app.modules.research.schemas import (
-
-    RdProjectCreate, RdProjectUpdate, RdProjectResponse,
-
-    RdMilestoneCreate, RdMilestoneUpdate, RdMilestoneResponse,
-
-    RdStageRecordCreate, RdStageRecordUpdate, RdStageRecordResponse,
-
-    RdResearchTrackCreate, RdResearchTrackUpdate, RdResearchTrackResponse,
-
-    RdResearchFindingCreate, RdResearchFindingUpdate, RdResearchFindingResponse
-
-)
 
 
 
@@ -2795,7 +2732,7 @@ async def get_all_research_tracks(
 
     from sqlalchemy import select
 
-    from app.modules.research.models import RdResearchTrack, RdProject
+    from app.modules.research.models import RdProject, RdResearchTrack
 
 
 
@@ -3194,19 +3131,19 @@ async def transition_stage(
 
     review_notes = data.get("review_notes")
 
-    
+
 
     if not target_stage:
 
         return error_response(message="缺少 target_stage 参数")
 
-    
+
 
     user_id = current_user.id if current_user else None
 
     result = await service.transition_stage(db, project_id, target_stage, review_notes, user_id)
 
-    
+
 
     if result.get("success"):
 
@@ -3561,13 +3498,13 @@ async def get_rd_stage_deliverable_api(
 async def list_rd_stage_deliverables_api(
 
     current_user: CurrentUser,
-    project_id: Optional[UUID] = None,
+    project_id: UUID | None = None,
 
-    stage: Optional[str] = None,
+    stage: str | None = None,
 
-    deliverable_type: Optional[str] = None,
+    deliverable_type: str | None = None,
 
-    status: Optional[str] = None,
+    status: str | None = None,
 
     page: int = 1,
 
@@ -3682,7 +3619,7 @@ async def upload_deliverable_file(
 
     os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-    
+
 
     content = await file.read()
 
@@ -3690,7 +3627,7 @@ async def upload_deliverable_file(
 
     filename = file.filename or "unknown"
 
-    
+
 
     # 保存文件到本地
 
@@ -3700,7 +3637,7 @@ async def upload_deliverable_file(
 
         f.write(content)
 
-    
+
 
     # 更新交付物记录
 
@@ -3708,9 +3645,9 @@ async def upload_deliverable_file(
 
     await service.update_rd_stage_deliverable(
 
-        db, 
+        db,
 
-        deliverable_id, 
+        deliverable_id,
 
         RdStageDeliverableUpdate(file_url=file_url, file_name=filename, file_size=file_size),
 
@@ -3718,7 +3655,7 @@ async def upload_deliverable_file(
 
     )
 
-    
+
 
     return success_response(data={
 
@@ -3757,29 +3694,29 @@ async def download_deliverable_file(
 
     from fastapi.responses import FileResponse
 
-    
+
 
     deliverable = await service.get_rd_stage_deliverable(db, deliverable_id)
 
-    
+
 
     if not deliverable.file_name:
 
         raise HTTPException(status_code=404, detail="未找到附件文件")
 
-    
+
 
     UPLOAD_DIR = "/tmp/dazah_uploads/research/deliverables"
 
     file_path = os.path.join(UPLOAD_DIR, f"{deliverable_id}_{deliverable.file_name}")
 
-    
+
 
     if not os.path.exists(file_path):
 
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    
+
 
     return FileResponse(
 
@@ -4516,19 +4453,19 @@ async def get_track_detail(
 
         raise HTTPException(status_code=404, detail="研究项不存在")
 
-    
+
 
     # Get findings
 
     findings = await service.get_research_findings(db, track_id)
 
-    
+
 
     # Get conclusion history
 
     conclusion_history = await service.get_conclusion_history(db, track_id)
 
-    
+
 
     track_data = RdResearchTrackResponse.model_validate(track.__dict__).model_dump()
 
@@ -4536,7 +4473,7 @@ async def get_track_detail(
 
     track_data["conclusion_history"] = conclusion_history
 
-    
+
 
     return success_response(data=track_data)
 
@@ -4569,15 +4506,15 @@ async def create_conclusion_version_api(
 
     version_data["author_id"] = current_user.id
 
-    
+
 
     # Also update the track's current conclusion
 
     result = await service.publish_conclusion_version(
 
-        db, track_id, 
+        db, track_id,
 
-        data.conclusion or "", 
+        data.conclusion or "",
 
         data.confidence,
 
@@ -4623,11 +4560,7 @@ async def get_conclusion_versions_api(
 
 
 import csv
-
 import io
-
-from fastapi.responses import StreamingResponse
-
 
 
 @router.get("/export/projects", summary="导出项目列表 CSV")
@@ -4653,7 +4586,7 @@ async def export_projects_csv(
 
     projects = result.scalars().all()
 
-    
+
 
     # Create CSV
 
@@ -4661,7 +4594,7 @@ async def export_projects_csv(
 
     writer = csv.writer(output)
 
-    
+
 
     # Header
 
@@ -4675,7 +4608,7 @@ async def export_projects_csv(
 
     ])
 
-    
+
 
     # Data rows
 
@@ -4691,17 +4624,17 @@ async def export_projects_csv(
 
             p.current_stage or '', p.status or '', p.overall_progress or '',
 
-            p.start_date.isoformat() if p.start_date else '', 
+            p.start_date.isoformat() if p.start_date else '',
 
             p.target_filing_date.isoformat() if p.target_filing_date else '',
 
-            p.actual_filing_date.isoformat() if p.actual_filing_date else '', 
+            p.actual_filing_date.isoformat() if p.actual_filing_date else '',
 
             p.notes or ''
 
         ])
 
-    
+
 
     # Return as streaming response
 
@@ -4752,7 +4685,7 @@ async def export_tracks_csv(
 
     tracks = result.scalars().all()
 
-    
+
 
     # Create CSV
 
@@ -4760,7 +4693,7 @@ async def export_tracks_csv(
 
     writer = csv.writer(output)
 
-    
+
 
     # Header
 
@@ -4772,7 +4705,7 @@ async def export_tracks_csv(
 
     ])
 
-    
+
 
     # Data rows
 
@@ -4790,7 +4723,7 @@ async def export_tracks_csv(
 
         ])
 
-    
+
 
     # Return as streaming response
 
@@ -4841,7 +4774,7 @@ async def export_experiment_logs_csv(
 
     logs = result.scalars().all()
 
-    
+
 
     # Create CSV
 
@@ -4849,7 +4782,7 @@ async def export_experiment_logs_csv(
 
     writer = csv.writer(output)
 
-    
+
 
     # Header
 
@@ -4861,7 +4794,7 @@ async def export_experiment_logs_csv(
 
     ])
 
-    
+
 
     # Data rows
 
@@ -4881,7 +4814,7 @@ async def export_experiment_logs_csv(
 
         ])
 
-    
+
 
     # Return as streaming response
 
@@ -4916,11 +4849,16 @@ async def get_stats_overview(
 
     """获取研发模块概览统计数据"""
 
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
 
-    from app.modules.research.models import RdProject, RdResearchTrack, RdExperimentLog, RdStageDeliverable
+    from app.modules.research.models import (
+        RdExperimentLog,
+        RdProject,
+        RdResearchTrack,
+        RdStageDeliverable,
+    )
 
-    
+
 
     # 项目统计
 
@@ -4932,7 +4870,7 @@ async def get_stats_overview(
 
     total_projects = total_projects.scalar() or 0
 
-    
+
 
     # 按阶段统计
 
@@ -4948,7 +4886,7 @@ async def get_stats_overview(
 
     stage_distribution = {stage or 'unknown': count for stage, count in stage_stats.all()}
 
-    
+
 
     # 按状态统计
 
@@ -4964,7 +4902,7 @@ async def get_stats_overview(
 
     status_distribution = {status or 'unknown': count for status, count in status_stats.all()}
 
-    
+
 
     # 研究项统计 (只统计未删除项目中的研究项)
 
@@ -4986,7 +4924,7 @@ async def get_stats_overview(
 
     total_tracks = total_tracks.scalar() or 0
 
-    
+
 
     # 按类型统计研究项 (只统计未删除项目中的研究项)
 
@@ -5008,7 +4946,7 @@ async def get_stats_overview(
 
     track_type_distribution = {t or 'unknown': c for t, c in track_type_stats.all()}
 
-    
+
 
     # 实验记录统计
 
@@ -5020,7 +4958,7 @@ async def get_stats_overview(
 
     total_experiments = total_experiments.scalar() or 0
 
-    
+
 
     # 交付物统计
 
@@ -5032,7 +4970,7 @@ async def get_stats_overview(
 
     total_deliverables = total_deliverables.scalar() or 0
 
-    
+
 
     # 按状态统计交付物
 
@@ -5048,7 +4986,7 @@ async def get_stats_overview(
 
     deliverable_status_distribution = {s or 'unknown': c for s, c in deliverable_status_stats.all()}
 
-    
+
 
     return success_response(data={
 
@@ -5105,7 +5043,7 @@ async def get_project_progress(
 
     from app.modules.research.models import RdProject
 
-    
+
 
     result = await db.execute(
 
@@ -5129,7 +5067,7 @@ async def get_project_progress(
 
     )
 
-    
+
 
     # Stage-to-progress mapping: each stage maps to a base progress percentage
 
@@ -5187,7 +5125,7 @@ async def get_project_progress(
 
         })
 
-    
+
 
     return success_response(data=projects)
 

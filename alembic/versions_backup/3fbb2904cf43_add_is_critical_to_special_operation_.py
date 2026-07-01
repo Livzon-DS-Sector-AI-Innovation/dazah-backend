@@ -4,17 +4,17 @@ Revision ID: 3fbb2904cf43
 Revises: 118b4228c2e7
 Create Date: 2026-06-06 16:14:39.392224
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
+
+import sqlalchemy as sa
 
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '3fbb2904cf43'
-down_revision: Union[str, None] = '118b4228c2e7'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '118b4228c2e7'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

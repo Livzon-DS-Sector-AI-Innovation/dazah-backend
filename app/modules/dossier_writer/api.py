@@ -1,24 +1,27 @@
 """Dossier Writer API endpoints."""
-from typing import Optional, List
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Form
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import select
 from app.core.database import get_db
 from app.core.deps import CurrentUser
-from app.core.response import success_response, error_response
+from app.core.response import error_response, success_response
+
+from .field_models import FieldFillResult, FieldMapping
+from .models import ChapterAsset, DossierChapter, ProductDossier
 from .schemas import (
-    ProductDossierCreate, ProductDossierUpdate,
-    ProductDossierResponse, ProductDossierListResponse,
-    ChapterResponse, ChapterDetailResponse,
-    AssetResponse, AssetUploadResponse,
-    ParseResultResponse, ExportRequest, ExportResponse,
+    AssetResponse,
+    AssetUploadResponse,
+    ExportRequest,
+    ProductDossierCreate,
+    ProductDossierListResponse,
+    ProductDossierResponse,
+    ProductDossierUpdate,
 )
 from .service import DossierService
-from .models import DossierChapter, ProductDossier, ChapterAsset
-from .field_models import FieldMapping, FieldFillResult
 
 router = APIRouter()
 
@@ -119,12 +122,12 @@ async def delete_product_dossier(
 async def upload_templates(
     current_user: CurrentUser,
     dossier_id: UUID,
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
     """批量上传模板文件"""
     service = DossierService(db)
-    
+
     results = []
     for file in files:
         # 验证文件类型
@@ -135,18 +138,18 @@ async def upload_templates(
                 "error": "仅支持 .docx 格式文件"
             })
             continue
-        
+
         try:
             # 读取文件内容
             content = await file.read()
             import logging
             _logger = logging.getLogger(__name__)
             _logger.info(f"[Upload] Processing file: {file.filename}, size: {len(content)} bytes")
-            
+
             # 保存模板
             template = await service.save_template_file(dossier_id, file.filename, content)
             _logger.info(f"[Upload] Saved template: {template.id}, filename: {template.original_filename}")
-            
+
             results.append({
                 "file_id": str(template.id),
                 "filename": template.original_filename,
@@ -163,17 +166,17 @@ async def upload_templates(
                 "status": "failed",
                 "error": str(e)
             })
-    
+
     # 更新品种状态为 template_uploaded
     await service.repo.update_product_dossier(dossier_id, parse_status="template_uploaded")
     await service.db.commit()
-    
+
     success_count = sum(1 for r in results if r["status"] == "success")
     failed_count = len(results) - success_count
-    
+
     # 自动触发匹配
     match_result = await service.match_assets_to_chapters(dossier_id)
-    
+
     return success_response(
         data={
             "results": results,
@@ -197,7 +200,7 @@ async def parse_templates(
     """解析模板生成章节树"""
     service = DossierService(db)
     result = await service.parse_templates(dossier_id)
-    
+
     if result["success"]:
         return success_response(data=result, message=result["message"])
     else:
@@ -238,12 +241,12 @@ async def get_chapter_detail(
 async def upload_asset(
     current_user: CurrentUser,
     chapter_id: UUID,
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
     """批量上传章节素材"""
     service = DossierService(db)
-    
+
     results = []
     for file in files:
         if not file.filename:
@@ -259,7 +262,7 @@ async def upload_asset(
             uploaded_at=asset.uploaded_at,
             category_id=asset.category_id,
         ))
-    
+
     return success_response(
         data={"assets": [r.model_dump(mode="json") for r in results], "count": len(results)},
         message=f"成功上传 {len(results)} 个素材"
@@ -306,7 +309,7 @@ async def update_asset_category(
     asset = await db.get(ChapterAsset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="素材不存在")
-    
+
     category_id = body.get("category_id")
     asset.category_id = category_id if category_id else None
     await db.commit()
@@ -314,7 +317,7 @@ async def update_asset_category(
         select(ChapterAsset).where(ChapterAsset.id == asset_id)
     )
     asset = result.scalar_one()
-    
+
     return success_response(
         data={
             "id": str(asset.id),
@@ -336,7 +339,7 @@ async def export_dossier(
     """导出品种资料"""
     service = DossierService(db)
     result = await service.export_dossier(dossier_id, data.chapter_ids)
-    
+
     if result["success"]:
         return success_response(data=result, message=result["message"])
     else:
@@ -355,12 +358,12 @@ async def download_exported_file(
     dossier = await service.repo.get_product_dossier(dossier_id)
     if not dossier:
         raise HTTPException(status_code=404, detail="品种资料不存在")
-    
+
     from pathlib import Path
     file_path = Path(dossier.outputs_path) / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    
+
     return FileResponse(
         path=str(file_path),
         filename=filename,
@@ -376,7 +379,7 @@ async def get_chapter_preview(
     """获取章节预览内容"""
     service = DossierService(db)
     result = await service.get_chapter_preview(chapter_id)
-    
+
     if result["success"]:
         return success_response(data=result, message="获取预览成功")
     else:
@@ -391,22 +394,22 @@ async def get_chapter_docx_file(
 ):
     """获取章节的 docx 工作副本文件，用于前端 docx-preview 渲染"""
     from pathlib import Path
-    
+
     chapter = await db.get(DossierChapter, chapter_id)
     if not chapter:
         raise HTTPException(status_code=404, detail="章节不存在")
-    
+
     dossier = await db.get(ProductDossier, chapter.product_dossier_id)
     if not dossier:
         raise HTTPException(status_code=404, detail="品种资料不存在")
-    
+
     if not chapter.working_file:
         raise HTTPException(status_code=404, detail="该章节尚无工作副本文件")
-    
+
     file_path = Path(dossier.working_path) / chapter.working_file
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="工作副本文件不存在")
-    
+
     return FileResponse(
         path=str(file_path),
         filename=chapter.working_file,
@@ -424,7 +427,7 @@ async def match_assets_to_chapters(
     """智能匹配素材到章节"""
     service = DossierService(db)
     result = await service.match_assets_to_chapters(dossier_id)
-    
+
     if result["success"]:
         return success_response(data=result, message=result["message"])
     else:
@@ -433,6 +436,7 @@ async def match_assets_to_chapters(
 # ====== Field Mapping ======
 
 from .field_fill_service import FieldFillService
+
 # from .field_mapping_config import S6_FIELD_MAPPINGS  # 已废弃
 
 
@@ -445,23 +449,23 @@ async def fill_chapter_fields(
     """执行字段填充 - 从素材提取内容并填充到章节"""
     service = DossierService(db)
     fill_service = FieldFillService(db)
-    
+
     # 获取章节信息
     chapter = await service.get_chapter_detail(chapter_id)
     if not chapter:
         raise HTTPException(status_code=404, detail="章节不存在")
-    
+
     # 获取品种信息
     dossier = await service.get_product_dossier(chapter.product_dossier_id)
     if not dossier:
         raise HTTPException(status_code=404, detail="品种资料不存在")
-    
+
     # 获取章节素材
     assets = await service.list_chapter_assets(chapter_id)
-    
+
     # 执行填充
     result = await fill_service.fill_chapter_fields(dossier, chapter, assets)
-    
+
     return success_response(
         data=result,
         message=result["message"]
@@ -477,7 +481,7 @@ async def get_field_mappings(
     """获取章节的字段映射配置"""
     fill_service = FieldFillService(db)
     mappings = await fill_service.get_field_mappings(chapter_code)
-    
+
     return success_response(
         data=[
             {
@@ -519,16 +523,15 @@ async def get_fill_results(
     db: AsyncSession = Depends(get_db),
 ):
     """获取章节的填充结果"""
-    from .field_models import FieldFillResult
-    
+
     stmt = select(FieldFillResult).where(
         FieldFillResult.chapter_id == chapter_id,
         FieldFillResult.is_deleted == False
     ).order_by(FieldFillResult.created_at.desc())
-    
+
     result = await db.execute(stmt)
     fills = list(result.scalars().all())
-    
+
     return success_response(
         data=[
             {
@@ -555,29 +558,29 @@ async def ai_preview_extraction(
 ):
     """AI 智能解析预览：提取素材中的字段值（不写入文档）"""
     from .ai_fill_service import AIFillService
-    from .models import DossierChapter, ProductDossier, ChapterAsset
-    
+    from .models import DossierChapter, ProductDossier
+
     # 获取章节和品种信息
     stmt = select(DossierChapter).where(DossierChapter.id == chapter_id)
     result = await db.execute(stmt)
     chapter = result.scalar_one_or_none()
-    
+
     if not chapter:
         return error_response(message="章节不存在", status_code=404)
-    
+
     stmt = select(ProductDossier).where(ProductDossier.id == chapter.product_dossier_id)
     result = await db.execute(stmt)
     dossier = result.scalar_one_or_none()
-    
+
     if not dossier:
         return error_response(message="品种资料不存在", status_code=404)
-    
+
     service = AIFillService(db)
     result = await service.preview_extraction(dossier, chapter)
-    
+
     if not result["success"]:
         return error_response(message=result["message"])
-    
+
     return success_response(data=result, message=result["message"])
 
 
@@ -590,31 +593,31 @@ async def ai_confirm_and_fill(
 ):
     """AI 填充确认：用户确认后写入文档"""
     from .ai_fill_service import AIFillService
-    from .models import DossierChapter, ProductDossier, ChapterAsset
-    
+    from .models import DossierChapter, ProductDossier
+
     # 获取章节和品种信息
     stmt = select(DossierChapter).where(DossierChapter.id == chapter_id)
     result = await db.execute(stmt)
     chapter = result.scalar_one_or_none()
-    
+
     if not chapter:
         return error_response(message="章节不存在", status_code=404)
-    
+
     stmt = select(ProductDossier).where(ProductDossier.id == chapter.product_dossier_id)
     result = await db.execute(stmt)
     dossier = result.scalar_one_or_none()
-    
+
     if not dossier:
         return error_response(message="品种资料不存在", status_code=404)
-    
+
     user_confirmed_fields = data.get("fields", [])
-    
+
     service = AIFillService(db)
     result = await service.confirm_and_fill(dossier, chapter, user_confirmed_fields)
-    
+
     if not result["success"]:
         return error_response(message=result["message"])
-    
+
     return success_response(data=result, message=result["message"])
 
 
@@ -626,10 +629,10 @@ async def get_asset_categories(
 ):
     """获取章节的素材分类列表"""
     from .ai_fill_service import AIFillService
-    
+
     service = AIFillService(db)
     categories = await service.get_asset_categories(chapter_code)
-    
+
     return success_response(data=categories, message="获取成功")
 
 
@@ -643,22 +646,22 @@ async def split_preview(
     """AI 拆分预览：识别多页 PDF 每页的类型"""
     from .ai_fill_service import AIFillService
     from .models import ChapterAsset
-    
+
     stmt = select(ChapterAsset).where(ChapterAsset.id == asset_id)
     result = await db.execute(stmt)
     asset = result.scalar_one_or_none()
-    
+
     if not asset:
         return error_response(message="素材不存在", status_code=404)
-    
+
     available_appendix_slots = data.get("available_appendix_slots", [])
-    
+
     service = AIFillService(db)
     result = await service.preview_page_splits(asset, available_appendix_slots)
-    
+
     if not result["success"]:
         return error_response(message=result["message"])
-    
+
     return success_response(data=result, message=result["message"])
 
 
@@ -671,30 +674,30 @@ async def split_confirm_and_insert(
 ):
     """AI 拆分确认：将各页转为图片插入模板"""
     from .ai_fill_service import AIFillService
-    from .models import DossierChapter, ProductDossier, ChapterAsset
-    
+    from .models import DossierChapter, ProductDossier
+
     stmt = select(DossierChapter).where(DossierChapter.id == chapter_id)
     result = await db.execute(stmt)
     chapter = result.scalar_one_or_none()
-    
+
     if not chapter:
         return error_response(message="章节不存在", status_code=404)
-    
+
     stmt = select(ProductDossier).where(ProductDossier.id == chapter.product_dossier_id)
     result = await db.execute(stmt)
     dossier = result.scalar_one_or_none()
-    
+
     if not dossier:
         return error_response(message="品种资料不存在", status_code=404)
-    
+
     splits = data.get("splits", [])
-    
+
     service = AIFillService(db)
     result = await service.confirm_page_splits_and_insert(dossier, chapter, splits)
-    
+
     if not result["success"]:
         return error_response(message=result["message"])
-    
+
     return success_response(data=result, message=result["message"])
 
 
@@ -705,9 +708,8 @@ async def get_appendix_slots(
     db: AsyncSession = Depends(get_db),
 ):
     """获取章节的所有附录位置（从 FieldMapping 汇总）"""
-    from .field_models import FieldMapping
-    from sqlalchemy import select, and_
-    
+    from sqlalchemy import and_, select
+
     stmt = select(FieldMapping).where(
         and_(
             FieldMapping.chapter_code == chapter_code,
@@ -717,7 +719,7 @@ async def get_appendix_slots(
     )
     result = await db.execute(stmt)
     mappings = result.scalars().all()
-    
+
     slots = sorted(set(m.appendix_slot for m in mappings if m.appendix_slot))
     return success_response(data=slots, message="获取成功")
 

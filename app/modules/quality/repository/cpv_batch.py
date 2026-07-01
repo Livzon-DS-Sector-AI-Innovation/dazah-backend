@@ -4,9 +4,8 @@ import uuid
 from datetime import date
 from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.modules.quality.models.cpv_batch import CpvBatch
 
@@ -60,12 +59,12 @@ async def get_batches(
 ) -> tuple[list[CpvBatch], int]:
     """获取批次列表"""
     from sqlalchemy import func
-    
+
     query = select(CpvBatch).where(
         CpvBatch.product_id == product_id,
         CpvBatch.is_deleted == False,  # noqa: E712
     )
-    
+
     if data_type:
         query = query.where(CpvBatch.data_type == data_type)
     if batch_no:
@@ -74,19 +73,19 @@ async def get_batches(
         query = query.where(CpvBatch.production_date >= start_date)
     if end_date:
         query = query.where(CpvBatch.production_date <= end_date)
-    
+
     # Count total
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)
     total = total_result.scalar_one()
-    
+
     # Paginate
     query = query.order_by(CpvBatch.production_date.desc(), CpvBatch.batch_no)
     query = query.offset((page - 1) * page_size).limit(page_size)
-    
+
     result = await db.execute(query)
     batches = list(result.scalars().all())
-    
+
     return batches, total
 
 
@@ -99,14 +98,14 @@ async def count_batches(
 ) -> int:
     """统计批次数量（不分页）"""
     from sqlalchemy import func
-    
+
     query = select(func.count()).where(
         CpvBatch.product_id == product_id,
         CpvBatch.is_deleted == False,  # noqa: E712
     )
     if data_type:
         query = query.where(CpvBatch.data_type == data_type)
-    
+
     result = await db.execute(query)
     return result.scalar_one()
 
@@ -117,7 +116,7 @@ async def delete_batches_by_product(
 ) -> int:
     """删除产品下某类型的所有批次（软删除）"""
     from sqlalchemy import update
-    
+
     result = await db.execute(
         update(CpvBatch)
         .where(

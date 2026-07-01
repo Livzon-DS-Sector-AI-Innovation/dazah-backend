@@ -1,8 +1,8 @@
 
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import shutil
 import seaborn as sns
 
 for campaign in ['challenging_campaign_cvt', 'challenging_campaign_random', 'easy_campaign']:
@@ -67,7 +67,7 @@ for campaign in ['challenging_campaign_cvt', 'challenging_campaign_random', 'eas
         av_eis_yield.append(df['yield_expected_improvement'].mean())
         av_eis_ee.append(df['ee_expected_improvement'].mean())
 
-    
+
     plt.title(f"{campaign}", loc='center')
     sns.scatterplot(x=np.arange(1, 8), y=av_eis_yield, ax=ax[2], label='average_EI_yield')
     sns.scatterplot(x=np.arange(1, 8), y=av_eis_ee, ax=ax[2], label='average_EI_ee')

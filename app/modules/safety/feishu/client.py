@@ -6,12 +6,12 @@
 
 import json as _json
 import logging
-import os
-from app.core.config import get_settings
 from pathlib import Path
 
 import lark_oapi as lark
 from dotenv import load_dotenv
+
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 

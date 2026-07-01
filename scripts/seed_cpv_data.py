@@ -12,7 +12,6 @@ from pathlib import Path
 
 import asyncpg
 
-
 DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/dazah"
 
 PRODUCT_NAME = "头孢曲松钠原料药"

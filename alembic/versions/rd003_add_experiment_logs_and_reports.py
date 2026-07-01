@@ -4,9 +4,10 @@ Revision ID: rd003
 Revises: rd002
 Create Date: 2026-06-29
 """
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = 'rd003'
 down_revision = 'rd002'

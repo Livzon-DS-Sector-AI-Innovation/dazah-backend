@@ -1,11 +1,10 @@
 """Pressure differential inspection database queries."""
 
-import uuid
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, delete, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (

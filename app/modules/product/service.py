@@ -6,7 +6,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import DuplicateException, NotFoundException
+from app.core.exceptions import NotFoundException
 from app.modules.product.models import Product
 from app.modules.product.repository import ProductRepository
 from app.modules.product.schemas import ProductCreate, ProductUpdate, SyncStatusResponse

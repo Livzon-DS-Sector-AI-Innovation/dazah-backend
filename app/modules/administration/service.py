@@ -7,7 +7,11 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.modules.administration.models import GiftInventory, ITServiceTicket, Vehicle, VehicleRequest
+from app.modules.administration.models import (
+    ITServiceTicket,
+    Vehicle,
+    VehicleRequest,
+)
 from app.modules.administration.repository import (
     GiftInventoryRepository,
     GiftRequisitionRepository,
@@ -37,7 +41,6 @@ _settings = get_settings()
 
 class RegulationService:
     def __init__(self, session: AsyncSession):
-        from app.modules.administration.repository import RegulationRepository
         self.repo = RegulationRepository(session)
 
     async def list_regulations(
@@ -99,8 +102,9 @@ class VehicleService:
         await self.repo.delete(vehicle)
 
     async def batch_import(self, file_bytes: bytes, file_type: str) -> dict:
-        import pandas as pd
         from io import BytesIO
+
+        import pandas as pd
         from sqlalchemy import select
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 

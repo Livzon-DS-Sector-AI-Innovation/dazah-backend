@@ -2,13 +2,19 @@
 
 import json
 import logging
-import openai
 import re
 from collections.abc import AsyncGenerator
 from io import BytesIO
 from typing import Any
 from urllib.parse import quote
 
+import openai
+from app.platform.ai.deps import get_ai_chat_service
+from app.platform.ai.exam_generator import (
+    build_generate_prompt,
+    generate_exam_docx,
+)
+from app.platform.ai.service import AiChatService
 from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -29,11 +35,6 @@ from app.modules.hr.public_api import (
     search_employees_by_name,
     search_employees_fuzzy,
 )
-from app.platform.ai.deps import get_ai_chat_service
-from app.platform.ai.exam_generator import (
-    build_generate_prompt,
-    generate_exam_docx,
-)
 from app.platform.ai.schemas import (
     ChatRequest,
     ChoiceOption,
@@ -42,7 +43,6 @@ from app.platform.ai.schemas import (
     ExamGenerateResponse,
     TrueFalseQuestion,
 )
-from app.platform.ai.service import AiChatService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

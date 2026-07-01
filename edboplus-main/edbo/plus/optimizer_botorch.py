@@ -1,29 +1,30 @@
 import os
-from pathlib import Path
 import random
 import sys
 import warnings
+from pathlib import Path
 
-from botorch.acquisition.monte_carlo import qExpectedImprovement
-from botorch.acquisition.multi_objective.monte_carlo import \
-    qExpectedHypervolumeImprovement, qNoisyExpectedHypervolumeImprovement
-from botorch.models import SingleTaskGP, ModelListGP
-from botorch.optim import optimize_acqf_discrete
-from botorch.sampling.samplers import SobolQMCNormalSampler, IIDNormalSampler
-from botorch.utils.multi_objective.box_decompositions import \
-    NondominatedPartitioning
-from idaes.surrogate.pysmo.sampling import LatinHypercubeSampling, CVTSampling
 import numpy as np
-from ordered_set import OrderedSet
 import pandas as pd
+import torch
+from botorch.acquisition.monte_carlo import qExpectedImprovement
+from botorch.acquisition.multi_objective.monte_carlo import (
+    qExpectedHypervolumeImprovement,
+    qNoisyExpectedHypervolumeImprovement,
+)
+from botorch.models import ModelListGP, SingleTaskGP
+from botorch.optim import optimize_acqf_discrete
+from botorch.sampling.samplers import IIDNormalSampler, SobolQMCNormalSampler
+from botorch.utils.multi_objective.box_decompositions import NondominatedPartitioning
+from idaes.surrogate.pysmo.sampling import CVTSampling, LatinHypercubeSampling
+from ordered_set import OrderedSet
+from scipy.spatial.distance import cdist
 from scipy.stats import norm
 from sklearn.preprocessing import MinMaxScaler
-from scipy.spatial.distance import cdist
-import torch
 
-from .utils import EDBOStandardScaler
 from .model import build_and_optimize_model
 from .scope_generator import create_reaction_scope
+from .utils import EDBOStandardScaler
 
 tkwargs = {
     "dtype": torch.double,
@@ -64,7 +65,7 @@ class EDBOplus:
         # Encode OHE.
         df_sampling = pd.get_dummies(df, prefix=ohe_columns,
                                      columns=ohe_columns, drop_first=True, dtype=np.float64)
-        
+
         class HiddenPrints:
             def __enter__(self):
                 self._original_stdout = sys.stdout
@@ -86,7 +87,7 @@ class EDBOplus:
 
             if idaes is not None:
                 samples = idaes.sample_points()
-            
+
             # Sometimes the LHS or CVT sampling methods return less samples than requested. Add random samples in this case.
             # IMPORTANT: Sample from df_sampling (encoded), not df (original), to match dimensions
             additional_samples = None
@@ -113,7 +114,7 @@ class EDBOplus:
         print(f"Generated {len(samples)} initial samples using {sampling_method} sampling (seed = {seed}). Run finished!")
 
         return df
-    
+
 
     def run(self,
             objectives, objective_mode, objective_thresholds=None,
@@ -426,7 +427,7 @@ class EDBOplus:
         if self.acquisition_sampler == 'IIDNormalSampler':
             sampler = IIDNormalSampler(num_samples=sobol_num_samples, collapse_batch_dims=True, seed=seed)
         if self.acquisition_sampler == 'SobolQMCNormalSampler':
-            sampler = SobolQMCNormalSampler(num_samples=sobol_num_samples, collapse_batch_dims=True, seed=seed) 
+            sampler = SobolQMCNormalSampler(num_samples=sobol_num_samples, collapse_batch_dims=True, seed=seed)
 
         print ("Optimizing acqusition function...")
 
@@ -437,10 +438,10 @@ class EDBOplus:
             partitioning = NondominatedPartitioning(
                 ref_point=ref_point,
                 Y=y_torch)
-            
+
             surrogate_model = ModelListGP(*individual_models)
             individual_models = []  # empty to reuduce memory
-            
+
             EHVI = qExpectedHypervolumeImprovement(
                 model=surrogate_model, sampler=sampler,
                 ref_point=ref_point,  # use known reference point
@@ -472,7 +473,7 @@ class EDBOplus:
                     surrogate_model = individual_models[0]
                     best_value = y_torch.max()
                     acq_fct = qExpectedImprovement(
-                        model = surrogate_model, 
+                        model = surrogate_model,
                         best_f = best_value,
                         sampler = sampler
                     )

@@ -5,8 +5,8 @@ at import time. The main application auto-starts all registered workers without
 manual wiring in main.py.
 """
 
-from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 
 @dataclass
@@ -46,7 +46,7 @@ def register_background_worker(
     # Check for duplicate names
     if any(w.name == name for w in _WORKERS):
         raise ValueError(f"Background worker '{name}' is already registered")
-    
+
     _WORKERS.append(BackgroundWorker(name=name, start=start, stop=stop))
 
 

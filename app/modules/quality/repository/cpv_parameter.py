@@ -39,14 +39,14 @@ async def get_parameters(
         CpvParameter.product_id == product_id,
         CpvParameter.is_deleted == False,  # noqa: E712
     )
-    
+
     if parameter_type:
         query = query.where(CpvParameter.parameter_type == parameter_type)
     if is_enabled is not None:
         query = query.where(CpvParameter.is_enabled == is_enabled)
-    
+
     query = query.order_by(CpvParameter.sort_order, CpvParameter.created_at)
-    
+
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -60,10 +60,10 @@ async def update_parameter(
     parameter = await get_parameter_by_id(db, parameter_id)
     if not parameter:
         return None
-    
+
     for key, value in data.items():
         setattr(parameter, key, value)
-    
+
     await db.flush()
     await db.refresh(parameter)
     return parameter
@@ -74,7 +74,7 @@ async def delete_parameter(db: AsyncSession, parameter_id: uuid.UUID) -> bool:
     parameter = await get_parameter_by_id(db, parameter_id)
     if not parameter:
         return False
-    
+
     parameter.is_deleted = True
     await db.flush()
     return True
@@ -91,9 +91,9 @@ async def count_parameters(
         CpvParameter.product_id == product_id,
         CpvParameter.is_deleted == False,  # noqa: E712
     )
-    
+
     if parameter_type:
         query = query.where(CpvParameter.parameter_type == parameter_type)
-    
+
     result = await db.execute(query)
     return result.scalar_one()

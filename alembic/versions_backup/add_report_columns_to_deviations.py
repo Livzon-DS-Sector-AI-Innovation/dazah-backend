@@ -5,8 +5,9 @@ Revises: 20260605_0001
 Create Date: 2026-06-07
 
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = 'add_report_columns_to_deviations'
 down_revision = '20260605_0001'

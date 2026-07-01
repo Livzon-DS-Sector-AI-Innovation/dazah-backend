@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.database import async_session_factory
 from app.modules.energy import repository as repo
 from app.modules.energy.adapters import ADAPTERS

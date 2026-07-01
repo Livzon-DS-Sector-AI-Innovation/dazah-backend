@@ -6,8 +6,8 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
-from pydantic import BaseModel
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from pydantic import BaseModel
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,9 +44,13 @@ from app.modules.hr.schemas import (
     OffboardingRecordUpdate,
     OnboardingEvaluationInput,
     OnboardingRecordResponse,
+    SopCatalogListResponse,
+    SopCatalogResponse,
     TeamCreate,
     TeamResponse,
     TeamUpdate,
+    TrainerListResponse,
+    TrainerResponse,
     TrainingEvaluationInput,
     TrainingLedgerCreate,
     TrainingLedgerPageCreate,
@@ -56,10 +60,6 @@ from app.modules.hr.schemas import (
     TrainingNotificationInput,
     TrainingNotifyInput,
     TrainingSignInSheetInput,
-    TrainerResponse,
-    TrainerListResponse,
-    SopCatalogResponse,
-    SopCatalogListResponse,
 )
 from app.modules.hr.service import (
     AnnualTrainingPlanItemService,
@@ -1617,8 +1617,8 @@ async def list_trainers(
     page_size: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_db),
 ):
-    from app.modules.hr.models import HrTrainer
     from app.core.response import paginated_response
+    from app.modules.hr.models import HrTrainer
 
     query = select(HrTrainer).where(HrTrainer.is_deleted == False)
     count_q = select(func.count()).select_from(HrTrainer).where(HrTrainer.is_deleted == False)
@@ -1671,8 +1671,8 @@ async def list_sop_catalog(
     page_size: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_db),
 ):
-    from app.modules.hr.models import SopCatalog
     from app.core.response import paginated_response
+    from app.modules.hr.models import SopCatalog
 
     query = select(SopCatalog).where(SopCatalog.is_deleted == False)
     count_q = select(func.count()).select_from(SopCatalog).where(SopCatalog.is_deleted == False)
@@ -1710,8 +1710,8 @@ async def list_dept_training_personnel(
     query = f"SELECT {cols} FROM {tbl} WHERE is_deleted = false"
     count_q = f"SELECT count(*) FROM {tbl} WHERE is_deleted = false"
     if department:
-        query += f" AND (display_dept = :dept OR department = :dept)"
-        count_q += f" AND (display_dept = :dept OR department = :dept)"
+        query += " AND (display_dept = :dept OR department = :dept)"
+        count_q += " AND (display_dept = :dept OR department = :dept)"
     query += " ORDER BY display_dept LIMIT :limit OFFSET :offset"
 
     total = (await session.execute(text(count_q), {"dept": department} if department else {})).scalar() or 0
@@ -1731,7 +1731,9 @@ async def save_training_evaluation(
     session: AsyncSession = Depends(get_db),
 ):
     """保存评估数据，返回完整 Word 文档（含统计字段）。"""
-    from app.modules.hr.evaluation_document_generator import generate_training_evaluation
+    from app.modules.hr.evaluation_document_generator import (
+        generate_training_evaluation,
+    )
     buffer = generate_training_evaluation(payload)
 
     def _iter():

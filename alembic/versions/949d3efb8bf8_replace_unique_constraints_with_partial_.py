@@ -8,15 +8,15 @@ Revision ID: 949d3efb8bf8
 Revises: 6541942e5eaf
 Create Date: 2026-06-23 20:51:24.292747
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '949d3efb8bf8'
-down_revision: Union[str, None] = '6541942e5eaf'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '6541942e5eaf'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 # (旧约束名, 表名, 列名) — 15 个 safety schema 业务表
 _CONSTRAINTS: list[tuple[str, str, str]] = [

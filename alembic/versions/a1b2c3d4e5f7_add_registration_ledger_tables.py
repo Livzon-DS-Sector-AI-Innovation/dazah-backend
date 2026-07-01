@@ -4,23 +4,23 @@ Revision ID: a1b2c3d4e5f7
 Revises: xbj3_final_001
 Create Date: 2026-06-25 10:30:00.000000
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'a1b2c3d4e5f7'
-down_revision: Union[str, None] = 'c7a8b9d0e1f2'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'c7a8b9d0e1f2'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     # 创建 registration schema（如果不存在）
     op.execute("CREATE SCHEMA IF NOT EXISTS registration")
-    
+
     # 国内已获批品种表
     op.create_table(
         'registration_domestic_approvals',
@@ -45,7 +45,7 @@ def upgrade() -> None:
         sa.Column('is_deleted', sa.Boolean, server_default=sa.false()),
         schema='registration',
     )
-    
+
     # 国外已获批品种表
     op.create_table(
         'registration_overseas_approvals',
@@ -69,7 +69,7 @@ def upgrade() -> None:
         sa.Column('is_deleted', sa.Boolean, server_default=sa.false()),
         schema='registration',
     )
-    
+
     # 国际关联审评表
     op.create_table(
         'registration_international_reviews',
@@ -90,7 +90,7 @@ def upgrade() -> None:
         sa.Column('is_deleted', sa.Boolean, server_default=sa.false()),
         schema='registration',
     )
-    
+
     # COPP证书表
     op.create_table(
         'registration_copp_certificates',
@@ -111,7 +111,7 @@ def upgrade() -> None:
         sa.Column('is_deleted', sa.Boolean, server_default=sa.false()),
         schema='registration',
     )
-    
+
     # WC证书表
     op.create_table(
         'registration_wc_certificates',

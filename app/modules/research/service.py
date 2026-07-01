@@ -1,34 +1,47 @@
 """Research business workflows."""
 
 import uuid
+from datetime import UTC, datetime
 from uuid import UUID
-from typing import Optional
-from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import DuplicateException, NotFoundException
 from app.modules.research import repository as repo
 from app.modules.research.models import (
+    RdExperimentLog,
+    RdMilestone,
+    RdPilotStudy,
+    RdProcessValidation,
+    RdProject,
+    RdRegistrationFiling,
+    RdResearchFinding,
+    RdResearchTrack,
+    RdStageDeliverable,
+    RdStageRecord,
     ResearchProject,
-    RdProject, RdMilestone, RdStageRecord, RdResearchTrack, RdResearchFinding, RdPilotStudy, RdProcessValidation, RdRegistrationFiling, RdExperimentLog, RdReport, RdInitiation, RdDeliverableTemplate, RdStageDeliverable,
 )
 from app.modules.research.schemas import (
+    RdMilestoneCreate,
+    RdMilestoneUpdate,
+    RdPilotStudyCreate,
+    RdPilotStudyUpdate,
+    RdProcessValidationCreate,
+    RdProcessValidationUpdate,
+    RdProjectCreate,
+    RdProjectUpdate,
+    RdRegistrationFilingCreate,
+    RdRegistrationFilingUpdate,
+    RdResearchFindingCreate,
+    RdResearchFindingUpdate,
+    RdResearchTrackCreate,
+    RdResearchTrackUpdate,
+    RdStageDeliverableCreate,
+    RdStageDeliverableUpdate,
+    RdStageRecordCreate,
+    RdStageRecordUpdate,
     ResearchProjectCreate,
     ResearchProjectUpdate,
-    RdProjectCreate, RdProjectUpdate, RdProjectResponse,
-    RdMilestoneCreate, RdMilestoneUpdate, RdMilestoneResponse,
-    RdStageRecordCreate, RdStageRecordUpdate, RdStageRecordResponse,
-    RdResearchTrackCreate, RdResearchTrackUpdate, RdResearchTrackResponse,
-    RdResearchFindingCreate, RdResearchFindingUpdate, RdResearchFindingResponse,
-    RdPilotStudyCreate, RdPilotStudyUpdate, RdPilotStudyResponse,
-    RdProcessValidationCreate, RdProcessValidationUpdate, RdProcessValidationResponse,
-    RdRegistrationFilingCreate, RdRegistrationFilingUpdate, RdRegistrationFilingResponse,
-    RdExperimentLogCreate, RdExperimentLogUpdate, RdExperimentLogResponse,
-    RdReportCreate, RdReportUpdate, RdReportResponse, RdReportGenerateRequest, RdReportGenerateResponse,
-    RdInitiationCreate, RdInitiationUpdate, RdInitiationResponse,
-    RdDeliverableTemplateCreate, RdDeliverableTemplateUpdate, RdDeliverableTemplateResponse,
-    RdStageDeliverableCreate, RdStageDeliverableUpdate, RdStageDeliverableResponse,
 )
 
 
@@ -39,10 +52,10 @@ async def create_project(
     project_no = data.project_no
     if not project_no:
         project_no = f"PRJ-{str(uuid.uuid4())[:8].upper()}"
-    
+
     if await repo.exists_by_project_no(db, project_no):
         raise DuplicateException("项目编号", project_no)
-    
+
     project_data = data.model_dump()
     project_data["project_no"] = project_no
     return await repo.create_project(db, project_data)
@@ -103,8 +116,9 @@ async def delete_project(db: AsyncSession, project_id: uuid.UUID) -> None:
 
 
 # ICH Analysis functions
+from sqlalchemy import func, select
+
 from app.modules.research.models import ICHAnalysisRecord
-from sqlalchemy import select, func
 
 
 async def analyze_ich_q3c(
@@ -126,7 +140,7 @@ async def analyze_ich_q3c(
     db.add(record)
     await db.commit()
     await db.refresh(record)
-    
+
     return {
         "id": str(record.id),
         "filename": record.filename,
@@ -158,7 +172,7 @@ async def analyze_ich_combined(
     db.add(record)
     await db.commit()
     await db.refresh(record)
-    
+
     return {
         "id": str(record.id),
         "filename": record.filename,
@@ -180,7 +194,7 @@ async def get_ich_records(
     count_query = select(func.count()).select_from(ICHAnalysisRecord)
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
-    
+
     # Get paginated records
     query = (
         select(ICHAnalysisRecord)
@@ -190,7 +204,7 @@ async def get_ich_records(
     )
     result = await db.execute(query)
     records = list(result.scalars().all())
-    
+
     return records, total
 
 
@@ -202,10 +216,10 @@ async def get_ich_record(
     query = select(ICHAnalysisRecord).where(ICHAnalysisRecord.id == record_id)
     result = await db.execute(query)
     record = result.scalar_one_or_none()
-    
+
     if not record:
         raise NotFoundException("ICH Q3C/Q3D 杂质识别记录", str(record_id))
-    
+
     return record
 
 
@@ -224,7 +238,7 @@ async def delete_ich_record(
 
 # ===== Milestone Service =====
 
-async def create_milestone(db: AsyncSession, project_id: UUID, data: RdMilestoneCreate, user_id: Optional[UUID] = None) -> RdMilestone:
+async def create_milestone(db: AsyncSession, project_id: UUID, data: RdMilestoneCreate, user_id: UUID | None = None) -> RdMilestone:
     """创建里程碑"""
     await get_rd_project(db, project_id)  # 验证项目存在
     milestone = RdMilestone(
@@ -250,7 +264,7 @@ async def get_milestones(db: AsyncSession, project_id: UUID) -> list[RdMilestone
     return list(result.scalars().all())
 
 
-async def update_milestone(db: AsyncSession, milestone_id: UUID, data: RdMilestoneUpdate, user_id: Optional[UUID] = None) -> RdMilestone:
+async def update_milestone(db: AsyncSession, milestone_id: UUID, data: RdMilestoneUpdate, user_id: UUID | None = None) -> RdMilestone:
     """更新里程碑"""
     result = await db.execute(
         select(RdMilestone).where(RdMilestone.id == milestone_id, RdMilestone.is_deleted == False)
@@ -258,7 +272,7 @@ async def update_milestone(db: AsyncSession, milestone_id: UUID, data: RdMilesto
     milestone = result.scalar_one_or_none()
     if not milestone:
         raise HTTPException(status_code=404, detail="里程碑不存在")
-    
+
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(milestone, field, value)
@@ -270,7 +284,7 @@ async def update_milestone(db: AsyncSession, milestone_id: UUID, data: RdMilesto
 
 # ===== Stage Record Service =====
 
-async def create_stage_record(db: AsyncSession, project_id: UUID, data: RdStageRecordCreate, user_id: Optional[UUID] = None) -> RdStageRecord:
+async def create_stage_record(db: AsyncSession, project_id: UUID, data: RdStageRecordCreate, user_id: UUID | None = None) -> RdStageRecord:
     """创建阶段记录"""
     await get_project(db, project_id)
     record = RdStageRecord(
@@ -296,7 +310,7 @@ async def get_stage_records(db: AsyncSession, project_id: UUID) -> list[RdStageR
     return list(result.scalars().all())
 
 
-async def update_stage_record(db: AsyncSession, record_id: UUID, data: RdStageRecordUpdate, user_id: Optional[UUID] = None) -> RdStageRecord:
+async def update_stage_record(db: AsyncSession, record_id: UUID, data: RdStageRecordUpdate, user_id: UUID | None = None) -> RdStageRecord:
     """更新阶段记录"""
     result = await db.execute(
         select(RdStageRecord).where(RdStageRecord.id == record_id, RdStageRecord.is_deleted == False)
@@ -304,7 +318,7 @@ async def update_stage_record(db: AsyncSession, record_id: UUID, data: RdStageRe
     record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="阶段记录不存在")
-    
+
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(record, field, value)
@@ -316,7 +330,7 @@ async def update_stage_record(db: AsyncSession, record_id: UUID, data: RdStageRe
 
 # ===== Research Track Service =====
 
-async def create_research_track(db: AsyncSession, project_id: UUID, data: RdResearchTrackCreate, user_id: Optional[UUID] = None) -> RdResearchTrack:
+async def create_research_track(db: AsyncSession, project_id: UUID, data: RdResearchTrackCreate, user_id: UUID | None = None) -> RdResearchTrack:
     """创建研究项"""
     await get_project(db, project_id)
     track = RdResearchTrack(
@@ -343,7 +357,7 @@ async def get_research_tracks(db: AsyncSession, project_id: UUID) -> list[RdRese
     return list(result.scalars().all())
 
 
-async def update_research_track(db: AsyncSession, track_id: UUID, data: RdResearchTrackUpdate, user_id: Optional[UUID] = None) -> RdResearchTrack:
+async def update_research_track(db: AsyncSession, track_id: UUID, data: RdResearchTrackUpdate, user_id: UUID | None = None) -> RdResearchTrack:
     """更新研究项"""
     result = await db.execute(
         select(RdResearchTrack).where(RdResearchTrack.id == track_id, RdResearchTrack.is_deleted == False)
@@ -351,7 +365,7 @@ async def update_research_track(db: AsyncSession, track_id: UUID, data: RdResear
     track = result.scalar_one_or_none()
     if not track:
         raise HTTPException(status_code=404, detail="研究项不存在")
-    
+
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(track, field, value)
@@ -363,7 +377,7 @@ async def update_research_track(db: AsyncSession, track_id: UUID, data: RdResear
 
 # ===== Research Finding Service =====
 
-async def create_research_finding(db: AsyncSession, track_id: UUID, data: RdResearchFindingCreate, user_id: Optional[UUID] = None) -> RdResearchFinding:
+async def create_research_finding(db: AsyncSession, track_id: UUID, data: RdResearchFindingCreate, user_id: UUID | None = None) -> RdResearchFinding:
     """创建研究发现"""
     result = await db.execute(
         select(RdResearchTrack).where(RdResearchTrack.id == track_id, RdResearchTrack.is_deleted == False)
@@ -371,7 +385,7 @@ async def create_research_finding(db: AsyncSession, track_id: UUID, data: RdRese
     track = result.scalar_one_or_none()
     if not track:
         raise HTTPException(status_code=404, detail="研究项不存在")
-    
+
     finding = RdResearchFinding(
         track_id=track_id,
         **data.model_dump(),
@@ -395,7 +409,7 @@ async def get_research_findings(db: AsyncSession, track_id: UUID) -> list[RdRese
     return list(result.scalars().all())
 
 
-async def update_research_finding(db: AsyncSession, finding_id: UUID, data: RdResearchFindingUpdate, user_id: Optional[UUID] = None) -> RdResearchFinding:
+async def update_research_finding(db: AsyncSession, finding_id: UUID, data: RdResearchFindingUpdate, user_id: UUID | None = None) -> RdResearchFinding:
     """更新研究发现"""
     result = await db.execute(
         select(RdResearchFinding).where(RdResearchFinding.id == finding_id, RdResearchFinding.is_deleted == False)
@@ -403,7 +417,7 @@ async def update_research_finding(db: AsyncSession, finding_id: UUID, data: RdRe
     finding = result.scalar_one_or_none()
     if not finding:
         raise HTTPException(status_code=404, detail="研究发现不存在")
-    
+
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(finding, field, value)
@@ -416,13 +430,13 @@ async def update_research_finding(db: AsyncSession, finding_id: UUID, data: RdRe
 # ===== Conclusion Version Service =====
 
 async def publish_conclusion_version(
-    db: AsyncSession, 
-    track_id: UUID, 
-    conclusion: str, 
-    confidence: str, 
-    user_id: Optional[UUID] = None,
-    change_summary: Optional[str] = None,
-    evidence_refs: Optional[dict] = None,
+    db: AsyncSession,
+    track_id: UUID,
+    conclusion: str,
+    confidence: str,
+    user_id: UUID | None = None,
+    change_summary: str | None = None,
+    evidence_refs: dict | None = None,
 ) -> dict:
     """发布新的结论版本"""
     result = await db.execute(
@@ -431,14 +445,14 @@ async def publish_conclusion_version(
     track = result.scalar_one_or_none()
     if not track:
         raise HTTPException(status_code=404, detail="研究项不存在")
-    
+
     # Increment version
     new_version = (track.conclusion_version or 0) + 1
     track.conclusion_version = new_version
     track.current_conclusion = conclusion
     track.conclusion_confidence = confidence
     track.updated_by = user_id
-    
+
     # Create version history record
     version_data = {
         "track_id": track_id,
@@ -450,10 +464,10 @@ async def publish_conclusion_version(
         "author_id": user_id,
     }
     await repo.create_conclusion_version(db, version_data)
-    
+
     await db.commit()
     await db.refresh(track)
-    
+
     return {
         "version": track.conclusion_version,
         "conclusion": track.current_conclusion,
@@ -571,7 +585,7 @@ async def check_stage_transition(
 ) -> dict:
     """检查阶段流转条件"""
     project = await get_rd_project(db, project_id)
-    
+
     # 处理当前阶段为 None 的情况（项目刚创建）
     if project.current_stage is None:
         # 允许流转到第一个阶段（initiation）
@@ -587,38 +601,38 @@ async def check_stage_transition(
             }
         else:
             return {"allowed": False, "reason": f"项目尚未立项，请先流转到{STAGE_LABELS[STAGE_ORDER[0]]}"}
-    
+
     current_stage = project.current_stage
-    
+
     # 检查阶段顺序
     if target_stage not in STAGE_ORDER:
         return {"allowed": False, "reason": f"无效阶段: {target_stage}"}
-    
+
     if current_stage not in STAGE_ORDER:
         return {"allowed": False, "reason": f"当前阶段无效: {current_stage}"}
-    
+
     current_idx = STAGE_ORDER.index(current_stage)
     target_idx = STAGE_ORDER.index(target_stage)
-    
+
     if target_idx <= current_idx:
         return {"allowed": False, "reason": "目标阶段必须晚于当前阶段"}
-    
+
     if target_idx != current_idx + 1:
         return {"allowed": False, "reason": "只能流转到下一个阶段"}
-    
+
     # 获取软门条件
     conditions = SOFT_GATE_CONDITIONS.get(current_stage, {})
     hard_conditions = conditions.get("hard", [])
     soft_conditions = conditions.get("soft", [])
-    
+
     # TODO: 实际检查这些条件是否满足
     # 目前返回模拟结果
     hard_check = {cond: True for cond in hard_conditions}
     soft_check = {cond: True for cond in soft_conditions}
-    
+
     all_hard_passed = all(hard_check.values())
     all_soft_passed = all(soft_check.values()) if soft_check else True
-    
+
     return {
         "allowed": all_hard_passed,
         "current_stage": current_stage,
@@ -640,10 +654,10 @@ async def transition_stage(
     """执行阶段流转"""
     # 检查流转条件
     check_result = await check_stage_transition(db, project_id, target_stage)
-    
+
     if not check_result["allowed"]:
         return {"success": False, "message": check_result["reason"]}
-    
+
     # 更新项目阶段
     project = await get_rd_project(db, project_id)
     update_data = {
@@ -651,20 +665,20 @@ async def transition_stage(
         "updated_by": user_id,
     }
     await repo.update_rd_project(db, project, update_data)
-    
+
     # 创建新的阶段记录
     stage_data = {
         "project_id": project_id,
         "stage": target_stage,
         "version": 1,
         "status": "active",
-        "started_at": datetime.now(timezone.utc),
+        "started_at": datetime.now(UTC),
     }
     if user_id:
         stage_data["created_by"] = user_id
-    
+
     await repo.create_stage_record(db, stage_data)
-    
+
     return {
         "success": True,
         "project_id": str(project_id),
@@ -791,10 +805,10 @@ async def get_rd_stage_deliverable(
 
 async def list_rd_stage_deliverables(
     db: AsyncSession,
-    project_id: Optional[UUID] = None,
-    stage: Optional[str] = None,
-    deliverable_type: Optional[str] = None,
-    status: Optional[str] = None,
+    project_id: UUID | None = None,
+    stage: str | None = None,
+    deliverable_type: str | None = None,
+    status: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[RdStageDeliverable], int]:
@@ -1019,8 +1033,12 @@ async def generate_report_with_ai(
 ) -> dict:
     """使用 AI 生成报告"""
     from app.core.llm import llm_client
-    from app.modules.research.models import RdProject, RdResearchTrack, RdResearchFinding, RdExperimentLog
-    
+    from app.modules.research.models import (
+        RdProject,
+        RdResearchFinding,
+        RdResearchTrack,
+    )
+
     # 1. 获取项目信息
     project_result = await db.execute(
         select(RdProject).where(RdProject.id == project_id, RdProject.is_deleted == False)
@@ -1028,17 +1046,17 @@ async def generate_report_with_ai(
     project = project_result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
-    
+
     # 2. 获取模板（如果有）
     template_content = ""
     if template_id:
         template = await repo.get_deliverable_template_by_id(db, template_id)
         if template and template.template_content:
             template_content = template.template_content
-    
+
     # 3. 收集项目数据
     data_sources = []
-    
+
     # 获取研究项
     tracks_result = await db.execute(
         select(RdResearchTrack).where(
@@ -1047,7 +1065,7 @@ async def generate_report_with_ai(
         )
     )
     tracks = tracks_result.scalars().all()
-    
+
     track_summaries = []
     for track in tracks:
         # 获取研究发现
@@ -1058,12 +1076,12 @@ async def generate_report_with_ai(
             )
         )
         findings = findings_result.scalars().all()
-        
+
         findings_text = "\n".join([
             f"- {f.finding_type}: {f.conclusion or '无结论'} (置信度: {f.confidence})"
             for f in findings
         ])
-        
+
         track_summaries.append(f"""
 研究项: {track.name}
 类型: {track.type}
@@ -1073,7 +1091,7 @@ async def generate_report_with_ai(
 {findings_text}
 """)
         data_sources.append(f"研究项: {track.name}")
-    
+
     # 获取实验记录
     experiments_result = await db.execute(
         select(RdExperimentLog).where(
@@ -1082,7 +1100,7 @@ async def generate_report_with_ai(
         )
     )
     experiments = experiments_result.scalars().all()
-    
+
     experiment_summaries = []
     for exp in experiments:
         experiment_summaries.append(f"""
@@ -1096,7 +1114,7 @@ async def generate_report_with_ai(
 结论: {exp.conclusion or '无'}
 """)
         data_sources.append(f"实验: {exp.title}")
-    
+
     # 4. 构建提示词
     deliverable_type_names = {
         'literature_review': '技术调研报告',
@@ -1118,9 +1136,9 @@ async def generate_report_with_ai(
         'crystal_form_study': '晶型和粒度研究报告',
         'impurity_study': '杂质研究报告',
     }
-    
+
     deliverable_name = deliverable_type_names.get(deliverable_type, deliverable_type)
-    
+
     prompt = f"""你是一位专业的原料药研发专家。请根据以下项目信息，生成一份{deliverable_name}。
 
 项目信息:
@@ -1151,14 +1169,14 @@ async def generate_report_with_ai(
 6. 结论与建议
 
 请使用 Markdown 格式输出。"""
-    
+
     # 5. 调用 LLM
     try:
         result = await llm_client.chat([
             {"role": "system", "content": "你是一位专业的原料药研发专家，擅长撰写各类研发报告。"},
             {"role": "user", "content": prompt}
         ])
-        
+
         return {
             "content": result,
             "structure": None,

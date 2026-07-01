@@ -1,9 +1,8 @@
 import os.path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-
 
 n_steps = 30
 colors = ['#DC143C', '#0343DF', '#FAC205']
@@ -48,6 +47,6 @@ if not os.path.exists('figures'):
     os.mkdir('figures')
 
 plt.tight_layout()
-plt.savefig(f"figures/benchmark_acquisition_functions_batch.svg")
+plt.savefig("figures/benchmark_acquisition_functions_batch.svg")
 plt.show()
 

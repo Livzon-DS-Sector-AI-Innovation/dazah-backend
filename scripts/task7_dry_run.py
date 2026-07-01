@@ -25,11 +25,14 @@ if os.path.exists(_env_file):
 
 sys.path.insert(0, _project_root)
 
-from sqlalchemy import select, and_
-from app.platform.identity.models import User  # noqa: F401
+from sqlalchemy import and_, select
+
 from app.core.database import async_session_factory
 from app.modules.regulatory_tracker.models.regulatory_document import RegulatoryDocument
-from app.modules.regulatory_tracker.services.ai_analysis_service import analyze_and_update
+from app.modules.regulatory_tracker.services.ai_analysis_service import (
+    analyze_and_update,
+)
+from app.platform.identity.models import User  # noqa: F401
 
 logging.basicConfig(
     level=logging.INFO,

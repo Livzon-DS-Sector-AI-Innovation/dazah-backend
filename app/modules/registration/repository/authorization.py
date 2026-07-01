@@ -5,7 +5,11 @@ from uuid import UUID
 from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.registration.models import AuthorizationLetter, ReferenceStandard, SupplementaryReply
+from app.modules.registration.models import (
+    AuthorizationLetter,
+    ReferenceStandard,
+    SupplementaryReply,
+)
 
 
 class AuthorizationLetterRepository:

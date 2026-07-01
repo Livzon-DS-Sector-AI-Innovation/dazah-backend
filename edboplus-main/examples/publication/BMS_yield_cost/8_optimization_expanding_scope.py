@@ -1,8 +1,8 @@
-from edbo.plus.optimizer_botorch import EDBOplus
-import pandas as pd
-import numpy as np
-import seaborn as sns
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from edbo.plus.optimizer_botorch import EDBOplus
 
 df_lookup = pd.read_csv('./data/experiments_yield_and_cost.csv')
 df_large = pd.read_csv('./data/experiments_yield_and_cost.csv')
@@ -57,13 +57,13 @@ track_results_dict = {
     'max_uncertainty_yield': [],
     'max_uncertainty_cost': [],
     'avg_uncertainty_yield': [],
-    'avg_uncertainty_cost': [],    
+    'avg_uncertainty_cost': [],
     }
 
 collected_yields = []
 collected_costs = []
 
-for round in range(0, n_rounds_small):    
+for round in range(0, n_rounds_small):
     EDBOplus().run(
         filename='small_scope.csv',  # Previously generated scope.
         objectives=['yield', 'cost'],  # Objectives to be optimized.
@@ -72,61 +72,61 @@ for round in range(0, n_rounds_small):
         columns_features=columns_regression, # features to be included in the model.
         init_sampling_method='cvtsampling'  # initialization method.
     )
-    
+
     n_experiments += batch_size
     # Update with experimental values (observations).
-    df_results = pd.read_csv('small_scope.csv')    
-    arg_lookup = df_results.loc[0:batch_size-1]['new_index'].values    
-    
-    for a in range(len(arg_lookup)):        
+    df_results = pd.read_csv('small_scope.csv')
+    arg_lookup = df_results.loc[0:batch_size-1]['new_index'].values
+
+    for a in range(len(arg_lookup)):
         df_results.at[a,'yield'] = df_lookup.loc[arg_lookup[a]]['yield']
         df_results.at[a,'cost'] = df_lookup.loc[arg_lookup[a]]['cost']
         collected_yields.append(df_lookup.loc[arg_lookup[a]]['yield'])
         collected_costs.append(df_lookup.loc[arg_lookup[a]]['cost'])
-    
+
     df_results.to_csv('small_scope.csv', index=False)
-    
+
     if round > 0:
         # Save all predicted values.
         df_pred = pd.read_csv('pred_small_scope.csv')
         max_ei_yield = np.max(df_pred['yield_expected_improvement'])
         max_ei_cost = np.max(df_pred['cost_expected_improvement'])
-        max_uncertainty_yield = np.max((df_pred['yield_predicted_variance']))
-        max_uncertainty_cost = np.max((df_pred['cost_predicted_variance']))
-        avg_uncertainty_yield = np.average((df_pred['yield_predicted_variance']))
-        avg_uncertainty_cost = np.average((df_pred['cost_predicted_variance']))                        
+        max_uncertainty_yield = np.max(df_pred['yield_predicted_variance'])
+        max_uncertainty_cost = np.max(df_pred['cost_predicted_variance'])
+        avg_uncertainty_yield = np.average(df_pred['yield_predicted_variance'])
+        avg_uncertainty_cost = np.average(df_pred['cost_predicted_variance'])
         best_yield = np.max(collected_yields)
-        best_cost = np.min(collected_costs)        
+        best_cost = np.min(collected_costs)
         track_results_dict['n_experiments'].append(n_experiments)
         track_results_dict['best_yield'].append(best_yield)
-        track_results_dict['best_cost'].append(best_cost)    
-        track_results_dict['max_ei_yield'].append(max_ei_yield)                        
-        track_results_dict['max_ei_cost'].append(max_ei_cost)                        
-        track_results_dict['max_uncertainty_yield'].append(max_uncertainty_yield)                                
-        track_results_dict['max_uncertainty_cost'].append(max_uncertainty_cost)                                
-        track_results_dict['avg_uncertainty_yield'].append(avg_uncertainty_yield)                        
-        track_results_dict['avg_uncertainty_cost'].append(avg_uncertainty_cost)                        
+        track_results_dict['best_cost'].append(best_cost)
+        track_results_dict['max_ei_yield'].append(max_ei_yield)
+        track_results_dict['max_ei_cost'].append(max_ei_cost)
+        track_results_dict['max_uncertainty_yield'].append(max_uncertainty_yield)
+        track_results_dict['max_uncertainty_cost'].append(max_uncertainty_cost)
+        track_results_dict['avg_uncertainty_yield'].append(avg_uncertainty_yield)
+        track_results_dict['avg_uncertainty_cost'].append(avg_uncertainty_cost)
 
 # Plot before expanding:
 fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(7, 7))
 
 sns.scatterplot(
-    x=np.array(track_results_dict['n_experiments']), 
+    x=np.array(track_results_dict['n_experiments']),
     y=np.array(track_results_dict['max_ei_yield']), ax=ax[0][0], color='C1', s=100,
     zorder=100
     )
 sns.scatterplot(
-    x=track_results_dict['n_experiments'], 
+    x=track_results_dict['n_experiments'],
     y=track_results_dict['max_ei_cost'], ax=ax[0][1], color='C1', s=100,
     zorder=100
     )
 sns.scatterplot(
-    x=track_results_dict['n_experiments'], 
+    x=track_results_dict['n_experiments'],
     y=track_results_dict['best_yield'], ax=ax[1][0], color='C1',  s=100,
     zorder=100
     )
-sns.scatterplot(    
-    x=track_results_dict['n_experiments'], 
+sns.scatterplot(
+    x=track_results_dict['n_experiments'],
     y=track_results_dict['best_cost'], ax=ax[1][1], color='C1',s=100,
     zorder=100
     )
@@ -150,7 +150,7 @@ df_expand.to_csv('expanded_scope.csv', index=False)
 n_experiments -= batch_size
 
 # Keep optimizing after expanding.
-for round in range(0, n_round_large):    
+for round in range(0, n_round_large):
     EDBOplus().run(
         filename='expanded_scope.csv',  # Previously generated scope.
         objectives=['yield', 'cost'],  # Objectives to be optimized.
@@ -159,57 +159,57 @@ for round in range(0, n_round_large):
         columns_features=columns_regression, # features to be included in the model.
         init_sampling_method='cvtsampling'  # initialization method.
     )
-    
+
     n_experiments += batch_size
     # Update with experimental values (observations).
-    df_results = pd.read_csv('expanded_scope.csv')    
-    arg_lookup = df_results.loc[0:batch_size-1]['new_index'].values    
-    
-    for a in range(len(arg_lookup)):        
+    df_results = pd.read_csv('expanded_scope.csv')
+    arg_lookup = df_results.loc[0:batch_size-1]['new_index'].values
+
+    for a in range(len(arg_lookup)):
         df_results.at[a,'yield'] = df_lookup.loc[arg_lookup[a]]['yield']
         df_results.at[a,'cost'] = df_lookup.loc[arg_lookup[a]]['cost']
         collected_yields.append(df_lookup.loc[arg_lookup[a]]['yield'])
         collected_costs.append(df_lookup.loc[arg_lookup[a]]['cost'])
-    
+
     df_results.to_csv('expanded_scope.csv', index=False)
-    
+
     if round > 0:
         # Save all predicted values.
         df_pred = pd.read_csv('pred_expanded_scope.csv')
         max_ei_yield = np.max(df_pred['yield_expected_improvement'])
         max_ei_cost = np.max(df_pred['cost_expected_improvement'])
-        max_uncertainty_yield = np.max((df_pred['yield_predicted_variance']))
-        max_uncertainty_cost = np.max((df_pred['cost_predicted_variance']))
-        avg_uncertainty_yield = np.average((df_pred['yield_predicted_variance']))
-        avg_uncertainty_cost = np.average((df_pred['cost_predicted_variance']))                        
+        max_uncertainty_yield = np.max(df_pred['yield_predicted_variance'])
+        max_uncertainty_cost = np.max(df_pred['cost_predicted_variance'])
+        avg_uncertainty_yield = np.average(df_pred['yield_predicted_variance'])
+        avg_uncertainty_cost = np.average(df_pred['cost_predicted_variance'])
         best_yield = np.max(collected_yields)
-        best_cost = np.min(collected_costs)        
+        best_cost = np.min(collected_costs)
         track_results_dict['n_experiments'].append(n_experiments)
         track_results_dict['best_yield'].append(best_yield)
-        track_results_dict['best_cost'].append(best_cost)    
-        track_results_dict['max_ei_yield'].append(max_ei_yield)                        
-        track_results_dict['max_ei_cost'].append(max_ei_cost)                        
-        track_results_dict['max_uncertainty_yield'].append(max_uncertainty_yield)                                
-        track_results_dict['avg_uncertainty_yield'].append(avg_uncertainty_yield)                        
+        track_results_dict['best_cost'].append(best_cost)
+        track_results_dict['max_ei_yield'].append(max_ei_yield)
+        track_results_dict['max_ei_cost'].append(max_ei_cost)
+        track_results_dict['max_uncertainty_yield'].append(max_uncertainty_yield)
+        track_results_dict['avg_uncertainty_yield'].append(avg_uncertainty_yield)
         track_results_dict['avg_uncertainty_cost'].append(avg_uncertainty_cost)
-        
-        
+
+
 sns.scatterplot(
-    x=np.array(track_results_dict['n_experiments']), 
+    x=np.array(track_results_dict['n_experiments']),
     y=np.array(track_results_dict['max_ei_yield']), ax=ax[0][0], color='C0', s=95,
     zorder=10
     )
 sns.scatterplot(
-    x=track_results_dict['n_experiments'], 
+    x=track_results_dict['n_experiments'],
     y=track_results_dict['max_ei_cost'], ax=ax[0][1], color='C0', s=95,
     )
 sns.scatterplot(
-    x=track_results_dict['n_experiments'], 
+    x=track_results_dict['n_experiments'],
     y=track_results_dict['best_yield'], ax=ax[1][0], color='C0',  s=95,
     zorder=10
     )
-sns.scatterplot(    
-    x=track_results_dict['n_experiments'], 
+sns.scatterplot(
+    x=track_results_dict['n_experiments'],
     y=track_results_dict['best_cost'], ax=ax[1][1], color='C0',s=95,
     zorder=10
     )
@@ -218,11 +218,11 @@ plt.tight_layout()
 plt.savefig('./results_plots/expand_scope.svg', format='svg')
 plt.show()
 
-    
-    
-    
-    
 
-    
+
+
+
+
+
 
 

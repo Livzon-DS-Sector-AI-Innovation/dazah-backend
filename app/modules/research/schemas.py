@@ -1,9 +1,9 @@
 """Research request and response schemas."""
 
 import uuid
-from uuid import UUID
 from datetime import date, datetime
-from typing import Literal, Optional
+from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -75,8 +75,8 @@ class EDBOOptimizeResponse(BaseModel):
 
     csv_data: str = Field(..., description="结果 CSV 文本")
     row_count: int = Field(..., description="结果行数")
-    prediction_data: Optional[str] = Field(None, description="预测文件 CSV 文本（可选）")
-    prediction_filename: Optional[str] = Field(None, description="预测文件名（可选）")
+    prediction_data: str | None = Field(None, description="预测文件 CSV 文本（可选）")
+    prediction_filename: str | None = Field(None, description="预测文件名（可选）")
 
 
 # ===== Pilot Workflow Schemas =====
@@ -167,17 +167,17 @@ PilotWorkflowListItem = PilotWorkflowListResponse
 class RdProjectBase(BaseModel):
     name: str = Field(..., max_length=200, description="品种名称")
     api_name: str = Field(..., max_length=200, description="API全称")
-    cas_number: Optional[str] = Field(None, max_length=50, description="CAS号")
-    molecular_formula: Optional[str] = Field(None, max_length=200, description="分子式")
-    molecular_weight: Optional[float] = Field(None, description="分子量")
-    indication: Optional[str] = Field(None, max_length=500, description="适应症")
-    project_type: Optional[str] = Field(None, max_length=50, description="generic/improved")
+    cas_number: str | None = Field(None, max_length=50, description="CAS号")
+    molecular_formula: str | None = Field(None, max_length=200, description="分子式")
+    molecular_weight: float | None = Field(None, description="分子量")
+    indication: str | None = Field(None, max_length=500, description="适应症")
+    project_type: str | None = Field(None, max_length=50, description="generic/improved")
     priority: str = Field("normal", max_length=20, description="low/normal/high/urgent")
-    project_manager_id: Optional[UUID] = Field(None, description="项目经理ID")
-    start_date: Optional[date] = Field(None, description="开始日期")
-    target_filing_date: Optional[date] = Field(None, description="目标申报日期")
-    notes: Optional[str] = Field(None, description="备注")
-    current_stage: Optional[str] = Field(None, max_length=50, description="起始阶段")
+    project_manager_id: UUID | None = Field(None, description="项目经理ID")
+    start_date: date | None = Field(None, description="开始日期")
+    target_filing_date: date | None = Field(None, description="目标申报日期")
+    notes: str | None = Field(None, description="备注")
+    current_stage: str | None = Field(None, max_length=50, description="起始阶段")
 
 
 class RdProjectCreate(RdProjectBase):
@@ -185,33 +185,33 @@ class RdProjectCreate(RdProjectBase):
 
 
 class RdProjectUpdate(BaseModel):
-    name: Optional[str] = Field(None, max_length=200)
-    api_name: Optional[str] = Field(None, max_length=200)
-    cas_number: Optional[str] = Field(None, max_length=50)
-    molecular_formula: Optional[str] = Field(None, max_length=200)
-    molecular_weight: Optional[float] = None
-    indication: Optional[str] = Field(None, max_length=500)
-    project_type: Optional[str] = Field(None, max_length=50)
-    priority: Optional[str] = Field(None, max_length=20)
-    project_manager_id: Optional[UUID] = None
-    start_date: Optional[date] = None
-    target_filing_date: Optional[date] = None
-    actual_filing_date: Optional[date] = None
-    current_stage: Optional[str] = Field(None, max_length=50)
-    overall_progress: Optional[float] = None
-    notes: Optional[str] = None
+    name: str | None = Field(None, max_length=200)
+    api_name: str | None = Field(None, max_length=200)
+    cas_number: str | None = Field(None, max_length=50)
+    molecular_formula: str | None = Field(None, max_length=200)
+    molecular_weight: float | None = None
+    indication: str | None = Field(None, max_length=500)
+    project_type: str | None = Field(None, max_length=50)
+    priority: str | None = Field(None, max_length=20)
+    project_manager_id: UUID | None = None
+    start_date: date | None = None
+    target_filing_date: date | None = None
+    actual_filing_date: date | None = None
+    current_stage: str | None = Field(None, max_length=50)
+    overall_progress: float | None = None
+    notes: str | None = None
 
 
 class RdProjectResponse(RdProjectBase):
     id: UUID
     status: str
-    current_stage: Optional[str]
-    overall_progress: Optional[float]
-    actual_filing_date: Optional[date]
+    current_stage: str | None
+    overall_progress: float | None
+    actual_filing_date: date | None
     created_at: datetime
     updated_at: datetime
-    created_by: Optional[UUID]
-    updated_by: Optional[UUID]
+    created_by: UUID | None
+    updated_by: UUID | None
 
     model_config = {"from_attributes": True}
 
@@ -220,11 +220,11 @@ class RdProjectResponse(RdProjectBase):
 
 class RdMilestoneBase(BaseModel):
     title: str = Field(..., max_length=200, description="标题")
-    milestone_type: Optional[str] = Field(None, max_length=50, description="gate_review/decision/achievement")
-    stage: Optional[str] = Field(None, max_length=50, description="关联阶段")
-    planned_date: Optional[date] = Field(None, description="计划日期")
-    decision: Optional[str] = Field(None, max_length=50, description="go/no_go/hold/conditional")
-    decision_rationale: Optional[str] = Field(None, description="决策理由")
+    milestone_type: str | None = Field(None, max_length=50, description="gate_review/decision/achievement")
+    stage: str | None = Field(None, max_length=50, description="关联阶段")
+    planned_date: date | None = Field(None, description="计划日期")
+    decision: str | None = Field(None, max_length=50, description="go/no_go/hold/conditional")
+    decision_rationale: str | None = Field(None, description="决策理由")
 
 
 class RdMilestoneCreate(RdMilestoneBase):
@@ -232,21 +232,21 @@ class RdMilestoneCreate(RdMilestoneBase):
 
 
 class RdMilestoneUpdate(BaseModel):
-    title: Optional[str] = Field(None, max_length=200)
-    milestone_type: Optional[str] = Field(None, max_length=50)
-    stage: Optional[str] = Field(None, max_length=50)
-    status: Optional[str] = Field(None, max_length=50)
-    planned_date: Optional[date] = None
-    actual_date: Optional[date] = None
-    decision: Optional[str] = Field(None, max_length=50)
-    decision_rationale: Optional[str] = None
+    title: str | None = Field(None, max_length=200)
+    milestone_type: str | None = Field(None, max_length=50)
+    stage: str | None = Field(None, max_length=50)
+    status: str | None = Field(None, max_length=50)
+    planned_date: date | None = None
+    actual_date: date | None = None
+    decision: str | None = Field(None, max_length=50)
+    decision_rationale: str | None = None
 
 
 class RdMilestoneResponse(RdMilestoneBase):
     id: UUID
     project_id: UUID
     status: str
-    actual_date: Optional[date]
+    actual_date: date | None
     created_at: datetime
     updated_at: datetime
 
@@ -258,10 +258,10 @@ class RdMilestoneResponse(RdMilestoneBase):
 class RdStageRecordBase(BaseModel):
     stage: str = Field(..., max_length=50, description="initiation/route_dev/optimization/pilot/validation/filing")
     version: int = Field(1, description="版本号")
-    input_summary: Optional[dict] = Field(None, description="上游输入摘要")
-    input_references: Optional[dict] = Field(None, description="关联的上游记录ID")
-    output_summary: Optional[dict] = Field(None, description="产出摘要")
-    deliverables: Optional[dict] = Field(None, description="产出物列表")
+    input_summary: dict | None = Field(None, description="上游输入摘要")
+    input_references: dict | None = Field(None, description="关联的上游记录ID")
+    output_summary: dict | None = Field(None, description="产出摘要")
+    deliverables: dict | None = Field(None, description="产出物列表")
 
 
 class RdStageRecordCreate(RdStageRecordBase):
@@ -269,28 +269,28 @@ class RdStageRecordCreate(RdStageRecordBase):
 
 
 class RdStageRecordUpdate(BaseModel):
-    status: Optional[str] = Field(None, max_length=50)
-    input_summary: Optional[dict] = None
-    input_references: Optional[dict] = None
-    output_summary: Optional[dict] = None
-    deliverables: Optional[dict] = None
-    gate_review_status: Optional[str] = Field(None, max_length=50)
-    gate_hard_conditions: Optional[dict] = None
-    gate_soft_conditions: Optional[dict] = None
-    gate_review_notes: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    status: str | None = Field(None, max_length=50)
+    input_summary: dict | None = None
+    input_references: dict | None = None
+    output_summary: dict | None = None
+    deliverables: dict | None = None
+    gate_review_status: str | None = Field(None, max_length=50)
+    gate_hard_conditions: dict | None = None
+    gate_soft_conditions: dict | None = None
+    gate_review_notes: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 class RdStageRecordResponse(RdStageRecordBase):
     id: UUID
     project_id: UUID
     status: str
-    gate_review_status: Optional[str]
-    gate_reviewed_at: Optional[datetime]
-    gate_reviewed_by: Optional[UUID]
-    started_at: Optional[datetime]
-    completed_at: Optional[datetime]
+    gate_review_status: str | None
+    gate_reviewed_at: datetime | None
+    gate_reviewed_by: UUID | None
+    started_at: datetime | None
+    completed_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -302,9 +302,9 @@ class RdStageRecordResponse(RdStageRecordBase):
 class RdResearchTrackBase(BaseModel):
     type: str = Field(..., max_length=50, description="impurity/crystal_form/stability/quality_standard/custom")
     name: str = Field(..., max_length=200, description="研究项名称")
-    description: Optional[str] = Field(None, description="描述")
+    description: str | None = Field(None, description="描述")
     priority: str = Field("normal", max_length=20, description="low/normal/high/urgent")
-    owner_id: Optional[UUID] = Field(None, description="负责人ID")
+    owner_id: UUID | None = Field(None, description="负责人ID")
 
 
 class RdResearchTrackCreate(RdResearchTrackBase):
@@ -312,26 +312,26 @@ class RdResearchTrackCreate(RdResearchTrackBase):
 
 
 class RdResearchTrackUpdate(BaseModel):
-    type: Optional[str] = Field(None, max_length=50)
-    name: Optional[str] = Field(None, max_length=200)
-    description: Optional[str] = None
-    status: Optional[str] = Field(None, max_length=50)
-    priority: Optional[str] = Field(None, max_length=20)
-    current_conclusion: Optional[str] = None
-    conclusion_version: Optional[int] = None
-    conclusion_confidence: Optional[str] = Field(None, max_length=50)
-    active_stages: Optional[list[str]] = None
-    owner_id: Optional[UUID] = None
+    type: str | None = Field(None, max_length=50)
+    name: str | None = Field(None, max_length=200)
+    description: str | None = None
+    status: str | None = Field(None, max_length=50)
+    priority: str | None = Field(None, max_length=20)
+    current_conclusion: str | None = None
+    conclusion_version: int | None = None
+    conclusion_confidence: str | None = Field(None, max_length=50)
+    active_stages: list[str] | None = None
+    owner_id: UUID | None = None
 
 
 class RdResearchTrackResponse(RdResearchTrackBase):
     id: UUID
     project_id: UUID
     status: str
-    current_conclusion: Optional[str]
+    current_conclusion: str | None
     conclusion_version: int
-    conclusion_confidence: Optional[str]
-    active_stages: Optional[list[str]]
+    conclusion_confidence: str | None
+    active_stages: list[str] | None
     created_at: datetime
     updated_at: datetime
 
@@ -341,53 +341,53 @@ class RdResearchTrackResponse(RdResearchTrackBase):
 # ===== Research Finding Schemas =====
 
 class RdResearchFindingBase(BaseModel):
-    finding_type: Optional[str] = Field(None, max_length=50, description="identification/classification/control_strategy/characterization")
-    data: Optional[dict] = Field(None, description="结构化数据")
-    conclusion: Optional[str] = Field(None, description="结论")
+    finding_type: str | None = Field(None, max_length=50, description="identification/classification/control_strategy/characterization")
+    data: dict | None = Field(None, description="结构化数据")
+    conclusion: str | None = Field(None, description="结论")
     confidence: str = Field("preliminary", max_length=50, description="preliminary/confirmed/final")
-    experiment_date: Optional[date] = None
-    operator: Optional[str] = None
-    experiment_conditions: Optional[dict] = None
-    materials_used: Optional[dict] = None
-    equipment_used: Optional[dict] = None
-    spectra_refs: Optional[dict] = None
-    analytical_results: Optional[dict] = None
-    observations: Optional[str] = None
-    attachments: Optional[dict] = None
-    notes: Optional[str] = None
+    experiment_date: date | None = None
+    operator: str | None = None
+    experiment_conditions: dict | None = None
+    materials_used: dict | None = None
+    equipment_used: dict | None = None
+    spectra_refs: dict | None = None
+    analytical_results: dict | None = None
+    observations: str | None = None
+    attachments: dict | None = None
+    notes: str | None = None
 
 
 class RdResearchFindingCreate(RdResearchFindingBase):
-    stage_record_id: Optional[UUID] = Field(None, description="关联阶段记录ID")
+    stage_record_id: UUID | None = Field(None, description="关联阶段记录ID")
 
 
 class RdResearchFindingUpdate(BaseModel):
-    finding_type: Optional[str] = Field(None, max_length=50)
-    data: Optional[dict] = None
-    conclusion: Optional[str] = None
-    confidence: Optional[str] = Field(None, max_length=50)
-    experiment_date: Optional[date] = None
-    operator: Optional[str] = None
-    experiment_conditions: Optional[dict] = None
-    materials_used: Optional[dict] = None
-    equipment_used: Optional[dict] = None
-    spectra_refs: Optional[dict] = None
-    analytical_results: Optional[dict] = None
-    observations: Optional[str] = None
-    attachments: Optional[dict] = None
-    notes: Optional[str] = None
-    version: Optional[int] = None
+    finding_type: str | None = Field(None, max_length=50)
+    data: dict | None = None
+    conclusion: str | None = None
+    confidence: str | None = Field(None, max_length=50)
+    experiment_date: date | None = None
+    operator: str | None = None
+    experiment_conditions: dict | None = None
+    materials_used: dict | None = None
+    equipment_used: dict | None = None
+    spectra_refs: dict | None = None
+    analytical_results: dict | None = None
+    observations: str | None = None
+    attachments: dict | None = None
+    notes: str | None = None
+    version: int | None = None
 
 
 class RdResearchFindingResponse(RdResearchFindingBase):
     id: UUID
     track_id: UUID
-    stage_record_id: Optional[UUID]
+    stage_record_id: UUID | None
     version: int
     created_at: datetime
     updated_at: datetime
-    created_by: Optional[UUID]
-    updated_by: Optional[UUID]
+    created_by: UUID | None
+    updated_by: UUID | None
 
     model_config = {"from_attributes": True}
 
@@ -404,16 +404,16 @@ RdResearchFindingResponse.model_rebuild()
 
 class RdPilotStudyBase(BaseModel):
     project_id: UUID
-    stage_record_id: Optional[UUID] = None
-    material_balance: Optional[dict] = None
-    equipment_selection: Optional[dict] = None
-    engineering_calc: Optional[dict] = None
-    ehs_assessment: Optional[dict] = None
-    scale_up_effect: Optional[dict] = None
-    batch_no: Optional[str] = Field(None, max_length=100)
-    batch_size: Optional[float] = None
+    stage_record_id: UUID | None = None
+    material_balance: dict | None = None
+    equipment_selection: dict | None = None
+    engineering_calc: dict | None = None
+    ehs_assessment: dict | None = None
+    scale_up_effect: dict | None = None
+    batch_no: str | None = Field(None, max_length=100)
+    batch_size: float | None = None
     status: str = Field("draft", max_length=50)
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class RdPilotStudyCreate(RdPilotStudyBase):
@@ -421,15 +421,15 @@ class RdPilotStudyCreate(RdPilotStudyBase):
 
 
 class RdPilotStudyUpdate(BaseModel):
-    material_balance: Optional[dict] = None
-    equipment_selection: Optional[dict] = None
-    engineering_calc: Optional[dict] = None
-    ehs_assessment: Optional[dict] = None
-    scale_up_effect: Optional[dict] = None
-    batch_no: Optional[str] = Field(None, max_length=100)
-    batch_size: Optional[float] = None
-    status: Optional[str] = Field(None, max_length=50)
-    notes: Optional[str] = None
+    material_balance: dict | None = None
+    equipment_selection: dict | None = None
+    engineering_calc: dict | None = None
+    ehs_assessment: dict | None = None
+    scale_up_effect: dict | None = None
+    batch_no: str | None = Field(None, max_length=100)
+    batch_size: float | None = None
+    status: str | None = Field(None, max_length=50)
+    notes: str | None = None
 
 
 class RdPilotStudyResponse(RdPilotStudyBase):
@@ -443,13 +443,13 @@ class RdPilotStudyResponse(RdPilotStudyBase):
 
 class RdProcessValidationBase(BaseModel):
     project_id: UUID
-    stage_record_id: Optional[UUID] = None
-    validation_protocol: Optional[dict] = None
-    validation_batches: Optional[dict] = None
-    statistical_analysis: Optional[dict] = None
-    validation_conclusion: Optional[str] = None
+    stage_record_id: UUID | None = None
+    validation_protocol: dict | None = None
+    validation_batches: dict | None = None
+    statistical_analysis: dict | None = None
+    validation_conclusion: str | None = None
     status: str = Field("draft", max_length=50)
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class RdProcessValidationCreate(RdProcessValidationBase):
@@ -457,12 +457,12 @@ class RdProcessValidationCreate(RdProcessValidationBase):
 
 
 class RdProcessValidationUpdate(BaseModel):
-    validation_protocol: Optional[dict] = None
-    validation_batches: Optional[dict] = None
-    statistical_analysis: Optional[dict] = None
-    validation_conclusion: Optional[str] = None
-    status: Optional[str] = Field(None, max_length=50)
-    notes: Optional[str] = None
+    validation_protocol: dict | None = None
+    validation_batches: dict | None = None
+    statistical_analysis: dict | None = None
+    validation_conclusion: str | None = None
+    status: str | None = Field(None, max_length=50)
+    notes: str | None = None
 
 
 class RdProcessValidationResponse(RdProcessValidationBase):
@@ -476,12 +476,12 @@ class RdProcessValidationResponse(RdProcessValidationBase):
 
 class RdRegistrationFilingBase(BaseModel):
     project_id: UUID
-    stage_record_id: Optional[UUID] = None
-    ctd_structure: Optional[dict] = None
-    filing_progress: Optional[dict] = None
-    supplementary_docs: Optional[dict] = None
+    stage_record_id: UUID | None = None
+    ctd_structure: dict | None = None
+    filing_progress: dict | None = None
+    supplementary_docs: dict | None = None
     status: str = Field("draft", max_length=50)
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class RdRegistrationFilingCreate(RdRegistrationFilingBase):
@@ -489,11 +489,11 @@ class RdRegistrationFilingCreate(RdRegistrationFilingBase):
 
 
 class RdRegistrationFilingUpdate(BaseModel):
-    ctd_structure: Optional[dict] = None
-    filing_progress: Optional[dict] = None
-    supplementary_docs: Optional[dict] = None
-    status: Optional[str] = Field(None, max_length=50)
-    notes: Optional[str] = None
+    ctd_structure: dict | None = None
+    filing_progress: dict | None = None
+    supplementary_docs: dict | None = None
+    status: str | None = Field(None, max_length=50)
+    notes: str | None = None
 
 
 class RdRegistrationFilingResponse(RdRegistrationFilingBase):
@@ -512,11 +512,11 @@ class RdStageDeliverableBase(BaseModel):
     title: str = Field(..., max_length=500, description="标题")
     status: str = Field("draft", max_length=50, description="draft/in_progress/completed/approved")
     version: str = Field("v1.0", max_length=50, description="版本号")
-    file_url: Optional[str] = Field(None, max_length=1000, description="附件URL")
-    file_name: Optional[str] = Field(None, max_length=500, description="文件名")
-    file_size: Optional[int] = Field(None, description="文件大小(字节)")
-    content: Optional[str] = Field(None, description="内容(富文本)")
-    owner_id: Optional[UUID] = Field(None, description="负责人")
+    file_url: str | None = Field(None, max_length=1000, description="附件URL")
+    file_name: str | None = Field(None, max_length=500, description="文件名")
+    file_size: int | None = Field(None, description="文件大小(字节)")
+    content: str | None = Field(None, description="内容(富文本)")
+    owner_id: UUID | None = Field(None, description="负责人")
 
 
 class RdStageDeliverableCreate(RdStageDeliverableBase):
@@ -524,22 +524,22 @@ class RdStageDeliverableCreate(RdStageDeliverableBase):
 
 
 class RdStageDeliverableUpdate(BaseModel):
-    title: Optional[str] = Field(None, max_length=500)
-    status: Optional[str] = Field(None, max_length=50)
-    version: Optional[str] = Field(None, max_length=50)
-    file_url: Optional[str] = Field(None, max_length=1000)
-    file_name: Optional[str] = Field(None, max_length=500)
-    file_size: Optional[int] = None
-    content: Optional[str] = None
-    owner_id: Optional[UUID] = None
+    title: str | None = Field(None, max_length=500)
+    status: str | None = Field(None, max_length=50)
+    version: str | None = Field(None, max_length=50)
+    file_url: str | None = Field(None, max_length=1000)
+    file_name: str | None = Field(None, max_length=500)
+    file_size: int | None = None
+    content: str | None = None
+    owner_id: UUID | None = None
 
 
 class RdStageDeliverableResponse(RdStageDeliverableBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
-    created_by: Optional[UUID]
-    updated_by: Optional[UUID]
+    created_by: UUID | None
+    updated_by: UUID | None
 
 
 # ===== 交付物类型配置 =====
@@ -582,23 +582,23 @@ DELIVERABLE_TYPES = {
 
 class RdExperimentLogBase(BaseModel):
     project_id: UUID
-    stage_record_id: Optional[UUID] = None
+    stage_record_id: UUID | None = None
     title: str = Field(..., max_length=300)
     experiment_type: str = Field(..., max_length=50)
-    experiment_date: Optional[date] = None
-    operator: Optional[str] = Field(None, max_length=100)
+    experiment_date: date | None = None
+    operator: str | None = Field(None, max_length=100)
     status: str = Field("planned", max_length=50)
-    objective: Optional[str] = None
-    materials: Optional[dict] = None
-    equipment: Optional[dict] = None
-    procedure: Optional[str] = None
-    process_params: Optional[dict] = None
-    observations: Optional[str] = None
-    results: Optional[dict] = None
-    conclusion: Optional[str] = None
-    issues: Optional[str] = None
-    next_steps: Optional[str] = None
-    notes: Optional[str] = None
+    objective: str | None = None
+    materials: dict | None = None
+    equipment: dict | None = None
+    procedure: str | None = None
+    process_params: dict | None = None
+    observations: str | None = None
+    results: dict | None = None
+    conclusion: str | None = None
+    issues: str | None = None
+    next_steps: str | None = None
+    notes: str | None = None
 
 
 class RdExperimentLogCreate(RdExperimentLogBase):
@@ -606,22 +606,22 @@ class RdExperimentLogCreate(RdExperimentLogBase):
 
 
 class RdExperimentLogUpdate(BaseModel):
-    title: Optional[str] = Field(None, max_length=300)
-    experiment_type: Optional[str] = Field(None, max_length=50)
-    experiment_date: Optional[date] = None
-    operator: Optional[str] = Field(None, max_length=100)
-    status: Optional[str] = Field(None, max_length=50)
-    objective: Optional[str] = None
-    materials: Optional[dict] = None
-    equipment: Optional[dict] = None
-    procedure: Optional[str] = None
-    process_params: Optional[dict] = None
-    observations: Optional[str] = None
-    results: Optional[dict] = None
-    conclusion: Optional[str] = None
-    issues: Optional[str] = None
-    next_steps: Optional[str] = None
-    notes: Optional[str] = None
+    title: str | None = Field(None, max_length=300)
+    experiment_type: str | None = Field(None, max_length=50)
+    experiment_date: date | None = None
+    operator: str | None = Field(None, max_length=100)
+    status: str | None = Field(None, max_length=50)
+    objective: str | None = None
+    materials: dict | None = None
+    equipment: dict | None = None
+    procedure: str | None = None
+    process_params: dict | None = None
+    observations: str | None = None
+    results: dict | None = None
+    conclusion: str | None = None
+    issues: str | None = None
+    next_steps: str | None = None
+    notes: str | None = None
 
 
 class RdExperimentLogResponse(RdExperimentLogBase):
@@ -637,16 +637,16 @@ class RdReportBase(BaseModel):
     project_id: UUID
     title: str = Field(..., max_length=500)
     report_type: str = Field(..., max_length=50)
-    stage: Optional[str] = Field(None, max_length=50)
+    stage: str | None = Field(None, max_length=50)
     status: str = Field("draft", max_length=50)
     version: str = Field("v1.0", max_length=50)
-    content: Optional[str] = None
-    summary: Optional[str] = None
-    key_findings: Optional[dict] = None
-    recommendations: Optional[str] = None
-    author_id: Optional[UUID] = None
-    reviewer_id: Optional[UUID] = None
-    notes: Optional[str] = None
+    content: str | None = None
+    summary: str | None = None
+    key_findings: dict | None = None
+    recommendations: str | None = None
+    author_id: UUID | None = None
+    reviewer_id: UUID | None = None
+    notes: str | None = None
 
 
 class RdReportCreate(RdReportBase):
@@ -654,23 +654,23 @@ class RdReportCreate(RdReportBase):
 
 
 class RdReportUpdate(BaseModel):
-    title: Optional[str] = Field(None, max_length=500)
-    report_type: Optional[str] = Field(None, max_length=50)
-    stage: Optional[str] = Field(None, max_length=50)
-    status: Optional[str] = Field(None, max_length=50)
-    version: Optional[str] = Field(None, max_length=50)
-    content: Optional[str] = None
-    summary: Optional[str] = None
-    key_findings: Optional[dict] = None
-    recommendations: Optional[str] = None
-    reviewer_id: Optional[UUID] = None
-    reviewed_at: Optional[datetime] = None
-    notes: Optional[str] = None
+    title: str | None = Field(None, max_length=500)
+    report_type: str | None = Field(None, max_length=50)
+    stage: str | None = Field(None, max_length=50)
+    status: str | None = Field(None, max_length=50)
+    version: str | None = Field(None, max_length=50)
+    content: str | None = None
+    summary: str | None = None
+    key_findings: dict | None = None
+    recommendations: str | None = None
+    reviewer_id: UUID | None = None
+    reviewed_at: datetime | None = None
+    notes: str | None = None
 
 
 class RdReportResponse(RdReportBase):
     id: UUID
-    reviewed_at: Optional[datetime] = None
+    reviewed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     model_config = {"from_attributes": True}
@@ -680,26 +680,26 @@ class RdReportResponse(RdReportBase):
 
 class RdInitiationBase(BaseModel):
     project_id: UUID
-    project_background: Optional[str] = None
-    market_analysis: Optional[str] = None
-    technical_feasibility: Optional[str] = None
-    resource_requirements: Optional[dict] = None
-    timeline_plan: Optional[dict] = None
-    risk_assessment: Optional[dict] = None
-    expected_outcomes: Optional[str] = None
-    applicant_id: Optional[UUID] = None
-    application_date: Optional[date] = None
+    project_background: str | None = None
+    market_analysis: str | None = None
+    technical_feasibility: str | None = None
+    resource_requirements: dict | None = None
+    timeline_plan: dict | None = None
+    risk_assessment: dict | None = None
+    expected_outcomes: str | None = None
+    applicant_id: UUID | None = None
+    application_date: date | None = None
     review_status: str = Field("pending", max_length=50)
-    reviewer_id: Optional[UUID] = None
-    review_date: Optional[date] = None
-    review_comments: Optional[str] = None
-    review_score: Optional[int] = None
+    reviewer_id: UUID | None = None
+    review_date: date | None = None
+    review_comments: str | None = None
+    review_score: int | None = None
     approval_status: str = Field("pending", max_length=50)
-    approver_id: Optional[UUID] = None
-    approval_date: Optional[date] = None
-    approval_comments: Optional[str] = None
-    attachments: Optional[dict] = None
-    notes: Optional[str] = None
+    approver_id: UUID | None = None
+    approval_date: date | None = None
+    approval_comments: str | None = None
+    attachments: dict | None = None
+    notes: str | None = None
 
 
 class RdInitiationCreate(RdInitiationBase):
@@ -707,24 +707,24 @@ class RdInitiationCreate(RdInitiationBase):
 
 
 class RdInitiationUpdate(BaseModel):
-    project_background: Optional[str] = None
-    market_analysis: Optional[str] = None
-    technical_feasibility: Optional[str] = None
-    resource_requirements: Optional[dict] = None
-    timeline_plan: Optional[dict] = None
-    risk_assessment: Optional[dict] = None
-    expected_outcomes: Optional[str] = None
-    review_status: Optional[str] = Field(None, max_length=50)
-    reviewer_id: Optional[UUID] = None
-    review_date: Optional[date] = None
-    review_comments: Optional[str] = None
-    review_score: Optional[int] = None
-    approval_status: Optional[str] = Field(None, max_length=50)
-    approver_id: Optional[UUID] = None
-    approval_date: Optional[date] = None
-    approval_comments: Optional[str] = None
-    attachments: Optional[dict] = None
-    notes: Optional[str] = None
+    project_background: str | None = None
+    market_analysis: str | None = None
+    technical_feasibility: str | None = None
+    resource_requirements: dict | None = None
+    timeline_plan: dict | None = None
+    risk_assessment: dict | None = None
+    expected_outcomes: str | None = None
+    review_status: str | None = Field(None, max_length=50)
+    reviewer_id: UUID | None = None
+    review_date: date | None = None
+    review_comments: str | None = None
+    review_score: int | None = None
+    approval_status: str | None = Field(None, max_length=50)
+    approver_id: UUID | None = None
+    approval_date: date | None = None
+    approval_comments: str | None = None
+    attachments: dict | None = None
+    notes: str | None = None
 
 
 class RdInitiationResponse(RdInitiationBase):
@@ -738,21 +738,21 @@ class RdInitiationResponse(RdInitiationBase):
 
 class RdTrackConclusionVersionCreate(BaseModel):
     track_id: UUID
-    conclusion: Optional[str] = None
+    conclusion: str | None = None
     confidence: str = Field("preliminary", max_length=50)
-    change_summary: Optional[str] = None
-    evidence_refs: Optional[dict] = None
+    change_summary: str | None = None
+    evidence_refs: dict | None = None
 
 
 class RdTrackConclusionVersionResponse(BaseModel):
     id: UUID
     track_id: UUID
     version: int
-    conclusion: Optional[str]
+    conclusion: str | None
     confidence: str
-    change_summary: Optional[str]
-    evidence_refs: Optional[dict]
-    author_id: Optional[UUID]
+    change_summary: str | None
+    evidence_refs: dict | None
+    author_id: UUID | None
     created_at: datetime
     updated_at: datetime
     model_config = {"from_attributes": True}
@@ -764,9 +764,9 @@ class RdDeliverableTemplateBase(BaseModel):
     name: str = Field(..., max_length=200)
     deliverable_type: str = Field(..., max_length=50)
     stage: str = Field(..., max_length=50)
-    description: Optional[str] = None
-    template_content: Optional[str] = None
-    template_structure: Optional[dict] = None
+    description: str | None = None
+    template_content: str | None = None
+    template_structure: dict | None = None
     is_active: bool = True
 
 
@@ -775,16 +775,16 @@ class RdDeliverableTemplateCreate(RdDeliverableTemplateBase):
 
 
 class RdDeliverableTemplateUpdate(BaseModel):
-    name: Optional[str] = Field(None, max_length=200)
-    description: Optional[str] = None
-    template_content: Optional[str] = None
-    template_structure: Optional[dict] = None
-    is_active: Optional[bool] = None
+    name: str | None = Field(None, max_length=200)
+    description: str | None = None
+    template_content: str | None = None
+    template_structure: dict | None = None
+    is_active: bool | None = None
 
 
 class RdDeliverableTemplateResponse(RdDeliverableTemplateBase):
     id: UUID
-    creator_id: Optional[UUID] = None
+    creator_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
     model_config = {"from_attributes": True}
@@ -795,11 +795,11 @@ class RdDeliverableTemplateResponse(RdDeliverableTemplateBase):
 class RdReportGenerateRequest(BaseModel):
     project_id: UUID
     deliverable_type: str
-    template_id: Optional[UUID] = None
-    additional_context: Optional[str] = None
+    template_id: UUID | None = None
+    additional_context: str | None = None
 
 
 class RdReportGenerateResponse(BaseModel):
     content: str
-    structure: Optional[dict] = None
+    structure: dict | None = None
     data_sources: list[str] = []

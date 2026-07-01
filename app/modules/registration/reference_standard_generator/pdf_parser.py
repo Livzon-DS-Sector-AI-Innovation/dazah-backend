@@ -85,7 +85,7 @@ class COAParser:
             if match:
                 self.metadata["manufacturer"] = match.group(1).strip()[:200]
                 break
-        
+
         # 如果没有找到，尝试从文本开头提取（通常是公司名）
         if "manufacturer" not in self.metadata:
             lines = text.split('\n')
@@ -106,7 +106,7 @@ class COAParser:
             if match:
                 self.metadata["english_name"] = match.group(1).strip()[:200]
                 break
-        
+
         # 如果没有英文名，使用 Product Name
         if "english_name" not in self.metadata and "drug_name" in self.metadata:
             self.metadata["english_name"] = self.metadata["drug_name"]
@@ -206,7 +206,7 @@ class COAParser:
             if match:
                 self.metadata["expiration_date"] = match.group(1).strip()
                 break
-        
+
         # 如果没有找到，尝试从 "Date of Testing" 推算（加 4 年）
         if "expiration_date" not in self.metadata:
             match = re.search(r"Date\s+of\s+Testing[:\s]+(\d{4}-\d{2}-\d{2})", text, re.IGNORECASE)

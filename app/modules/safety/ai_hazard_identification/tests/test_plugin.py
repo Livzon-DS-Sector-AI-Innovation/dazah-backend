@@ -173,8 +173,8 @@ class TestPrompts:
         """Few-shot 示例的整改建议应使用两层结构。"""
         for ex in FEWSHOT_EXAMPLES:
             rs = ex["output"]["rectification_suggestion"]
-            assert "corrective" in rs, f"缺少 corrective 字段"
-            assert "preventive" in rs, f"缺少 preventive 字段"
+            assert "corrective" in rs, "缺少 corrective 字段"
+            assert "preventive" in rs, "缺少 preventive 字段"
             assert len(rs["corrective"]) > 30
             assert len(rs["preventive"]) > 20
 

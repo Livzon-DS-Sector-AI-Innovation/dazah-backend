@@ -7,7 +7,7 @@ onboarding_datasource.py, departure_datasource.py, hr/service.py,
 product/service.py, and scripts.
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 
@@ -93,12 +93,12 @@ def extract_email(value: Any) -> str:
 def ms_to_date(value: Any) -> date | None:
     """Convert Feishu millisecond timestamp to UTC-aware Python date."""
     if isinstance(value, (int, float)) and value > 0:
-        return datetime.fromtimestamp(value / 1000, tz=timezone.utc).date()
+        return datetime.fromtimestamp(value / 1000, tz=UTC).date()
     return None
 
 
 def ms_to_datetime(value: Any) -> datetime | None:
     """Convert Feishu millisecond timestamp to UTC-aware Python datetime."""
     if isinstance(value, (int, float)) and value > 0:
-        return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+        return datetime.fromtimestamp(value / 1000, tz=UTC)
     return None

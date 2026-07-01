@@ -11,7 +11,6 @@ from app.core.database import get_db
 from app.core.response import error_response, success_response
 from app.modules.registration.schemas.validation_audit import (
     ValidationAuditFileListItem,
-    ValidationAuditFileResponse,
     ValidationAuditIssueResponse,
     ValidationAuditReportResponse,
     ValidationAuditTaskCreate,

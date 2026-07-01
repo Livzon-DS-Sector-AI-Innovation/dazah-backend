@@ -6,9 +6,9 @@ This script receives solvent names from llm_extract.py and classifies them
 against the ICH Q3C(R9) database.
 """
 
+import json
 import logging
 import sys
-import json
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ def load_synonyms():
 
         synonym_file = DATA_DIR / "solvent-synonyms.json"
         if synonym_file.exists():
-            with open(synonym_file, 'r') as f:
+            with open(synonym_file) as f:
                 return json.load(f)
     except Exception:
         logger.warning("Failed to load synonym file")
@@ -44,10 +44,10 @@ def build_solvent_index(ich_data, synonyms):
     }
     """
     index = {}
-    
+
     # Handle both flat structure and nested structure (from ich-q3c-full.json)
     classes_data = ich_data.get("classes", ich_data)
-    
+
     # Add solvents from ICH classes
     for class_name in ["class1", "class2", "class3"]:
         class_solvents = classes_data.get(class_name, {})
@@ -55,7 +55,7 @@ def build_solvent_index(ich_data, synonyms):
             solvent_list = class_solvents.get("solvents", [])
         else:
             solvent_list = class_solvents
-        
+
         for solvent in solvent_list:
             if isinstance(solvent, str):
                 # Class 3 solvents are strings
@@ -77,18 +77,18 @@ def build_solvent_index(ich_data, synonyms):
                     "limit": solvent.get("ppm") or solvent.get("limit"),
                     "aliases": [canonical]
                 }
-    
+
     # Add synonyms
     for canonical, alias_list in synonyms.items():
         canonical_lower = canonical.lower()
-        
+
         if canonical_lower in index:
             for alias in alias_list:
                 alias_lower = alias.lower()
                 index[canonical_lower]["aliases"].append(alias_lower)
                 if alias_lower not in index:
                     index[alias_lower] = index[canonical_lower]
-    
+
     return index
 
 
@@ -107,17 +107,17 @@ def classify_solvents(solvents, solvent_index):
         List of classified solvents
     """
     classified = []
-    
+
     for solvent_entry in solvents:
         solvent_name = solvent_entry.get("solvent", "")
         solvent_lower = solvent_name.lower().strip()
         llm_class = solvent_entry.get("ich_class")  # LLM may have already classified
-        
+
         # Check if LLM already classified this solvent
         if llm_class and llm_class != "pending":
             # LLM already did the classification - just enrich with PDE/limit from database
             lookup_name = solvent_lower
-            
+
             # For Class 3 solvents, LLM may use short names - normalize for lookup
             if llm_class == "Class 3":
                 # Try direct match first
@@ -127,7 +127,7 @@ def classify_solvents(solvents, solvent_index):
                         if name_var.lower() in solvent_index:
                             lookup_name = name_var.lower()
                             break
-            
+
             if lookup_name in solvent_index:
                 ich_data = solvent_index[lookup_name]
                 classified.append({
@@ -179,7 +179,7 @@ def classify_solvents(solvents, solvent_index):
                     "amount": solvent_entry.get("amount"),
                     "warning": "Not found in ICH Q3C - requires toxicological justification"
                 })
-    
+
     return classified
 
 
@@ -196,22 +196,22 @@ def analyze_steps(llm_data, solvent_index):
     """
     analysis = []
     all_solvents = {}
-    
+
     for step_data in llm_data.get("step_analysis", []):
         step_number = step_data["step_number"]
         step_title = step_data["step_title"]
         raw_solvents = step_data.get("solvents", [])
-        
+
         # Classify solvents
         classified = classify_solvents(raw_solvents, solvent_index)
-        
+
         analysis.append({
             "step_number": step_number,
             "step_title": step_title,
             "solvents": classified,
             "solvent_count": len(classified)
         })
-        
+
         # Aggregate
         for solvent_entry in classified:
             solvent_name = solvent_entry["solvent"]
@@ -221,7 +221,7 @@ def analyze_steps(llm_data, solvent_index):
                     "steps_used": []
                 }
             all_solvents[solvent_name]["steps_used"].append(step_number)
-    
+
     return {
         "step_analysis": analysis,
         "all_solvents": all_solvents,
@@ -236,34 +236,34 @@ def main():
         logger.info("  ich_json: ICH Q3C data (data/ich-q3c-full.json)")
         logger.info("  output_json: Output path (optional, defaults to stdout)")
         sys.exit(1)
-    
+
     if sys.argv[1] != "--llm":
         logger.error("Error: --llm flag is required")
         sys.exit(1)
-    
+
     llm_path = sys.argv[2]
     ich_path = sys.argv[3]
     output_path = sys.argv[4] if len(sys.argv) > 4 else None
-    
+
     # Load ICH data
-    with open(ich_path, 'r') as f:
+    with open(ich_path) as f:
         ich_data = json.load(f)
-    
+
     # Load synonyms
     script_dir = Path(__file__).parent
     data_dir = script_dir.parent / "data"
     synonyms = load_synonyms()
-    
-    logger.info(f"Building solvent index...")
+
+    logger.info("Building solvent index...")
     solvent_index = build_solvent_index(ich_data, synonyms)
-    
+
     # Load LLM-extracted analysis
-    with open(llm_path, 'r') as f:
+    with open(llm_path) as f:
         llm_data = json.load(f)
-    
-    logger.info(f"Classifying LLM-extracted solvents...")
+
+    logger.info("Classifying LLM-extracted solvents...")
     analysis = analyze_steps(llm_data, solvent_index)
-    
+
     # Output results
     if output_path:
         with open(output_path, 'w') as f:
@@ -271,15 +271,15 @@ def main():
         logger.info(f"Saved to {output_path}")
     else:
         logger.info(json.dumps(analysis, indent=2, ensure_ascii=False))
-    
-    logger.info(f"\nSummary:")
+
+    logger.info("\nSummary:")
     logger.info(f"  Total unique solvents: {analysis['total_unique_solvents']}")
-    
+
     # Class breakdown
     class_counts = {"class1": 0, "class2": 0, "class3": 0, "unknown": 0}
     for solvent in analysis["all_solvents"].values():
         class_counts[solvent["class"]] += 1
-    
+
     for cls, count in class_counts.items():
         if count > 0:
             logger.info(f"  {cls}: {count}")

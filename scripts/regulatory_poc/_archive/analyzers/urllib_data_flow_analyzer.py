@@ -4,19 +4,16 @@ HTTP 数据链路分析工具（使用标准库）
 分析 API 接口和数据获取链路
 """
 
-import sys
 import json
 import os
 import re
+import sys
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs, urljoin
-from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
-from urllib.request import HTTPCookieProcessor, build_opener
-from http.cookiejar import CookieJar
-import http.cookiejar as cookiejar
 from html.parser import HTMLParser
-
+from http.cookiejar import CookieJar
+from urllib.error import HTTPError
+from urllib.parse import urljoin
+from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 # 目标栏目配置
 TARGETS = [
@@ -56,7 +53,7 @@ class SimpleHTMLParser(HTMLParser):
         self.links = []
         self.in_title = False
         self.current_script = None
-        
+
     def handle_starttag(self, tag, attrs):
         attrs_dict = dict(attrs)
         if tag == "title":
@@ -68,14 +65,14 @@ class SimpleHTMLParser(HTMLParser):
                 self.current_script = {"src": None, "content": ""}
         elif tag == "a" and "href" in attrs_dict:
             self.links.append(attrs_dict["href"])
-    
+
     def handle_endtag(self, tag):
         if tag == "title":
             self.in_title = False
         elif tag == "script" and self.current_script:
             self.scripts.append(self.current_script)
             self.current_script = None
-    
+
     def handle_data(self, data):
         if self.in_title:
             self.title = data
@@ -87,7 +84,7 @@ class UrllibDataFlowAnalyzer:
     def __init__(self):
         self.cookie_jar = CookieJar()
         self.cookie_processor = HTTPCookieProcessor(self.cookie_jar)
-        
+
     def fetch_url(self, url, timeout=30):
         """Fetch URL with cookies"""
         opener = build_opener(self.cookie_processor)
@@ -165,7 +162,7 @@ class UrllibDataFlowAnalyzer:
                 return result
 
             # Capture cookies
-            cookies = [{"name": c.name, "value": c.value[:50] + "..." if len(c.value) > 50 else c.value, "domain": c.domain} 
+            cookies = [{"name": c.name, "value": c.value[:50] + "..." if len(c.value) > 50 else c.value, "domain": c.domain}
                       for c in self.cookie_jar]
             result["cookies_set"] = cookies
             print(f"   Cookies: {len(cookies)} 个")
@@ -173,7 +170,7 @@ class UrllibDataFlowAnalyzer:
                 print(f"      - {c['name']} @ {c['domain']}")
 
             # Check for anti-bot cookies
-            rs_cookies = [c for c in cookies if any(x in c["name"].lower() 
+            rs_cookies = [c for c in cookies if any(x in c["name"].lower()
                          for x in ["rs", "__rs", "fasd", "fasc", "temp", "dyna", "cma_", "cmac"])]
             if rs_cookies:
                 result["anti_bot_detected"] = True
@@ -252,26 +249,26 @@ class UrllibDataFlowAnalyzer:
                                 result["json_apis"].append(api_info)
                             except:
                                 pass
-                except Exception as e:
+                except Exception:
                     pass
 
             # Step 4: Analyze page structure for data loading
             print("\n[4] 分析页面数据结构...")
-            
+
             # Check for Vue/React markers in HTML
             if "data-v-" in response["content"] or "__VUE__" in response["content"]:
-                print(f"   检测到 Vue.js 标记")
+                print("   检测到 Vue.js 标记")
                 result["browser_required"] = True
                 result["browser_required_reason"].append("Vue.js 应用，需要浏览器渲染")
-            
+
             if 'id="root"' in response["content"] or 'id="app"' in response["content"] or "__REACT" in response["content"]:
-                print(f"   检测到 React 标记")
+                print("   检测到 React 标记")
                 result["browser_required"] = True
                 result["browser_required_reason"].append("React 应用，需要浏览器渲染")
 
             # Check for inline data
             if "window.__INITIAL_STATE__" in response["content"] or "window.__DATA__" in response["content"]:
-                print(f"   ✅ 发现内联数据")
+                print("   ✅ 发现内联数据")
                 result["key_findings"].append("页面包含内联初始化数据")
 
             # Step 5: Check for pagination elements
@@ -283,10 +280,10 @@ class UrllibDataFlowAnalyzer:
                 r'class="[^"]*pageNav[^"]*"',
                 r'href="[^"]*page=\d+[^"]*"',
             ]
-            
+
             for pattern in pagination_patterns:
                 if re.search(pattern, response["content"]):
-                    print(f"   ✅ 找到分页元素")
+                    print("   ✅ 找到分页元素")
                     result["pagination_detected"] = True
                     break
 
@@ -335,7 +332,7 @@ class UrllibDataFlowAnalyzer:
             if re.search(r'<meta[^>]*name=["\']token["\']', response["content"], re.I):
                 result["token_dependency"] = True
                 result["token_details"].append("Meta token tag found")
-                print(f"   ⚠️ 检测到 Token meta 标签")
+                print("   ⚠️ 检测到 Token meta 标签")
 
             # Check response headers for tokens
             for header in ["X-Token", "X-CSRF-Token", "X-XSRF-Token"]:
@@ -345,13 +342,13 @@ class UrllibDataFlowAnalyzer:
                     print(f"   ⚠️ 响应头包含: {header}")
 
             # Step 8: Summary
-            print(f"\n[8] 关键发现:")
+            print("\n[8] 关键发现:")
             if result["json_apis"]:
                 result["key_findings"].append(f"发现 {len(result['json_apis'])} 个 JSON API")
                 print(f"   ✅ 发现 {len(result['json_apis'])} 个 JSON API")
             else:
                 result["key_findings"].append("未发现直接的 JSON API")
-                print(f"   ❌ 未发现直接的 JSON API")
+                print("   ❌ 未发现直接的 JSON API")
 
             if result["api_endpoints_found"]:
                 result["key_findings"].append(f"发现 {len(result['api_endpoints_found'])} 个 API 端点")
@@ -359,16 +356,16 @@ class UrllibDataFlowAnalyzer:
 
             if result["pagination_detected"]:
                 result["key_findings"].append("检测到分页机制")
-                print(f"   ✅ 检测到分页机制")
+                print("   ✅ 检测到分页机制")
 
             if result["anti_bot_detected"]:
                 result["key_findings"].append("检测到反爬机制")
-                print(f"   ⚠️ 检测到反爬机制")
+                print("   ⚠️ 检测到反爬机制")
 
             if result["browser_required"]:
                 print(f"   ⚠️ 需要浏览器: {'; '.join(result['browser_required_reason'])}")
             else:
-                print(f"   ✅ 可能不需要浏览器")
+                print("   ✅ 可能不需要浏览器")
 
         except Exception as e:
             print(f"❌ 错误: {e}")

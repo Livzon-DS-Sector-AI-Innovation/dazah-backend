@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import CurrentUser, get_current_user
 from app.core.response import ApiResponse
-from app.core.storage import is_enabled as minio_enabled, upload_object
+from app.core.storage import is_enabled as minio_enabled
+from app.core.storage import upload_object
 from app.modules.safety.schemas import (
     OperationRegulationCreate,
     OperationRegulationResponse,
@@ -460,9 +461,12 @@ async def export_sop_pdf(
     current_user: CurrentUser | None = Depends(get_current_user),
 ):
     """将存储的标准化 Markdown 渲染为 PDF，返回文件下载。"""
-    from app.core.storage import get_object as minio_get, is_enabled as _minio_enabled
-    from fastapi.responses import StreamingResponse
     from io import BytesIO
+
+    from fastapi.responses import StreamingResponse
+
+    from app.core.storage import get_object as minio_get
+    from app.core.storage import is_enabled as _minio_enabled
 
     service = SopGeneratorService(db)
     pdf_path = await service.export_pdf(regulation_id)

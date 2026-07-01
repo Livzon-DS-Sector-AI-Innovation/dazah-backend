@@ -4,9 +4,10 @@ Revision ID: rd002
 Revises: rd001
 Create Date: 2026-06-28
 """
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = 'rd002'
 down_revision = 'rd001'
@@ -35,7 +36,7 @@ def upgrade() -> None:
         sa.Column('updated_by', postgresql.UUID(as_uuid=True), sa.ForeignKey('identity.users.id'), nullable=True, comment='更新人'),
         schema='research'
     )
-    
+
     op.create_index('ix_rd_stage_deliverables_project_id', 'rd_stage_deliverables', ['project_id'], schema='research')
     op.create_index('ix_rd_stage_deliverables_stage', 'rd_stage_deliverables', ['stage'], schema='research')
     op.create_index('ix_rd_stage_deliverables_deliverable_type', 'rd_stage_deliverables', ['deliverable_type'], schema='research')

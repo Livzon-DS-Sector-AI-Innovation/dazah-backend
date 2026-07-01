@@ -13,11 +13,10 @@ Output:
     JSON to stdout with keys: csv_data (base64 encoded CSV), row_count
 """
 
-import sys
-import os
-import json
 import base64
-import tempfile
+import json
+import os
+import sys
 from pathlib import Path
 
 # Disable PyTorch JIT to prevent compilation errors
@@ -75,7 +74,7 @@ def main():
             "csv_data": csv_b64,
             "row_count": len(result_df)
         }
-        
+
         # Check for prediction file and include if requested
         pred_file = Path(csv_dir) / f"pred_{csv_filename}"
         if save_prediction and pred_file.exists():

@@ -1,6 +1,5 @@
 """Safety API — hazards endpoints."""
 
-import asyncio
 import os
 import uuid
 from datetime import datetime
@@ -13,6 +12,7 @@ from app.core.deps import CurrentUser, get_current_user
 from app.core.response import ApiResponse
 from app.core.storage import is_enabled as minio_enabled
 from app.core.storage import upload_object
+from app.core.tasks import spawn_task
 from app.modules.safety.schemas import (
     DepartmentLeaderResponse,
     DepartmentSafetyOfficerResponse,
@@ -26,7 +26,6 @@ from app.modules.safety.schemas import (
 from app.modules.safety.service import (
     HazardService,
 )
-from app.core.tasks import spawn_task
 from app.modules.safety.service.hazard import (
     _send_rectification_notification,
     _send_verify_notification,

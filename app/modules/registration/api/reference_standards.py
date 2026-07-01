@@ -25,11 +25,11 @@ async def parse_coa_file(
 ):
     """解析COA PDF文件，自动提取关键信息"""
     coa_data = await coa.read()
-    
+
     from app.modules.registration.reference_standard_generator import parse_coa
-    
+
     result = parse_coa(coa_data)
-    
+
     return success_response(
         data=result,
         message="COA解析成功",

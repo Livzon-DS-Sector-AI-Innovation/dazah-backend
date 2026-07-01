@@ -5,10 +5,10 @@ Revises: 20260604_0001
 Create Date: 2026-06-04
 """
 
-import uuid
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic
 revision = '20260604_0002'
@@ -20,14 +20,14 @@ depends_on = None
 def upgrade() -> None:
     # Create quality schema
     op.execute('CREATE SCHEMA IF NOT EXISTS quality')
-    
+
     # Create deviations table
     op.create_table(
         'deviations',
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('deviation_code', sa.String(50), nullable=False, comment='偏差编号'),
         sa.Column('title', sa.String(255), nullable=False, comment='标题'),
-        sa.Column('status', sa.String(50), nullable=False, server_default='draft', 
+        sa.Column('status', sa.String(50), nullable=False, server_default='draft',
                   comment='状态: draft/pending_ai_analysis/pending_investigation/pending_dept_head_review/pending_cross_dept_head_review/pending_qa_review/pending_qa_head_review/pending_quality_head_review/pending_final_code/returned/closed/cancelled'),
         sa.Column('level', sa.String(20), nullable=True, comment='级别: minor/moderate/major'),
         sa.Column('reporter_id', sa.UUID(), nullable=True, comment='报告人ID'),
@@ -38,7 +38,7 @@ def upgrade() -> None:
         sa.Column('review_opinions', sa.JSON(), nullable=True, comment='审核意见'),
         sa.Column('attachments', postgresql.ARRAY(sa.String()), nullable=True, comment='附件URL列表'),
         sa.Column('final_code', sa.String(50), nullable=True, comment='最终编号'),
-        sa.Column('root_cause_category', sa.String(50), nullable=True, 
+        sa.Column('root_cause_category', sa.String(50), nullable=True,
                   comment='根本原因类别: 人员/设施/设备/产品/物料/文件/环境/其它'),
         sa.Column('description', sa.Text(), nullable=True, comment='偏差描述'),
         sa.Column('immediate_actions', sa.Text(), nullable=True, comment='即时措施'),
@@ -53,7 +53,7 @@ def upgrade() -> None:
     op.create_index('ix_quality_deviations_deviation_code', 'deviations', ['deviation_code'], schema='quality')
     op.create_index('ix_quality_deviations_status', 'deviations', ['status'], schema='quality')
     op.create_index('ix_quality_deviations_final_code', 'deviations', ['final_code'], schema='quality')
-    
+
     # Create capas table
     op.create_table(
         'capas',
@@ -106,7 +106,7 @@ def upgrade() -> None:
     op.create_index('ix_quality_capas_capa_code', 'capas', ['capa_code'], schema='quality')
     op.create_index('ix_quality_capas_status', 'capas', ['status'], schema='quality')
     op.create_index('ix_quality_capas_final_code', 'capas', ['final_code'], schema='quality')
-    
+
     # Create department_contacts table
     op.create_table(
         'department_contacts',
@@ -129,7 +129,7 @@ def upgrade() -> None:
         schema='quality'
     )
     op.create_index('ix_quality_department_contacts_department', 'department_contacts', ['department'], schema='quality')
-    
+
     # Create department_weekly_confirmations table
     op.create_table(
         'department_weekly_confirmations',
@@ -151,7 +151,7 @@ def upgrade() -> None:
     )
     op.create_index('ix_quality_dept_weekly_confirmations_department', 'department_weekly_confirmations', ['department'], schema='quality')
     op.create_index('ix_quality_dept_weekly_confirmations_week_key', 'department_weekly_confirmations', ['week_key'], schema='quality')
-    
+
     # Create attachment_reviews table
     op.create_table(
         'attachment_reviews',

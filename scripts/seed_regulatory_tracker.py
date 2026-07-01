@@ -9,15 +9,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select
 
-# Import identity models first to resolve FK references
-from app.platform.identity.models import User  # noqa: F401
 from app.core.database import async_session_factory
 from app.modules.regulatory_tracker.models import DataChannel, DataSource
+
+# Import identity models first to resolve FK references
+from app.platform.identity.models import User  # noqa: F401
 
 
 async def seed_regulatory_tracker():
     """Seed initial data for regulatory tracker."""
-    
+
     async with async_session_factory() as session:
         # Check if already seeded (check NMPA too)
         result_cde = await session.execute(

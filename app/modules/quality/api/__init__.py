@@ -2,9 +2,11 @@
 
 from fastapi import APIRouter
 
-from app.modules.quality.api.cpv_products import router as cpv_products_router
 from app.modules.quality.api.cpv_import import router as cpv_import_router
-from app.modules.quality.api.quality_management import router as quality_management_router
+from app.modules.quality.api.cpv_products import router as cpv_products_router
+from app.modules.quality.api.quality_management import (
+    router as quality_management_router,
+)
 
 router = APIRouter()
 

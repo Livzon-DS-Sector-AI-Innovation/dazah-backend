@@ -1,8 +1,8 @@
 """文献解析服务 - 使用 AI 分析合成路线"""
 
 import logging
-import json
 from typing import Any
+
 from app.modules.research.llm_service import call_llm
 
 logger = logging.getLogger(__name__)
@@ -131,13 +131,13 @@ async def analyze_literature_with_ai(text: str) -> dict[str, Any]:
     """
     try:
         result = await parse_literature(text)
-        
+
         # 确保返回格式正确
         if "candidate_routes" not in result:
             result["candidate_routes"] = []
         if "experiment_plans" not in result:
             result["experiment_plans"] = []
-            
+
         return result
     except Exception as e:
         # 如果 AI 解析失败，返回空结果

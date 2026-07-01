@@ -10,7 +10,7 @@ and monitoring capabilities.
 
 import asyncio
 import logging
-from typing import Awaitable, Callable
+from collections.abc import Awaitable
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def spawn_task(
     The task will log any exceptions instead of silently failing.
     """
     task_name = name or f"task-{uuid4().hex[:8]}"
-    
+
     async def wrapper():
         try:
             await coro
@@ -41,7 +41,7 @@ def spawn_task(
             raise
         except Exception:
             logger.exception("Task %s failed", task_name)
-    
+
     task = asyncio.create_task(wrapper(), name=task_name)
     logger.debug("Spawned background task: %s", task_name)
     return task

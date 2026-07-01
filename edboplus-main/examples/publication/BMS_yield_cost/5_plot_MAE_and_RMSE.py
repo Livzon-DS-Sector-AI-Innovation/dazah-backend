@@ -1,20 +1,16 @@
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
+import pandas as pd
 import pareto
+import seaborn as sns
+from edbo.plus.benchmark.multiobjective_benchmark import is_pareto
 from pymoo.mcdm.high_tradeoff import HighTradeoffPoints
 from sklearn.preprocessing import MinMaxScaler
 
-from edbo.plus.benchmark.multiobjective_benchmark import is_pareto
-
 sns.set_style("ticks")
-import matplotlib as mpl
 # mpl.rcParams['grid.linestyle'] = ':'
 # mpl.rcParams['grid.linewidth'] = 0.1
 plt.rcParams['font.family'] = 'Helvetica'
-import joypy
-from matplotlib import cm
 
 ##############
 

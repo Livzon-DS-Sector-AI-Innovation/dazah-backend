@@ -1,40 +1,22 @@
-import logging
 
 from datetime import date
-
 from uuid import UUID
 
-
-
 from fastapi import Depends, Query, UploadFile
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-
 from app.core.database import get_db
-
 from app.core.deps import CurrentUser
-
 from app.core.response import paginated_response, success_response
-
-from .schemas import (
-
-    LabelVerificationCreate,
-
-    LabelVerificationUpdate,
-
-)
-
-from .service import LabelVerificationService
-
 from app.shared.module_api import create_module_router
-
 from app.shared.module_registry import MODULES_BY_CODE
-
 from app.shared.schemas import PageParams
 
-
+from .schemas import (
+    LabelVerificationCreate,
+    LabelVerificationUpdate,
+)
+from .service import LabelVerificationService
 
 router = create_module_router(MODULES_BY_CODE["quality"])
 
@@ -295,9 +277,6 @@ async def upload_label_verification_video(
     """上传视频文件，返回文件 key 和文件名"""
 
     import os
-
-    from fastapi import UploadFile
-
     from datetime import datetime
 
     from app.core.config import get_settings
@@ -376,10 +355,9 @@ async def analyze_label_verification_video(
     import os
 
     from app.core.config import get_settings
+    from app.core.llm import llm_client
 
     from .video_service import LabelVerificationVideoService
-
-    from app.core.llm import llm_client, LLMOutputError
 
 
 
@@ -540,9 +518,6 @@ async def analyze_label_verification_video(
 from pydantic import BaseModel, Field
 
 
-
-
-
 class AutoCompareRequest(BaseModel):
 
     """自动对比请求体"""
@@ -603,12 +578,8 @@ async def auto_compare_video(
     from app.core.config import get_settings
 
     from .video_service import (
-
         LabelVerificationVideoService,
-
     )
-
-    from app.core.llm import llm_client
 
 
 

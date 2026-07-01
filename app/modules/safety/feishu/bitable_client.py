@@ -5,14 +5,13 @@
 """
 
 import logging
-import os
-from app.core.config import get_settings
 from pathlib import Path
 from typing import Any
 
 import httpx
 from dotenv import load_dotenv
 
+from app.core.config import get_settings
 from app.modules.safety.feishu.client import get_safety_tenant_token
 
 logger = logging.getLogger(__name__)

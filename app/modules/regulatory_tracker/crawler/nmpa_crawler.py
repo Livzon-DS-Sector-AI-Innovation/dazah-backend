@@ -17,12 +17,13 @@ import asyncio
 import json
 import logging
 import os
-from app.shared.config_reader import get_module_setting, get_module_setting_bool
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import async_playwright
+
+from app.shared.config_reader import get_module_setting, get_module_setting_bool
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +169,7 @@ class NmpaRecordAdapter:
         self.headless = self._headless_override
         if self.headless is None:
             self.headless = await get_module_setting_bool("regulatory_tracker", "NMPA_CRAWLER_HEADLESS", False)
-        
+
         self.list_url = self._list_url_override
         if self.list_url is None:
             self.list_url = await get_module_setting(
@@ -176,15 +177,15 @@ class NmpaRecordAdapter:
                 "NMPA_BAXX_SEARCH_URL",
                 "https://www.nmpa.gov.cn/datasearch/search-result.html"
             )
-        
+
         self.discovery_mode = self._discovery_mode_override
         if self.discovery_mode is None:
             self.discovery_mode = await get_module_setting_bool("regulatory_tracker", "NMPA_API_DISCOVERY_MODE", True)
-        
+
         self.browsers_path = self._browsers_path_override
         if self.browsers_path is None:
             self.browsers_path = await get_module_setting("regulatory_tracker", "CRAWLER_BROWSERS_PATH", "")
-        
+
         self.detail_url_template = self._detail_url_template_override
         if self.detail_url_template is None:
             self.detail_url_template = await get_module_setting(
@@ -192,7 +193,7 @@ class NmpaRecordAdapter:
                 "NMPA_DETAIL_URL_TEMPLATE",
                 "https://www.nmpa.gov.cn/datasearch/search-info?recordId={record_id}"
             )
-        
+
         if self.browsers_path:
             os.environ["PLAYWRIGHT_BROWSERS_PATH"] = self.browsers_path
 
@@ -397,7 +398,7 @@ class NmpaRecordAdapter:
             # 等待数据响应
             try:
                 await asyncio.wait_for(event.wait(), timeout=timeout_ms / 1000)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if self.discovery_mode:
                     logger.warning(
                         f"等待数据 API 响应超时。已发现 {len(self._discovered_responses)} 个响应，"
@@ -491,7 +492,7 @@ class NmpaRecordAdapter:
 
             try:
                 await asyncio.wait_for(event.wait(), timeout=timeout_ms / 1000)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("翻页响应等待超时")
         finally:
             self._page.remove_listener("response", on_response)

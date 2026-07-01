@@ -1,66 +1,34 @@
 from uuid import UUID
 
-
-
 from fastapi import Depends, Query
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-
 from app.core.database import get_db
-
 from app.core.deps import CurrentUser
-
 from app.core.response import success_response
-
 from app.modules.warehouse.schemas import (
-
     PackagingMaterialListResponse,
-
     PackagingMaterialResponse,
-
     ProductInventoryListResponse,
-
     ProductInventoryResponse,
-
     RawMaterialListResponse,
-
     RawMaterialResponse,
-
     WarehouseFeishuConfigApiResponse,
-
     WarehouseFeishuConfigUpsert,
-
     WarehouseFeishuConnectivityApiResponse,
-
     WarehouseFeishuRawRecordApiResponse,
-
     WarehouseFeishuTableBatchEnableApiResponse,
-
     WarehouseFeishuTableBatchEnablePayload,
-
     WarehouseFeishuTableEnableApiResponse,
-
     WarehouseFeishuTableEnablePayload,
-
     WarehouseFeishuTableListApiResponse,
-
     WarehouseFeishuTableResponse,
-
     WarehouseFeishuTableSyncApiResponse,
-
     WarehouseFeishuWsStatusApiResponse,
-
 )
-
 from app.modules.warehouse.service import WarehouseService
-
 from app.shared.module_api import create_module_router
-
 from app.shared.module_registry import MODULES_BY_CODE
-
-
 
 router = create_module_router(MODULES_BY_CODE["warehouse"])
 

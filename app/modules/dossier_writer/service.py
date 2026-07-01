@@ -1,27 +1,30 @@
 """Dossier Writer business workflows."""
-import logging
 import os
-import shutil
 import re
-from pathlib import Path
-from typing import Optional, List, Dict, Any
-from uuid import UUID
+import shutil
 from datetime import datetime
+from pathlib import Path
+from typing import Any
+from uuid import UUID
 
 from docx import Document
+
 # Removed invalid import
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from .models import ProductDossier, DossierTemplate, DossierChapter, ChapterAsset
-from .repository import DossierRepository
-from .m3_structure import M3_CHAPTERS, match_file_to_chapter
-from .schemas import (
-    ProductDossierCreate, ProductDossierUpdate,
-    ChapterResponse, ChapterDetailResponse, AssetResponse,
-)
 
+from .m3_structure import M3_CHAPTERS, match_file_to_chapter
+from .models import ChapterAsset, DossierChapter, DossierTemplate, ProductDossier
+from .repository import DossierRepository
+from .schemas import (
+    AssetResponse,
+    ChapterDetailResponse,
+    ChapterResponse,
+    ProductDossierCreate,
+    ProductDossierUpdate,
+)
 
 
 def _chapter_sort_key(code: str):
@@ -75,18 +78,18 @@ class DossierService:
         # 创建存储目录
         dossier_id = str(dossier.id)
         paths = self._create_storage_dirs(dossier_id)
-        
+
         dossier.source_templates_path = paths["source_templates"]
         dossier.working_path = paths["working"]
         dossier.assets_path = paths["assets"]
         dossier.outputs_path = paths["outputs"]
-        
+
         # 创建 M3 标准目录树
         await self._create_m3_chapters(dossier.id)
-        
+
         # 自动初始化 S.6 章节的 AI 配置（字段映射 + 素材分类）
         await self.init_chapter_ai_config("3.2.S.6")
-        
+
         await self.db.commit()
         dossier_id = dossier.id
         result = await self.db.execute(
@@ -94,7 +97,7 @@ class DossierService:
         )
         return result.scalar_one()
 
-    async def get_product_dossier(self, dossier_id: UUID) -> Optional[ProductDossier]:
+    async def get_product_dossier(self, dossier_id: UUID) -> ProductDossier | None:
         """获取品种资料详情"""
         dossier = await self.repo.get_product_dossier(dossier_id)
         if dossier:
@@ -104,7 +107,7 @@ class DossierService:
 
     async def list_product_dossiers(
         self, skip: int = 0, limit: int = 100
-    ) -> tuple[List[ProductDossier], int]:
+    ) -> tuple[list[ProductDossier], int]:
         """获取品种资料列表"""
         items, total = await self.repo.list_product_dossiers(skip, limit)
         # 填充章节数量
@@ -114,7 +117,7 @@ class DossierService:
 
     async def update_product_dossier(
         self, dossier_id: UUID, data: ProductDossierUpdate
-    ) -> Optional[ProductDossier]:
+    ) -> ProductDossier | None:
         """更新品种资料"""
         update_data = data.model_dump(exclude_unset=True)
         if update_data:
@@ -151,7 +154,7 @@ class DossierService:
 
         # 查找是否已有同名模板
         existing = await self.repo.get_template_by_filename(dossier_id, filename)
-        
+
         if existing:
             # 更新已有记录
             existing.file_path = str(file_path)
@@ -167,13 +170,13 @@ class DossierService:
                 file_size=len(file_content),
             )
             template = await self.repo.create_template(template)
-        
+
         await self.db.commit()
         return template
 
     # ====== Template Parsing ======
 
-    async def parse_templates(self, dossier_id: UUID) -> Dict[str, Any]:
+    async def parse_templates(self, dossier_id: UUID) -> dict[str, Any]:
         """解析模板并匹配到 M3 章节"""
         dossier = await self.repo.get_product_dossier(dossier_id)
         if not dossier:
@@ -210,7 +213,7 @@ class DossierService:
                         if ch.chapter_code == matched_code:
                             matched_chapter = ch
                             break
-                    
+
                     if matched_chapter:
                         # 创建 working copy
                         await self._create_working_copy_for_chapter(dossier, template, matched_chapter)
@@ -218,8 +221,8 @@ class DossierService:
 
             # 更新状态
             await self.repo.update_product_dossier(
-                dossier_id, 
-                parse_status="parsed", 
+                dossier_id,
+                parse_status="parsed",
                 status="active"
             )
             await self.db.commit()
@@ -246,7 +249,7 @@ class DossierService:
 
     async def _parse_docx_template(
         self, dossier: ProductDossier, template: DossierTemplate
-    ) -> List[DossierChapter]:
+    ) -> list[DossierChapter]:
         """解析单个 DOCX 模板"""
         source_path = Path(template.file_path)
         working_dir = Path(dossier.working_path)
@@ -270,7 +273,7 @@ class DossierService:
         for para_idx, para in enumerate(doc.paragraphs):
             style_name = para.style.name if para.style else ""
             text = para.text.strip()
-            
+
             if not text:
                 continue
 
@@ -279,7 +282,7 @@ class DossierService:
             if level > 0:
                 chapter_code = self._extract_chapter_code(text)
                 chapter_title = self._clean_chapter_title(text)
-                
+
                 chapter = DossierChapter(
                     product_dossier_id=dossier.id,
                     chapter_code=chapter_code,
@@ -319,7 +322,7 @@ class DossierService:
 
         return 0  # 不是标题
 
-    def _extract_chapter_code(self, text: str) -> Optional[str]:
+    def _extract_chapter_code(self, text: str) -> str | None:
         """提取章节编号"""
         match = re.match(r'^(\d+(?:\.\d+)*|[A-Z](?:\.\d+)*)', text)
         if match:
@@ -337,14 +340,14 @@ class DossierService:
     ) -> str:
         """生成工作副本文件名"""
         name, ext = os.path.splitext(original_filename)
-        
+
         # 替换旧品种名
         if dossier.template_original_product_name:
             name = name.replace(
                 dossier.template_original_product_name,
                 dossier.product_name
             )
-        
+
         return f"{name}_working{ext}"
 
     def _replace_basic_info(self, file_path: Path, dossier: ProductDossier) -> None:
@@ -352,11 +355,11 @@ class DossierService:
         doc = Document(str(file_path))
 
         replacements = {}
-        
+
         # 品种名称替换
         if dossier.template_original_product_name:
             replacements[dossier.template_original_product_name] = dossier.product_name
-        
+
         # 生产商替换
         if dossier.template_original_manufacturer:
             replacements[dossier.template_original_manufacturer] = dossier.manufacturer
@@ -390,7 +393,7 @@ class DossierService:
                         self._replace_in_paragraph(para, replacements)
                 except Exception:
                     logger.warning("Header paragraph replacement failed")
-            
+
             for footer in [section.footer, section.first_page_footer, section.even_page_footer]:
                 try:
                     for para in footer.paragraphs:
@@ -400,7 +403,7 @@ class DossierService:
 
         doc.save(str(file_path))
 
-    def _replace_in_paragraph(self, para, replacements: Dict[str, str]) -> None:
+    def _replace_in_paragraph(self, para, replacements: dict[str, str]) -> None:
         """替换段落中的文本"""
         for run in para.runs:
             for old_text, new_text in replacements.items():
@@ -409,15 +412,15 @@ class DossierService:
 
     # ====== Chapter Management ======
 
-    async def get_chapter_tree(self, dossier_id: UUID) -> List[ChapterResponse]:
+    async def get_chapter_tree(self, dossier_id: UUID) -> list[ChapterResponse]:
         """获取章节树"""
         chapters = await self.repo.get_chapter_tree(dossier_id)
         return self._build_chapter_tree(chapters)
 
-    def _build_chapter_tree(self, chapters: List[DossierChapter]) -> List[ChapterResponse]:
+    def _build_chapter_tree(self, chapters: list[DossierChapter]) -> list[ChapterResponse]:
         """构建章节树结构"""
-        chapter_map: Dict[Optional[UUID], List[DossierChapter]] = {}
-        
+        chapter_map: dict[UUID | None, list[DossierChapter]] = {}
+
         for chapter in chapters:
             parent_id = chapter.parent_id
             if parent_id not in chapter_map:
@@ -449,12 +452,12 @@ class DossierService:
         root_chapters = sorted(root_chapters, key=lambda c: _chapter_sort_key(c.chapter_code or ''))
         return [build_node(c) for c in root_chapters]
 
-    async def get_chapter_detail(self, chapter_id: UUID) -> Optional[ChapterDetailResponse]:
+    async def get_chapter_detail(self, chapter_id: UUID) -> ChapterDetailResponse | None:
         """获取章节详情"""
         chapter = await self.repo.get_chapter(chapter_id)
         if not chapter:
             return None
-        
+
         assets = [
             AssetResponse(
                 id=a.id,
@@ -465,7 +468,7 @@ class DossierService:
             )
             for a in (chapter.assets or [])
         ]
-        
+
         return ChapterDetailResponse(
             id=chapter.id,
             product_dossier_id=chapter.product_dossier_id,
@@ -481,10 +484,10 @@ class DossierService:
 
     # ====== Asset Management ======
 
-    async def _suggest_category(self, chapter_code: str, filename: str) -> Optional[UUID]:
+    async def _suggest_category(self, chapter_code: str, filename: str) -> UUID | None:
         """根据文件名自动猜测素材分类"""
         from .field_models import AssetCategory
-        
+
         stmt = select(AssetCategory).where(
             and_(
                 AssetCategory.chapter_code == chapter_code,
@@ -493,12 +496,12 @@ class DossierService:
         )
         result = await self.db.execute(stmt)
         categories = list(result.scalars().all())
-        
+
         if not categories:
             return None
-        
+
         fname_lower = filename.lower()
-        
+
         for cat in categories:
             name_lower = cat.category_name.lower()
             # 分类名称出现在文件名中
@@ -510,7 +513,7 @@ class DossierService:
                 desc_words = [w for w in re.split(r'[\s，。、；：""''（）(),;]+', cat.description) if len(w) > 2]
                 if any(w.lower() in fname_lower for w in desc_words):
                     return cat.id
-        
+
         return None
 
     async def upload_chapter_asset(
@@ -536,7 +539,7 @@ class DossierService:
 
         # 自动猜测分类
         suggested_category_id = await self._suggest_category(chapter.chapter_code, filename)
-        
+
         # 创建记录
         asset = ChapterAsset(
             chapter_id=chapter_id,
@@ -551,10 +554,10 @@ class DossierService:
         # 更新章节状态
         await self.repo.update_chapter(chapter_id, has_assets=True)
         await self.db.commit()
-        
+
         return asset
 
-    async def list_chapter_assets(self, chapter_id: UUID) -> List[ChapterAsset]:
+    async def list_chapter_assets(self, chapter_id: UUID) -> list[ChapterAsset]:
         """获取章节素材列表"""
         return await self.repo.list_assets(chapter_id)
 
@@ -571,20 +574,20 @@ class DossierService:
 
         # 删除记录
         await self.repo.delete_asset(asset_id)
-        
+
         # 更新章节状态
         remaining = await self.repo.count_assets(asset.chapter_id)
         if remaining == 0:
             await self.repo.update_chapter(asset.chapter_id, has_assets=False)
-        
+
         await self.db.commit()
         return True
 
     # ====== Export ======
 
     async def export_dossier(
-        self, dossier_id: UUID, chapter_ids: Optional[List[UUID]] = None
-    ) -> Dict[str, Any]:
+        self, dossier_id: UUID, chapter_ids: list[UUID] | None = None
+    ) -> dict[str, Any]:
         """导出品种资料"""
         dossier = await self.repo.get_product_dossier(dossier_id)
         if not dossier:
@@ -652,7 +655,7 @@ class DossierService:
 
     # ====== Storage Helpers ======
 
-    def _create_storage_dirs(self, dossier_id: str) -> Dict[str, str]:
+    def _create_storage_dirs(self, dossier_id: str) -> dict[str, str]:
         """创建存储目录"""
         base = self.storage_root / "products" / dossier_id
         dirs = {
@@ -673,13 +676,13 @@ class DossierService:
 
     async def _create_m3_chapters(self, dossier_id: UUID) -> None:
         """创建 M3 标准目录结构，按 M3_CHAPTERS 定义顺序赋值 sort_order"""
-        code_to_id: Dict[str, UUID] = {}
-        
+        code_to_id: dict[str, UUID] = {}
+
         # 两遍遍历：先创建所有节点，再按 M3 标准顺序赋值 sort_order
         # 第一遍：创建所有章节记录（按原始列表顺序，保证父节点先于子节点）
         for idx, ch in enumerate(M3_CHAPTERS):
             parent_id = code_to_id.get(ch["parent_code"]) if ch["parent_code"] else None
-            
+
             chapter = DossierChapter(
                 product_dossier_id=dossier_id,
                 parent_id=parent_id,
@@ -720,26 +723,26 @@ class DossierService:
         )
 
 
-    async def get_chapter_preview(self, chapter_id: UUID) -> Dict[str, Any]:
+    async def get_chapter_preview(self, chapter_id: UUID) -> dict[str, Any]:
         """获取章节预览内容（从 working copy 提取）"""
         chapter = await self.repo.get_chapter(chapter_id)
         if not chapter:
             return {"success": False, "message": "章节不存在"}
-        
+
         if not chapter.working_file:
             return {"success": False, "message": "章节无工作副本"}
-        
+
         dossier = await self.repo.get_product_dossier(chapter.product_dossier_id)
         if not dossier:
             return {"success": False, "message": "品种不存在"}
-        
+
         working_path = Path(dossier.working_path) / chapter.working_file
         if not working_path.exists():
             return {"success": False, "message": "工作副本文件不存在"}
-        
+
         try:
             doc = Document(str(working_path))
-            
+
             # 提取文本内容
             paragraphs = []
             for para in doc.paragraphs:
@@ -748,7 +751,7 @@ class DossierService:
                         "text": para.text,
                         "style": para.style.name if para.style else "Normal",
                     })
-            
+
             # 提取表格
             tables = []
             for table in doc.tables:
@@ -757,7 +760,7 @@ class DossierService:
                     cells = [cell.text.strip() for cell in row.cells]
                     rows.append(cells)
                 tables.append(rows)
-            
+
             return {
                 "success": True,
                 "chapter_code": chapter.chapter_code,
@@ -768,29 +771,29 @@ class DossierService:
         except Exception as e:
             return {"success": False, "message": f"预览失败: {str(e)}"}
 
-    async def match_assets_to_chapters(self, dossier_id: UUID) -> Dict[str, Any]:
+    async def match_assets_to_chapters(self, dossier_id: UUID) -> dict[str, Any]:
         """智能匹配素材到章节"""
         dossier = await self.repo.get_product_dossier(dossier_id)
         if not dossier:
             return {"success": False, "message": "品种不存在", "matched_count": 0, "unmatched_files": []}
-        
+
         # 获取所有模板文件
         templates = await self.repo.list_templates(dossier_id)
         if not templates:
             return {"success": False, "message": "无模板文件", "matched_count": 0, "unmatched_files": []}
-        
+
         # 获取所有章节（扁平列表）
         chapters = await self.repo.get_chapter_tree(dossier_id)
-        
+
         matched_count = 0
         unmatched_files = []
-        
+
         for template in templates:
             filename = template.original_filename
-            
+
             # 尝试匹配章节
             matched_code = match_file_to_chapter(filename)
-            
+
             if matched_code:
                 # 找到对应章节
                 matched_chapter = None
@@ -798,16 +801,16 @@ class DossierService:
                     if ch.chapter_code == matched_code:
                         matched_chapter = ch
                         break
-                
+
                 if matched_chapter:
                     # 创建 working copy
                     await self._create_working_copy_for_chapter(dossier, template, matched_chapter)
                     matched_count += 1
             else:
                 unmatched_files.append(filename)
-        
+
         await self.db.commit()
-        
+
         return {
             "success": True,
             "message": f"匹配完成：{matched_count} 个文件已匹配，{len(unmatched_files)} 个未匹配",
@@ -815,31 +818,31 @@ class DossierService:
             "unmatched_files": unmatched_files,
         }
 
-    async def init_chapter_ai_config(self, chapter_code: str) -> Dict[str, Any]:
+    async def init_chapter_ai_config(self, chapter_code: str) -> dict[str, Any]:
         """初始化章节的 AI 配置（FieldMapping + AssetCategory）
         
         从 scripts/seed_s6_ai_config.py 中的种子数据初始化，不再使用硬编码配置。
         如果该章节已有配置，跳过不重复创建。
         """
-        from .field_models import FieldMapping, AssetCategory
-        
         # 加载种子数据
-        from scripts.seed_s6_ai_config import S6_FIELD_MAPPINGS, S6_ASSET_CATEGORIES
+        from scripts.seed_s6_ai_config import S6_ASSET_CATEGORIES, S6_FIELD_MAPPINGS
 
-        
+        from .field_models import AssetCategory, FieldMapping
+
+
         # 只处理指定章节的配置
         field_configs = [c for c in S6_FIELD_MAPPINGS if c.get("chapter_code") == chapter_code]
         category_configs = [c for c in S6_ASSET_CATEGORIES if c.get("chapter_code") == chapter_code]
-        
+
         if not field_configs and not category_configs:
             return {
                 "success": False,
                 "message": f"章节 {chapter_code} 没有可用的种子配置"
             }
-        
+
         created_mappings = 0
         skipped_mappings = 0
-        
+
         # 创建 FieldMapping
         for config in field_configs:
             stmt = select(FieldMapping).where(
@@ -849,18 +852,18 @@ class DossierService:
             )
             result = await self.db.execute(stmt)
             existing = result.scalar_one_or_none()
-            
+
             if existing:
                 skipped_mappings += 1
                 continue
-            
+
             mapping = FieldMapping(**config)
             self.db.add(mapping)
             created_mappings += 1
-        
+
         created_categories = 0
         skipped_categories = 0
-        
+
         # 创建 AssetCategory
         for config in category_configs:
             stmt = select(AssetCategory).where(
@@ -870,17 +873,17 @@ class DossierService:
             )
             result = await self.db.execute(stmt)
             existing = result.scalar_one_or_none()
-            
+
             if existing:
                 skipped_categories += 1
                 continue
-            
+
             category = AssetCategory(**config)
             self.db.add(category)
             created_categories += 1
-        
+
         await self.db.commit()
-        
+
         return {
             "success": True,
             "message": f"{chapter_code} 配置初始化完成: 字段映射 {created_mappings} 新建/{skipped_mappings} 跳过, 素材分类 {created_categories} 新建/{skipped_categories} 跳过",

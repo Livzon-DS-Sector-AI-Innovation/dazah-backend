@@ -8,11 +8,9 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, NotFoundException
+
 from .models import (
     DataMaster,
-    Notification,
-    OcrTask,
-    PointMapping,
     PressureRecord,
 )
 from .repository import PressureRepository
@@ -46,7 +44,6 @@ from .schemas import (
     PointMappingUpdate,
     PressureRecordResponse,
     SubmitOcrTaskResultRequest,
-    TemplateExportRow,
     UpdateMergedRowRequest,
     UpdateMergedRowResponse,
 )
@@ -426,7 +423,7 @@ class PressureService:
             await self.repo.create_notification({
                 "type": "ocr_completed",
                 "title": "OCR 识别完成",
-                "message": f"图片识别已完成，请查看结果",
+                "message": "图片识别已完成，请查看结果",
                 "target_user_id": creator,
                 "related_id": str(task.id),
                 "related_type": "ocr_task",

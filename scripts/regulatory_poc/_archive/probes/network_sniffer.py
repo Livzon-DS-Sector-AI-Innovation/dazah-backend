@@ -4,11 +4,12 @@
 捕获页面加载过程中的所有网络请求，包括 XHR/Fetch/JS/CSS 等
 """
 
-import sys
 import json
 import os
+import sys
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
+
 from browser import create_browser
 
 
@@ -224,7 +225,7 @@ def main():
         json.dump(result, f, ensure_ascii=False, indent=2)
 
     print(f"\n{'='*70}")
-    print(f"汇总")
+    print("汇总")
     print(f"{'='*70}")
     print(f"总请求数: {len(result['all_requests'])}")
     print(f"API 请求: {len(result['api_calls'])}")
@@ -232,7 +233,7 @@ def main():
     print(f"HTML 长度: {result['html_length']}")
 
     if result["api_calls"]:
-        print(f"\nAPI 详情:")
+        print("\nAPI 详情:")
         for i, api in enumerate(result["api_calls"], 1):
             print(f"\n  [{i}] {api['method']} {api['url']}")
             print(f"      状态: {api.get('status', 'N/A')}")

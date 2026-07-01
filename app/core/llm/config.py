@@ -1,14 +1,15 @@
 """LLM configuration management."""
 
 import os
-from typing import Optional
 from dataclasses import dataclass
-from sqlalchemy import String, Float, Integer, Boolean, Text, select
+
+from sqlalchemy import Boolean, Float, Integer, String, Text, select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.shared.base_model import BaseModel
 from app.core.database import async_session_factory
-from .encryption import encrypt_api_key, decrypt_api_key
+from app.shared.base_model import BaseModel
+
+from .encryption import decrypt_api_key
 from .exceptions import LLMConfigError
 
 
@@ -28,7 +29,7 @@ class LLMConfigData:
 
 class LLMConfigModel(BaseModel):
     """Database model for LLM configuration."""
-    
+
     __tablename__ = "llm_configs"
     __table_args__ = {"schema": "core", "comment": "LLM configuration table"}
 
@@ -60,7 +61,7 @@ class LLMConfigModel(BaseModel):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False, comment="Is active config"
     )
-    notes: Mapped[Optional[str]] = mapped_column(
+    notes: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="Notes"
     )
 
@@ -79,7 +80,7 @@ class LLMConfigModel(BaseModel):
         )
 
 
-async def get_active_config(config_type: str = "text") -> Optional[LLMConfigData]:
+async def get_active_config(config_type: str = "text") -> LLMConfigData | None:
     """Get active LLM config from database.
     
     Args:
@@ -106,7 +107,7 @@ async def get_active_config(config_type: str = "text") -> Optional[LLMConfigData
     return None
 
 
-def get_env_config() -> Optional[LLMConfigData]:
+def get_env_config() -> LLMConfigData | None:
     """Get LLM config from environment variables (for local dev).
     
     Returns:
@@ -115,10 +116,10 @@ def get_env_config() -> Optional[LLMConfigData]:
     api_key = os.getenv("LLM_API_KEY")
     base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
     model = os.getenv("LLM_MODEL", "deepseek-chat")
-    
+
     if not api_key:
         return None
-    
+
     return LLMConfigData(
         id="env",
         config_name="Environment Config",
@@ -148,12 +149,12 @@ async def get_config(config_type: str = "text") -> LLMConfigData:
     config = await get_active_config(config_type)
     if config:
         return config
-    
+
     # Fall back to env config (local dev)
     config = get_env_config()
     if config:
         return config
-    
+
     raise LLMConfigError(
         "LLM not configured. Set LLM_API_KEY in .env.local or configure via admin UI."
     )

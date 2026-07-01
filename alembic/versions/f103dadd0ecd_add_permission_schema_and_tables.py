@@ -4,16 +4,17 @@ Revision ID: f103dadd0ecd
 Revises: 00b1b23aab64
 Create Date: 2026-06-26 10:36:41.462612
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
+
+import sqlalchemy as sa
 
 from alembic import op
-import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'f103dadd0ecd'
-down_revision: Union[str, None] = '00b1b23aab64'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '00b1b23aab64'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
