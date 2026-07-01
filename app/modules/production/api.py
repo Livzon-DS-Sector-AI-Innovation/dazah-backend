@@ -102,7 +102,6 @@ router = APIRouter()
 
 async def get_batches(
 
-    current_user: CurrentUser,
     page: int = Query(1, ge=1),
 
     page_size: int = Query(20, ge=1, le=200),
@@ -149,7 +148,6 @@ async def get_batches(
 
 async def get_batch(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -178,7 +176,6 @@ async def get_batch(
 
 async def create_batch(
 
-    current_user: CurrentUser,
     data: BatchCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -205,7 +202,6 @@ async def create_batch(
 
 async def update_batch(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     data: BatchUpdate,
@@ -238,7 +234,6 @@ async def update_batch(
 
 async def update_batch_status(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     data: BatchStatusUpdate,
@@ -277,7 +272,6 @@ async def update_batch_status(
 
 async def delete_batch(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -314,7 +308,6 @@ async def delete_batch(
 
 async def get_batch_materials(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -339,7 +332,6 @@ async def get_batch_materials(
 
 async def add_batch_material(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     data: BatchMaterialCreate,
@@ -368,7 +360,6 @@ async def add_batch_material(
 
 async def update_batch_material(
 
-    current_user: CurrentUser,
     material_id: uuid.UUID,
 
     data: BatchMaterialUpdate,
@@ -403,7 +394,6 @@ async def update_batch_material(
 
 async def delete_batch_material(
 
-    current_user: CurrentUser,
     material_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -440,7 +430,6 @@ async def delete_batch_material(
 
 async def get_plans(
 
-    current_user: CurrentUser,
     page: int = Query(1, ge=1),
 
     page_size: int = Query(20, ge=1, le=200),
@@ -479,7 +468,6 @@ async def get_plans(
 
 async def get_plan(
 
-    current_user: CurrentUser,
     plan_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -508,7 +496,6 @@ async def get_plan(
 
 async def create_plan(
 
-    current_user: CurrentUser,
     data: ProductionPlanCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -535,7 +522,6 @@ async def create_plan(
 
 async def update_plan(
 
-    current_user: CurrentUser,
     plan_id: uuid.UUID,
 
     data: ProductionPlanUpdate,
@@ -568,7 +554,6 @@ async def update_plan(
 
 async def delete_plan(
 
-    current_user: CurrentUser,
     plan_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -605,7 +590,6 @@ async def delete_plan(
 
 async def get_plan_tasks(
 
-    current_user: CurrentUser,
     plan_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -630,7 +614,6 @@ async def get_plan_tasks(
 
 async def create_task(
 
-    current_user: CurrentUser,
     data: PlanTaskCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -657,7 +640,6 @@ async def create_task(
 
 async def update_task(
 
-    current_user: CurrentUser,
     task_id: uuid.UUID,
 
     data: PlanTaskUpdate,
@@ -690,7 +672,6 @@ async def update_task(
 
 async def delete_task(
 
-    current_user: CurrentUser,
     task_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -727,7 +708,6 @@ async def delete_task(
 
 async def get_process_specs(
 
-    current_user: CurrentUser,
     page: int = Query(1, ge=1),
 
     page_size: int = Query(20, ge=1, le=200),
@@ -766,7 +746,6 @@ async def get_process_specs(
 
 async def get_process_spec(
 
-    current_user: CurrentUser,
     spec_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -795,7 +774,6 @@ async def get_process_spec(
 
 async def create_process_spec(
 
-    current_user: CurrentUser,
     data: ProcessSpecCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -822,7 +800,6 @@ async def create_process_spec(
 
 async def update_process_spec(
 
-    current_user: CurrentUser,
     spec_id: uuid.UUID,
 
     data: ProcessSpecUpdate,
@@ -855,7 +832,6 @@ async def update_process_spec(
 
 async def delete_process_spec(
 
-    current_user: CurrentUser,
     spec_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -890,7 +866,6 @@ async def delete_process_spec(
 
 async def get_process_steps(
 
-    current_user: CurrentUser,
     spec_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -915,7 +890,6 @@ async def get_process_steps(
 
 async def create_process_step(
 
-    current_user: CurrentUser,
     data: ProcessStepCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -942,7 +916,6 @@ async def create_process_step(
 
 async def update_process_step(
 
-    current_user: CurrentUser,
     step_id: uuid.UUID,
 
     data: ProcessStepUpdate,
@@ -975,7 +948,6 @@ async def update_process_step(
 
 async def delete_process_step(
 
-    current_user: CurrentUser,
     step_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -1012,7 +984,6 @@ async def delete_process_step(
 
 async def get_process_parameters(
 
-    current_user: CurrentUser,
     step_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -1037,7 +1008,6 @@ async def get_process_parameters(
 
 async def create_process_parameter(
 
-    current_user: CurrentUser,
     data: ProcessParameterCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -1064,7 +1034,6 @@ async def create_process_parameter(
 
 async def delete_process_parameter(
 
-    current_user: CurrentUser,
     param_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -1101,7 +1070,6 @@ async def delete_process_parameter(
 
 async def get_production_records(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     page: int = Query(1, ge=1),
@@ -1132,7 +1100,6 @@ async def get_production_records(
 
 async def create_production_record(
 
-    current_user: CurrentUser,
     data: ProductionRecordCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -1159,7 +1126,6 @@ async def create_production_record(
 
 async def update_production_record(
 
-    current_user: CurrentUser,
     record_id: uuid.UUID,
 
     data: ProductionRecordUpdate,
@@ -1194,7 +1160,6 @@ async def update_production_record(
 
 async def delete_production_record(
 
-    current_user: CurrentUser,
     record_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -1231,7 +1196,6 @@ async def delete_production_record(
 
 async def get_material_balance(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -1260,7 +1224,6 @@ async def get_material_balance(
 
 async def calculate_material_balance(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     min_balance_rate: float = Query(95.0, ge=0, le=100),
@@ -1293,7 +1256,6 @@ async def calculate_material_balance(
 
 async def update_material_balance(
 
-    current_user: CurrentUser,
     batch_id: uuid.UUID,
 
     data: MaterialBalanceUpdate,
