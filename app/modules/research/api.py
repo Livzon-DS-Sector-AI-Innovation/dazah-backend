@@ -87,7 +87,6 @@ async def create_project(
 
     db: AsyncSession = Depends(get_db),
 
-    current_user: CurrentUser = None,
 
 ) -> JSONResponse:
 
@@ -167,7 +166,6 @@ async def get_project(
 
 async def update_project(
 
-    current_user: CurrentUser,
     project_id: uuid.UUID,
 
     data: ResearchProjectUpdate,
@@ -190,7 +188,6 @@ async def update_project(
 
 async def delete_project(
 
-    current_user: CurrentUser,
     project_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -211,7 +208,6 @@ async def delete_project(
 
 async def analyze_ich_q3c(
 
-    current_user: CurrentUser,
     file: UploadFile = File(...),
 
     route: str = Query("oral", description="给药途径"),
@@ -240,7 +236,6 @@ async def analyze_ich_q3c(
 
 async def analyze_ich_combined(
 
-    current_user: CurrentUser,
     file: UploadFile = File(...),
 
     route: str = Query("oral", description="给药途径"),
@@ -269,7 +264,6 @@ async def analyze_ich_combined(
 
 async def get_ich_records(
 
-    current_user: CurrentUser,
     page: int = Query(1, ge=1),
 
     page_size: int = Query(20, ge=1, le=100),
@@ -326,7 +320,6 @@ async def get_ich_records(
 
 async def get_ich_record(
 
-    current_user: CurrentUser,
     record_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -369,7 +362,6 @@ async def get_ich_record(
 
 async def delete_ich_record(
 
-    current_user: CurrentUser,
     record_id: uuid.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -390,7 +382,6 @@ async def delete_ich_record(
 
 async def edbo_optimize(
 
-    current_user: CurrentUser,
     file: UploadFile = File(..., description="反应范围 CSV 文件"),
 
     objectives: str = Body(..., description="目标列名，逗号分隔"),
@@ -1016,7 +1007,6 @@ from app.modules.research.schemas import (
 
 async def create_pilot_workflow(
 
-    current_user: CurrentUser,
     data: PilotWorkflowCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -1145,7 +1135,6 @@ async def get_pilot_workflow_detail(
 
 async def start_pilot_workflow(
 
-    current_user: CurrentUser,
     workflow_id: uuid_module.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -1239,7 +1228,6 @@ async def get_pilot_workflow_step(
 
 async def upload_pilot_document(
 
-    current_user: CurrentUser,
     workflow_id: uuid_module.UUID,
 
     file: UploadFile = File(...),
@@ -1314,7 +1302,6 @@ async def upload_pilot_document(
 
 async def delete_pilot_workflow(
 
-    current_user: CurrentUser,
     workflow_id: uuid_module.UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -1349,7 +1336,6 @@ async def delete_pilot_workflow(
 
 async def analyze_literature(
 
-    current_user: CurrentUser,
     file: UploadFile = File(...),
 
     current_user: CurrentUser = None,
@@ -1812,7 +1798,6 @@ async def get_route(
 
 async def create_route(
 
-    current_user: CurrentUser,
     data: dict = Body(...),
 
     db: AsyncSession = Depends(get_db),
@@ -1869,7 +1854,6 @@ async def create_route(
 
 async def update_route(
 
-    current_user: CurrentUser,
     route_id: str,
 
     data: dict = Body(...),
@@ -1946,7 +1930,6 @@ async def update_route(
 
 async def delete_route(
 
-    current_user: CurrentUser,
     route_id: str,
 
     db: AsyncSession = Depends(get_db),
@@ -2007,7 +1990,6 @@ async def delete_route(
 
 async def create_experiment(
 
-    current_user: CurrentUser,
     route_id: str,
 
     data: dict = Body(...),
@@ -2096,7 +2078,6 @@ async def create_experiment(
 
 async def update_experiment(
 
-    current_user: CurrentUser,
     exp_id: str,
 
     data: dict = Body(...),
@@ -2181,7 +2162,6 @@ async def update_experiment(
 
 async def delete_experiment(
 
-    current_user: CurrentUser,
     exp_id: str,
 
     db: AsyncSession = Depends(get_db),
@@ -2438,7 +2418,6 @@ async def get_optimization(
 
 async def create_optimization(
 
-    current_user: CurrentUser,
     data: dict = Body(...),
 
     db: AsyncSession = Depends(get_db),
@@ -2509,7 +2488,6 @@ async def create_optimization(
 
 async def update_optimization(
 
-    current_user: CurrentUser,
     optimization_id: str,
 
     data: dict = Body(...),
@@ -2578,7 +2556,6 @@ async def update_optimization(
 
 async def delete_optimization(
 
-    current_user: CurrentUser,
     optimization_id: str,
 
     db: AsyncSession = Depends(get_db),
@@ -2675,7 +2652,6 @@ from app.modules.research.schemas import (
 
 async def create_milestone(
 
-    current_user: CurrentUser,
     project_id: UUID,
 
     data: RdMilestoneCreate,
@@ -2715,7 +2691,6 @@ async def get_milestones(
 
 async def update_milestone(
 
-    current_user: CurrentUser,
     milestone_id: UUID,
 
     data: RdMilestoneUpdate,
@@ -2742,7 +2717,6 @@ async def update_milestone(
 
 async def create_stage_record(
 
-    current_user: CurrentUser,
     project_id: UUID,
 
     data: RdStageRecordCreate,
@@ -2782,7 +2756,6 @@ async def get_stage_records(
 
 async def update_stage_record(
 
-    current_user: CurrentUser,
     record_id: UUID,
 
     data: RdStageRecordUpdate,
@@ -2809,7 +2782,6 @@ async def update_stage_record(
 
 async def create_research_track(
 
-    current_user: CurrentUser,
     project_id: UUID,
 
     data: RdResearchTrackCreate,
@@ -2944,7 +2916,6 @@ async def get_research_tracks(
 
 async def update_research_track(
 
-    current_user: CurrentUser,
     track_id: UUID,
 
     data: RdResearchTrackUpdate,
@@ -2971,7 +2942,6 @@ async def update_research_track(
 
 async def create_research_finding(
 
-    current_user: CurrentUser,
     track_id: UUID,
 
     data: RdResearchFindingCreate,
@@ -3011,7 +2981,6 @@ async def get_research_findings(
 
 async def update_research_finding(
 
-    current_user: CurrentUser,
     finding_id: UUID,
 
     data: RdResearchFindingUpdate,
@@ -3038,7 +3007,6 @@ async def update_research_finding(
 
 async def publish_conclusion_version(
 
-    current_user: CurrentUser,
     track_id: UUID,
 
     data: dict,
@@ -3154,7 +3122,6 @@ async def get_rd_project(
 
 async def create_rd_project(
 
-    current_user: CurrentUser,
     data: RdProjectCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -3183,7 +3150,6 @@ async def create_rd_project(
 
 async def update_rd_project(
 
-    current_user: CurrentUser,
     project_id: UUID,
 
     data: RdProjectUpdate,
@@ -3214,7 +3180,6 @@ async def update_rd_project(
 
 async def delete_rd_project(
 
-    current_user: CurrentUser,
     project_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -3241,7 +3206,6 @@ async def delete_rd_project(
 
 async def transition_stage(
 
-    current_user: CurrentUser,
     project_id: UUID,
 
     data: dict = Body(...),
@@ -3334,7 +3298,6 @@ async def get_pilot_studies(
 
 async def create_pilot_study(
 
-    current_user: CurrentUser,
     data: RdPilotStudyCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -3363,7 +3326,6 @@ async def create_pilot_study(
 
 async def update_pilot_study(
 
-    current_user: CurrentUser,
     study_id: UUID,
 
     data: RdPilotStudyUpdate,
@@ -3421,7 +3383,6 @@ async def get_validations(
 
 async def create_validation(
 
-    current_user: CurrentUser,
     data: RdProcessValidationCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -3450,7 +3411,6 @@ async def create_validation(
 
 async def update_validation(
 
-    current_user: CurrentUser,
     validation_id: UUID,
 
     data: RdProcessValidationUpdate,
@@ -3508,7 +3468,6 @@ async def get_filings(
 
 async def create_filing(
 
-    current_user: CurrentUser,
     data: RdRegistrationFilingCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -3537,7 +3496,6 @@ async def create_filing(
 
 async def update_filing(
 
-    current_user: CurrentUser,
     filing_id: UUID,
 
     data: RdRegistrationFilingUpdate,
@@ -3580,7 +3538,6 @@ async def update_filing(
 
 async def create_rd_stage_deliverable_api(
 
-    current_user: CurrentUser,
     data: RdStageDeliverableCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -3687,7 +3644,6 @@ async def list_rd_stage_deliverables_api(
 
 async def update_rd_stage_deliverable_api(
 
-    current_user: CurrentUser,
     deliverable_id: UUID,
 
     data: RdStageDeliverableUpdate,
@@ -3718,7 +3674,6 @@ async def update_rd_stage_deliverable_api(
 
 async def delete_rd_stage_deliverable_api(
 
-    current_user: CurrentUser,
     deliverable_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -3745,7 +3700,6 @@ async def delete_rd_stage_deliverable_api(
 
 async def upload_deliverable_file(
 
-    current_user: CurrentUser,
     deliverable_id: UUID,
 
     file: UploadFile = File(...),
@@ -3904,7 +3858,6 @@ async def get_pilot_studies(
 
 async def create_pilot_study_api(
 
-    current_user: CurrentUser,
     data: RdPilotStudyCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -3927,7 +3880,6 @@ async def create_pilot_study_api(
 
 async def update_pilot_study_api(
 
-    current_user: CurrentUser,
     study_id: UUID,
 
     data: RdPilotStudyUpdate,
@@ -3952,7 +3904,6 @@ async def update_pilot_study_api(
 
 async def delete_pilot_study_api(
 
-    current_user: CurrentUser,
     study_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -3998,7 +3949,6 @@ async def get_validations(
 
 async def create_validation_api(
 
-    current_user: CurrentUser,
     data: RdProcessValidationCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -4021,7 +3971,6 @@ async def create_validation_api(
 
 async def update_validation_api(
 
-    current_user: CurrentUser,
     validation_id: UUID,
 
     data: RdProcessValidationUpdate,
@@ -4046,7 +3995,6 @@ async def update_validation_api(
 
 async def delete_validation_api(
 
-    current_user: CurrentUser,
     validation_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -4092,7 +4040,6 @@ async def get_filings(
 
 async def create_filing_api(
 
-    current_user: CurrentUser,
     data: RdRegistrationFilingCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -4115,7 +4062,6 @@ async def create_filing_api(
 
 async def update_filing_api(
 
-    current_user: CurrentUser,
     filing_id: UUID,
 
     data: RdRegistrationFilingUpdate,
@@ -4140,7 +4086,6 @@ async def update_filing_api(
 
 async def delete_filing_api(
 
-    current_user: CurrentUser,
     filing_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -4190,7 +4135,6 @@ async def get_experiment_logs(
 
 async def create_experiment_log(
 
-    current_user: CurrentUser,
     data: RdExperimentLogCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -4221,7 +4165,6 @@ async def create_experiment_log(
 
 async def update_experiment_log(
 
-    current_user: CurrentUser,
     log_id: UUID,
 
     data: RdExperimentLogUpdate,
@@ -4254,7 +4197,6 @@ async def update_experiment_log(
 
 async def delete_experiment_log(
 
-    current_user: CurrentUser,
     log_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -4304,7 +4246,6 @@ async def get_reports(
 
 async def create_report(
 
-    current_user: CurrentUser,
     data: RdReportCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -4335,7 +4276,6 @@ async def create_report(
 
 async def update_report(
 
-    current_user: CurrentUser,
     report_id: UUID,
 
     data: RdReportUpdate,
@@ -4368,7 +4308,6 @@ async def update_report(
 
 async def delete_report(
 
-    current_user: CurrentUser,
     report_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -4418,7 +4357,6 @@ async def get_initiations(
 
 async def create_initiation(
 
-    current_user: CurrentUser,
     data: RdInitiationCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -4449,7 +4387,6 @@ async def create_initiation(
 
 async def update_initiation(
 
-    current_user: CurrentUser,
     initiation_id: UUID,
 
     data: RdInitiationUpdate,
@@ -4482,7 +4419,6 @@ async def update_initiation(
 
 async def delete_initiation(
 
-    current_user: CurrentUser,
     initiation_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -4511,7 +4447,6 @@ async def delete_initiation(
 
 async def delete_research_track(
 
-    current_user: CurrentUser,
     track_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -4558,7 +4493,6 @@ async def delete_research_track(
 
 async def delete_research_finding(
 
-    current_user: CurrentUser,
     finding_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -4674,7 +4608,6 @@ async def get_track_detail(
 
 async def create_conclusion_version_api(
 
-    current_user: CurrentUser,
     track_id: UUID,
 
     data: RdTrackConclusionVersionCreate,
@@ -5354,7 +5287,6 @@ async def get_deliverable_templates(
 
 async def create_deliverable_template(
 
-    current_user: CurrentUser,
     data: RdDeliverableTemplateCreate,
 
     db: AsyncSession = Depends(get_db),
@@ -5385,7 +5317,6 @@ async def create_deliverable_template(
 
 async def update_deliverable_template(
 
-    current_user: CurrentUser,
     template_id: UUID,
 
     data: RdDeliverableTemplateUpdate,
@@ -5418,7 +5349,6 @@ async def update_deliverable_template(
 
 async def delete_deliverable_template(
 
-    current_user: CurrentUser,
     template_id: UUID,
 
     db: AsyncSession = Depends(get_db),
@@ -5445,7 +5375,6 @@ async def delete_deliverable_template(
 
 async def generate_report(
 
-    current_user: CurrentUser,
     data: RdReportGenerateRequest,
 
     db: AsyncSession = Depends(get_db),
