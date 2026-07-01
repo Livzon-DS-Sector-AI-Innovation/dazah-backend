@@ -76,7 +76,7 @@ async def analyze_inspection_photo(
     user_prompt = build_user_prompt(items_input)
 
     try:
-        client = QwenClient()
+        client = await QwenClient.create()
         raw_response = await client.analyze_image(
             image_base64=image_base64,
             image_mime_type=image_mime_type,
@@ -162,7 +162,7 @@ async def parse_manual_submission(
         for item in items
     ]
 
-    client = QwenClient()
+    client = await QwenClient.create()
     try:
         user_prompt = build_manual_submit_user_prompt(
             items_list, user_text, equipment_name

@@ -864,7 +864,7 @@ async def _cmd_modify(open_id: str, session: dict, user_text: str) -> None:
         build_correction_user_prompt,
     )
 
-    client = QwenClient()
+    client = await QwenClient.create()
     try:
         user_prompt = build_correction_user_prompt(current_results, user_text)
         raw_response = await client.parse_correction(

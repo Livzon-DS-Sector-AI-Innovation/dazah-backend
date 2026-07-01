@@ -1,6 +1,7 @@
 """千文 (Qwen) API 客户端 — OpenAI 兼容接口。"""
 
 import os
+from app.shared.config_reader import get_module_setting
 
 import httpx
 
@@ -18,16 +19,13 @@ class QwenClient:
     def __init__(
         self,
         timeout: int = 120,
-        base_url: str | None = None,
-        model: str | None = None,
-        api_key: str | None = None,
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model: str = "qwen3.7-plus",
+        api_key: str = "",
     ):
-        self._base_url = base_url or os.getenv(
-            "EQUIPMENT_AI_BASE_URL",
-            "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        )
-        self._model = model or os.getenv("EQUIPMENT_AI_MODEL", "qwen3.7-plus")
-        self._api_key = api_key or os.getenv("EQUIPMENT_AI_API_KEY", "")
+        self._base_url = base_url
+        self._model = model
+        self._api_key = api_key
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             headers={
@@ -36,6 +34,27 @@ class QwenClient:
             },
             timeout=timeout,
         )
+
+    @classmethod
+    async def create(
+        cls,
+        timeout: int = 120,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+    ) -> "QwenClient":
+        """Factory method to create QwenClient with config from database."""
+        if base_url is None:
+            base_url = await get_module_setting(
+                "equipment",
+                "EQUIPMENT_AI_BASE_URL",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            )
+        if model is None:
+            model = await get_module_setting("equipment", "EQUIPMENT_AI_MODEL", "qwen3.7-plus")
+        if api_key is None:
+            api_key = await get_module_setting("equipment", "EQUIPMENT_AI_API_KEY", "")
+        return cls(timeout=timeout, base_url=base_url, model=model, api_key=api_key)
 
     async def analyze_image(
         self,
