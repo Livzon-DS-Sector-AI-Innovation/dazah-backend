@@ -7,6 +7,8 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
+from app.core.logging_config import request_id_var
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,6 +27,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         request_id = str(uuid.uuid4())
         start_time = time.monotonic()
         request.state.request_id = request_id
+        request_id_var.set(request_id)  # 注入 ContextVar，所有日志自动携带
 
         response = await call_next(request)
         duration_ms = round((time.monotonic() - start_time) * 1000)

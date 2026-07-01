@@ -1,15 +1,18 @@
 """Safety business workflows."""
 
 import logging
+import os
 import uuid
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.storage import delete_object
+from app.core.storage import is_enabled as minio_enabled
 from app.modules.safety.repository import SafetyRepository
-from app.platform.audit.service import record_audit_log
-from app.core.llm import llm_client, LLMOutputError
+from app.modules.safety.service._helpers import audit_log
+from app.platform.integrations.ai.client import AIOutputError, AIService
 
 logger = logging.getLogger(__name__)
 
@@ -36,19 +39,34 @@ class RegulationService:
         new_value: dict[str, Any] | None = None,
         extra: dict[str, Any] | None = None,
     ) -> None:
+        await audit_log(
+            self.session,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            user_id=user_id,
+            old_value=old_value,
+            new_value=new_value,
+            extra=extra,
+        )
+
+    @staticmethod
+    def _cleanup_file(file_path: str | None) -> None:
+        """Delete a single file from MinIO or local disk."""
+        if not file_path:
+            return
         try:
-            await record_audit_log(
-                self.session,
-                action=action,
-                user_id=user_id,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                old_value=old_value,
-                new_value=new_value,
-                extra=extra,
-            )
-        except Exception:
-            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
+            if minio_enabled():
+                try:
+                    delete_object("safety", file_path)
+                except Exception:
+                    pass
+            else:
+                abs_path = os.path.abspath(file_path)
+                if os.path.exists(abs_path):
+                    os.remove(abs_path)
+        except OSError:
+            pass
 
     # ==================== 安全操作规程 CRUD ====================
 
@@ -85,8 +103,12 @@ class RegulationService:
 
     async def delete_regulation(self, regulation_id: uuid.UUID) -> bool:
         """删除安全操作规程"""
+        regulation = await self.repo.get_regulation_by_id(regulation_id)
         result = await self.repo.delete_regulation(regulation_id)
         if result:
+            if regulation:
+                self._cleanup_file(regulation.document_path)
+                self._cleanup_file(regulation.source_document_path)
             await self._audit("delete", "regulation", resource_id=regulation_id)
         return result
 
@@ -145,8 +167,12 @@ class RegulationService:
 
     async def delete_revision(self, revision_id: uuid.UUID) -> bool:
         """删除修订记录"""
+        revision = await self.repo.get_revision_by_id(revision_id)
         result = await self.repo.delete_revision(revision_id)
         if result:
+            if revision:
+                self._cleanup_file(revision.old_document_path)
+                self._cleanup_file(revision.new_document_path)
             await self._audit("delete", "regulation_revision", resource_id=revision_id)
         return result
 
@@ -313,6 +339,11 @@ class RegulationService:
 
     # ==================== AI 辅助方法 ====================
 
+    async def _get_ai_client(self) -> AIService:
+        """获取文本模型 AIService（硬编码配置）"""
+        from app.modules.safety.service.config import create_ai_service
+        return create_ai_service("text")
+
     async def _ai_identify_scope(
         self,
         revision_opinion: str,
@@ -339,16 +370,17 @@ class RegulationService:
 {{"scope": "process" 或 "safety_requirement" 或 "process,safety_requirement"（两者都有时逗号分隔）, "reasoning": "识别依据说明"}}"""
 
         try:
-            
-            result = await llm_client.chat_json(
+            ai = await self._get_ai_client()
+            result = await ai.chat_parsed(
                 messages=[
                     {"role": "system", "content": "你是一个专业的安全生产管理专家，擅长识别操规修订的影响范围。"},
                     {"role": "user", "content": prompt},
                 ],
                 expected_keys=["scope", "reasoning"],
             )
+            await ai.close()
             return result.get("scope", "safety_requirement")
-        except LLMOutputError:
+        except AIOutputError:
             logger.warning("AI 识别修订范围失败，默认标记为安全要求")
             return "safety_requirement"
         except Exception as e:
@@ -381,17 +413,18 @@ class RegulationService:
 请直接输出修订后的完整文档内容。"""
 
         try:
-            
+            ai = await self._get_ai_client()
             messages = [
                 {"role": "system", "content": "你是一个专业的安全操作规程编写专家，服务于原料药生产企业。"},
                 {"role": "user", "content": prompt},
             ]
             # 自由文本生成，使用 chat 方法
-            result = await llm_client.chat(
+            result = await ai.chat(
                 messages=messages,
                 response_format="text",
                 max_tokens=16384,
             )
+            await ai.close()
             return result if result else ""
         except Exception as e:
             logger.error(f"AI 生成修订版本失败: {e}")
@@ -418,14 +451,15 @@ class RegulationService:
 {{"has_changes": true/false, "changes": [{{"section": "章节/条款号", "old_text": "旧内容摘要", "new_text": "新内容摘要", "change_type": "新增/修改/删除"}}], "summary": "差异摘要说明"}}"""
 
         try:
-            
-            result = await llm_client.chat_json(
+            ai = await self._get_ai_client()
+            result = await ai.chat_parsed(
                 messages=[
                     {"role": "system", "content": "你是一个专业的文档对比分析专家。"},
                     {"role": "user", "content": prompt},
                 ],
                 expected_keys=["has_changes", "changes", "summary"],
             )
+            await ai.close()
             return result
         except Exception as e:
             logger.error(f"AI 差异分析失败: {e}")

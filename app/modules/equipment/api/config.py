@@ -8,6 +8,8 @@ from app.core.database import get_db
 from app.core.response import success_response
 from app.modules.equipment import service
 from app.modules.equipment.schemas import ClaimTimeoutUpdateRequest
+from app.platform.identity.models import User
+from app.platform.permission.deps import require_permission
 
 router = APIRouter()
 
@@ -15,6 +17,7 @@ router = APIRouter()
 @router.get("/claim-timeout", summary="获取抢单超时配置")
 async def get_claim_timeout(
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("equipment:maintenance:read")),
 ) -> JSONResponse:
     config = await service.get_claim_timeout_config(db)
     return success_response(data=config)
@@ -24,6 +27,7 @@ async def get_claim_timeout(
 async def update_claim_timeout(
     data: ClaimTimeoutUpdateRequest,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("equipment:maintenance:update")),
 ) -> JSONResponse:
     config = await service.update_claim_timeout_config(db, data)
     return success_response(data=config)

@@ -8,9 +8,10 @@
 
 用法:
     from app.modules.safety.ai_hazard_identification import AIHazardIdentifier
-    from app.modules.safety.ai_hazard_identification.schemas import HazardIdentificationInput
+    from app.platform.integrations.ai.client import AIService
 
-    plugin = AIHazardIdentifier()
+    ai_service = AIService(api_key="...", base_url="...", model="...")
+    plugin = AIHazardIdentifier(ai_service)
 
     input_data = HazardIdentificationInput(
         description="防爆电箱堵头缺失",
@@ -20,13 +21,10 @@
     )
 
     output = await plugin.identify(input_data)
-    logger.debug("Key defect: %s", output.key_defect)
-    logger.debug("Hazard level: %s", output.hazard_level)
+    logger.debug("识别结果: key_defect=%s hazard_level=%s", output.key_defect, output.hazard_level)
 """
 
 from __future__ import annotations
-
-from app.core.llm import llm_client
 
 import json as _json
 import logging
@@ -47,8 +45,8 @@ from app.modules.safety.ai_hazard_identification.rules import (
 from app.modules.safety.ai_hazard_identification.schemas import (
     HazardIdentificationInput,
     HazardIdentificationOutput,
-    RectificationSuggestion,
     PluginConfig,
+    RectificationSuggestion,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,13 +64,17 @@ class AIHazardIdentifier:
     - 低温度（0.05）保证输出可复现
     - DB-first 配置 + 硬编码 fallback
     - 规则引擎后处理确保质量
+    - 法规知识库注入（RAG-lite）
     - 完整的日志记录用于审计
 
     Args:
+        ai_service: AI 服务实例（已配置 API key / base_url / model）
         config: 插件运行时配置（可选，使用默认值）
+        knowledge_context: 法规知识库上下文文本（可选，注入到 prompt 中）
 
     Example:
-        >>> plugin = AIHazardIdentifier()
+        >>> ai_service = AIService(api_key="sk-xxx", model="deepseek-v4-flash")
+        >>> plugin = AIHazardIdentifier(ai_service, knowledge_context="...")
         >>> output = await plugin.identify(HazardIdentificationInput(
         ...     description="防爆电箱堵头缺失",
         ...     department="生产部",
@@ -81,10 +83,14 @@ class AIHazardIdentifier:
 
     def __init__(
         self,
+        ai_service: Any,  # AIService from app.platform.integrations.ai.client
         config: PluginConfig | None = None,
+        knowledge_context: str | None = None,
     ):
+        self.ai_service = ai_service
         self.config = config or PluginConfig()
         self.rule_engine = RuleEngine()
+        self.knowledge_context = knowledge_context
 
     # ── 公共 API ──
 
@@ -109,8 +115,13 @@ class AIHazardIdentifier:
         logger.info("阶段一：输入预处理 — hazard_no=%s", input_data.hazard_no)
         has_photos = bool(input_data.defect_photos)
 
+        # ── 阶段1.5：加载知识库 ──
+        if not self.knowledge_context and self.config.enable_knowledge:
+            logger.info("阶段1.5：知识库未提供，使用空上下文（集成层应在调用前注入）")
+
         # ── 阶段二：AI 分析 ──
-        logger.info("阶段二：AI 分析 — has_photos=%s", has_photos)
+        logger.info("阶段二：AI 分析 — has_photos=%s has_knowledge=%s",
+                     has_photos, bool(self.knowledge_context))
 
         if has_photos and self.config.enable_vision:
             raw_output = await self._call_vision_ai(input_data)
@@ -188,7 +199,10 @@ class AIHazardIdentifier:
             ),
         )
 
-        prompt = build_full_prompt(context, vision_mode=False, include_fewshot=True)
+        prompt = build_full_prompt(
+            context, vision_mode=False, include_fewshot=True,
+            knowledge_context=self.knowledge_context,
+        )
         expected_keys = get_expected_keys()
 
         messages = [
@@ -197,7 +211,7 @@ class AIHazardIdentifier:
         ]
 
         try:
-            return await llm_client.chat_json(
+            return await self.ai_service.chat_parsed(
                 messages=messages,
                 expected_keys=expected_keys,
                 temperature=self.config.temperature,
@@ -219,15 +233,35 @@ class AIHazardIdentifier:
 
         try:
             # 检查 AI 服务是否支持 vision
-            # llm_client supports vision via chat_vision_json
-            return await llm_client.chat_vision_json(
+            if hasattr(self.ai_service, "chat_vision_parsed"):
+                return await self.ai_service.chat_vision_parsed(
                     text_prompt=build_full_prompt(
-                        context, vision_mode=True, include_fewshot=True
+                        context, vision_mode=True, include_fewshot=True,
+                        knowledge_context=self.knowledge_context,
                     ),
                     image_urls=input_data.defect_photos,
                     expected_keys=expected_keys,
                     temperature=self.config.temperature,
                 )
+
+            # Fallback: 将图片信息嵌入文本 prompt
+            logger.warning("AI 服务不支持 vision，降级为纯文本模式")
+            fallback_desc = input_data.description
+            if input_data.defect_photos:
+                fallback_desc += (
+                    f"\n（附缺陷照片 {len(input_data.defect_photos)} 张，"
+                    f"因当前模型不支持视觉分析，请基于文本描述进行判断）"
+                )
+            fallback_input = HazardIdentificationInput(
+                hazard_no=input_data.hazard_no,
+                description=fallback_desc,
+                department=input_data.department,
+                location=input_data.location,
+                discovered_by_name=input_data.discovered_by_name,
+                discovered_at=input_data.discovered_at,
+                defect_photos=[],  # 清空图片，走纯文本
+            )
+            return await self._call_text_ai(fallback_input)
 
         except Exception as e:
             logger.error("多模态 AI 调用失败: %s", e)
@@ -250,7 +284,7 @@ class AIHazardIdentifier:
                 try:
                     rs = _json.loads(rs)
                 except (_json.JSONDecodeError, TypeError):
-                    rs = {"immediate": rs, "short_term": "", "long_term": ""}
+                    rs = {"corrective": rs, "preventive": ""}
 
             return HazardIdentificationOutput(
                 key_defect=raw.get("key_defect", ""),
@@ -258,9 +292,8 @@ class AIHazardIdentifier:
                 hazard_category=HazardCategoryEnum(raw.get("hazard_category", "")),
                 hazard_level=HazardLevelEnum(raw.get("hazard_level", "")),
                 rectification_suggestion=RectificationSuggestion(
-                    immediate=rs.get("immediate", ""),
-                    short_term=rs.get("short_term", ""),
-                    long_term=rs.get("long_term", ""),
+                    corrective=rs.get("corrective", ""),
+                    preventive=rs.get("preventive", ""),
                 ),
                 major_hazard_basis=raw.get("major_hazard_basis", ""),
                 confidence=raw.get("confidence") if self.config.enable_reasoning else None,

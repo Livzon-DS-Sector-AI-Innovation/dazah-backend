@@ -206,33 +206,56 @@ async def _get_template_item_map(
 # ─────────────────────────────────────────────────────────────
 
 
+def _user_to_dict(u: User) -> dict[str, Any]:
+    """User ORM → 字典"""
+    return {
+        "id": str(u.id),
+        "name": u.name,
+        "employee_no": u.employee_no or "",
+        "department": u.department or "",
+        "position": u.position or "",
+        "email": u.email or "",
+        "mobile": u.mobile or "",
+        "feishu_user_id": u.feishu_user_id or "",
+    }
+
+
 @mcp.tool()
 async def query_user(keyword: str) -> list[dict[str, Any]]:
     """
-    根据姓名或工号模糊查询系统用户信息。
+    根据姓名或 user_id 查询系统用户信息。
+
+    查询优先级：
+    1. 先尝试按 UUID 精确匹配
+    2. 再尝试按飞书 user_id（union_id）精确匹配
+    3. 最后按姓名模糊搜索
+
     适用于 Agent 在替用户操作前，需要先确认用户身份和 user_id 的场景。
     返回匹配的用户列表，包含 id、姓名、部门、职位、工号等信息。
 
     Args:
-        keyword: 用户姓名（支持模糊匹配）或工号
+        keyword: 用户 UUID、飞书 user_id（union_id）、姓名（支持模糊匹配）或工号
     """
     db = get_db()
     repo = UserRepository()
-    users, _total = await repo.list_all(db, keyword=keyword, limit=20)
 
-    return [
-        {
-            "id": str(u.id),
-            "name": u.name,
-            "employee_no": u.employee_no or "",
-            "department": u.department or "",
-            "position": u.position or "",
-            "email": u.email or "",
-            "mobile": u.mobile or "",
-            "feishu_user_id": u.feishu_user_id or "",
-        }
-        for u in users
-    ]
+    # 1) 尝试 UUID 精确匹配
+    try:
+        uid = uuid.UUID(keyword)
+        user = await db.get(User, uid)
+        if user and not user.is_deleted:
+            return [_user_to_dict(user)]
+    except ValueError:
+        pass
+
+    # 2) 尝试飞书 user_id 精确匹配
+    user = await repo.get_by_feishu_user_id(db, keyword)
+    if user:
+        return [_user_to_dict(user)]
+
+    # 3) 按姓名模糊搜索
+    users, _total = await repo.list_all(db, keyword=keyword, limit=20)
+    return [_user_to_dict(u) for u in users]
 
 
 # ─────────────────────────────────────────────────────────────

@@ -1,36 +1,40 @@
 from datetime import date
 from io import BytesIO
-import logging
+from urllib.parse import quote
 from uuid import UUID
 
-logger = logging.getLogger(__name__)
-from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import Depends, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
+from pydantic import BaseModel
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from sqlalchemy import text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from urllib.parse import quote
 
 from app.core.database import get_db
 from app.core.response import paginated_response, success_response
+from app.modules.hr.analysis_api import router as analysis_router
+from app.modules.hr.document_generator import generate_onboarding_training_record
+from app.modules.hr.evaluation_document_generator import generate_training_evaluation
+from app.modules.hr.notification_document_generator import (
+    generate_training_notification,
+)
+from app.modules.hr.onboarding_evaluation_document_generator import (
+    generate_onboarding_evaluation,
+)
+from app.modules.hr.prejob_document_generator import generate_prejob_training_plan
 from app.modules.hr.schemas import (
     AnnualTrainingPlanCreate,
     AnnualTrainingPlanItemBatchUpdate,
     AnnualTrainingPlanItemResponse,
     AnnualTrainingPlanResponse,
     AnnualTrainingPlanUpdate,
-    CandidateCreate,
-    CandidateListResponse,
-    CandidateResponse,
-    CandidateUpdate,
-    CandidateUpdateRecommendationLevel,
-    DepartureRecordCreate,
-    DepartureRecordResponse,
-    DepartureRecordUpdate,
     DepartmentCreate,
     DepartmentResponse,
     DepartmentUpdate,
+    DepartureRecordCreate,
+    DepartureRecordResponse,
+    DepartureRecordUpdate,
     EmployeeCreate,
     EmployeeResponse,
     EmployeeUpdate,
@@ -44,52 +48,36 @@ from app.modules.hr.schemas import (
     TeamUpdate,
     TrainingEvaluationInput,
     TrainingLedgerCreate,
-    TrainingLedgerResponse,
-    TrainingLedgerUpdate,
     TrainingLedgerPageCreate,
     TrainingLedgerPageResponse,
+    TrainingLedgerResponse,
+    TrainingLedgerUpdate,
     TrainingNotificationInput,
     TrainingNotifyInput,
     TrainingSignInSheetInput,
+    TrainerResponse,
+    TrainerListResponse,
+    SopCatalogResponse,
+    SopCatalogListResponse,
 )
-from app.modules.hr.models import Employee
-from app.modules.hr.document_generator import generate_onboarding_training_record
-from app.modules.hr.evaluation_document_generator import generate_training_evaluation
-from app.modules.hr.notification_document_generator import generate_training_notification
-from app.modules.hr.onboarding_evaluation_document_generator import generate_onboarding_evaluation
-from app.modules.hr.prejob_document_generator import generate_prejob_training_plan
-from app.modules.hr.signin_document_generator import generate_training_sign_in_sheet
-from app.modules.hr.analysis_api import router as analysis_router
 from app.modules.hr.service import (
     AnnualTrainingPlanItemService,
     AnnualTrainingPlanService,
-    CandidateService,
-    DepartureRecordService,
     DepartmentService,
+    DepartureRecordService,
     EmployeeService,
     OffboardingRecordService,
     OnboardingRecordService,
     TeamService,
-    TrainingLedgerService,
     TrainingLedgerPageService,
+    TrainingLedgerService,
 )
+from app.modules.hr.signin_document_generator import generate_training_sign_in_sheet
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
 from app.shared.schemas import PageParams
 
 router = create_module_router(MODULES_BY_CODE["hr"])
-
-
-async def _get_new_employee(employee_id: UUID, session: AsyncSession) -> Employee:
-    """Query employees_new clone table and construct an Employee instance."""
-    sql = text(
-        "SELECT * FROM hr.employees_new WHERE id = :id AND is_deleted = false"
-    )
-    result = await session.execute(sql, {"id": str(employee_id)})
-    row = result.mappings().first()
-    if not row:
-        raise HTTPException(status_code=404, detail="未找到该新厂员工")
-    return Employee(**dict(row))
 
 
 def get_employee_service(session: AsyncSession = Depends(get_db)) -> EmployeeService:
@@ -150,12 +138,6 @@ def get_annual_training_plan_item_service(
     return AnnualTrainingPlanItemService(session)
 
 
-def get_candidate_service(
-    session: AsyncSession = Depends(get_db),
-) -> CandidateService:
-    return CandidateService(session)
-
-
 # ─── Employee Routes ───
 
 @router.get("/employees", summary="员工列表")
@@ -196,6 +178,22 @@ async def create_employee(
         message="员工创建成功",
         status_code=201,
     )
+
+
+@router.post("/employees/upload", summary="上传人员名单")
+async def upload_employees(
+    file: UploadFile,
+    service: EmployeeService = Depends(get_employee_service),
+):
+    """上传 Excel 人员名单，按工号自动新增或更新。"""
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "仅支持 .xlsx / .xls 格式")
+    try:
+        content = await file.read()
+        result = await service.upload_employees(content)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return success_response(data=result, message=f"新增 {result['created']}，更新 {result['updated']}")
 
 
 @router.post("/employees/sync-from-feishu", summary="从飞书多维表格同步员工数据")
@@ -303,25 +301,58 @@ async def feishu_approval_webhook(
 
 
 @router.get(
-    "/employees/{employee_id}/onboarding-training-record",
+    "/employees/{employee_number}/onboarding-training-record",
     summary="导出员工入职培训记录",
 )
 async def export_onboarding_training_record(
-    employee_id: UUID,
-    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
+    employee_number: str,
     service: EmployeeService = Depends(get_employee_service),
-    session: AsyncSession = Depends(get_db),
 ):
-    """根据员工数据自动生成并下载入职培训记录 Word 文档。"""
-    if factory == "old":
-        employee = await service.get_employee(employee_id)
-    else:
-        try:
-            employee = await _get_new_employee(employee_id, session)
-        except HTTPException:
-            employee = await service.get_employee(employee_id)
+    """根据员工工号自动生成并下载入职培训记录 Word 文档。"""
+    employee = await service.get_employee_by_number(employee_number)
     try:
-        buffer: BytesIO = generate_onboarding_training_record(employee, factory)
+        buffer: BytesIO = generate_onboarding_training_record(employee)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    def _iterfile():
+        buffer.seek(0)
+        yield buffer.read()
+
+    filename = f"onboarding_training_record_{employee.employee_number}.docx"
+    return StreamingResponse(
+        _iterfile(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class TrainingItem(BaseModel):
+    sop_number: str = ""
+    file_name: str = ""
+    content: str = ""
+    method: str = ""
+    trainer: str = ""
+
+
+class TrainingExportRequest(BaseModel):
+    training_items: list[TrainingItem] = []
+
+
+@router.post(
+    "/employees/{employee_number}/onboarding-training-record",
+    summary="导出员工入职培训记录（带培训项）",
+)
+async def export_onboarding_training_record_with_items(
+    employee_number: str,
+    body: TrainingExportRequest,
+    service: EmployeeService = Depends(get_employee_service),
+):
+    """根据员工工号和前端选中的培训项，生成入职培训记录 Word 文档。"""
+    employee = await service.get_employee_by_number(employee_number)
+    items = [it.model_dump() for it in body.training_items]
+    try:
+        buffer: BytesIO = generate_onboarding_training_record(employee, training_items=items)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -343,20 +374,12 @@ async def export_onboarding_training_record(
 )
 async def export_prejob_training_plan(
     employee_id: UUID,
-    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
     service: EmployeeService = Depends(get_employee_service),
-    session: AsyncSession = Depends(get_db),
 ):
-    """根据员工数据自动生成并下载岗前培训计划文档。"""
-    if factory == "old":
-        employee = await service.get_employee(employee_id)
-    else:
-        try:
-            employee = await _get_new_employee(employee_id, session)
-        except HTTPException:
-            employee = await service.get_employee(employee_id)
+    """根据员工数据自动生成并下载岗前培训计划 Excel 文档。"""
+    employee = await service.get_employee(employee_id)
     try:
-        buffer: BytesIO = generate_prejob_training_plan(employee, factory)
+        buffer: BytesIO = generate_prejob_training_plan(employee)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -364,16 +387,10 @@ async def export_prejob_training_plan(
         buffer.seek(0)
         yield buffer.read()
 
-    ext = "xlsx" if factory == "old" else "docx"
-    media_type = (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        if factory == "old"
-        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
-    filename = f"prejob_training_plan_{employee.employee_number}.{ext}"
+    filename = f"prejob_training_plan_{employee.employee_number}.xlsx"
     return StreamingResponse(
         _iterfile(),
-        media_type=media_type,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -384,20 +401,46 @@ async def export_prejob_training_plan(
 )
 async def export_onboarding_evaluation_by_employee(
     employee_id: UUID,
-    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
     service: EmployeeService = Depends(get_employee_service),
-    session: AsyncSession = Depends(get_db),
 ):
-    """根据员工档案预填基本信息并导出上岗评估表文档。"""
-    if factory == "old":
-        employee = await service.get_employee(employee_id)
-    else:
-        try:
-            employee = await _get_new_employee(employee_id, session)
-        except HTTPException:
-            employee = await service.get_employee(employee_id)
+    """根据员工档案预填基本信息并导出上岗评估表 Excel 文档。"""
+    employee = await service.get_employee(employee_id)
+
+    payload = OnboardingEvaluationInput(
+        employee_name=employee.name or "",
+        employee_number=employee.employee_number or None,
+        gender=employee.gender or None,
+        department_position=f"{employee.department or ''}/{employee.position or ''}",
+        hire_date=employee.hire_date,
+    )
+    buffer: BytesIO = generate_onboarding_evaluation(payload)
+
+    def _iterfile():
+        buffer.seek(0)
+        yield buffer.read()
+
+    safe_date = str(employee.hire_date).replace("-", "") if employee.hire_date else "nodate"
+    filename = f"onboarding_evaluation_{employee.employee_number}_{safe_date}.xlsx"
+    return StreamingResponse(
+        _iterfile(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+
+
+@router.post("/training-sign-in-sheet", summary="生成培训签到表")
+async def export_training_sign_in_sheet(
+    payload: TrainingSignInSheetInput,
+):
+    """根据填写的培训信息自动生成培训签到表 Word 文档。
+
+    超过一页（20人）时自动分页，所有页面合并在一个 docx 中。
+    """
+    safe_date = str(payload.training_date).replace("-", "")
     try:
-        buffer: BytesIO = generate_onboarding_evaluation(employee, factory)
+        buffer: BytesIO = generate_training_sign_in_sheet(payload)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -405,72 +448,15 @@ async def export_onboarding_evaluation_by_employee(
         buffer.seek(0)
         yield buffer.read()
 
-    safe_date = str(employee.hire_date).replace("-", "") if employee.hire_date else "nodate"
-    ext = "xlsx" if factory == "old" else "docx"
-    media_type = (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        if factory == "old"
-        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
-    filename = f"onboarding_evaluation_{employee.employee_number}_{safe_date}.{ext}"
+    safe_filename = f"training_sign_in_sheet_{safe_date}.docx"
+    from urllib.parse import quote
+
     return StreamingResponse(
         _iterfile(),
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-import zipfile
-
-@router.post("/training-sign-in-sheet", summary="生成培训签到表")
-async def export_training_sign_in_sheet(
-    payload: TrainingSignInSheetInput,
-):
-    """根据填写的培训信息自动生成培训签到表 Excel 文档。
-
-    当应出席受训人员超过 30 人时，自动分页生成多张签到表并打包为 zip。
-    """
-    safe_date = str(payload.training_date).replace("-", "")
-    total = len(payload.employee_names)
-
-    if total <= 30:
-        try:
-            buffer: BytesIO = generate_training_sign_in_sheet(payload)
-        except FileNotFoundError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        def _iterfile():
-            buffer.seek(0)
-            yield buffer.read()
-
-        filename = f"training_sign_in_sheet_{safe_date}.xlsx"
-        return StreamingResponse(
-            _iterfile(),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
-
-    # 超过 30 人：分页生成并打包为 zip
-    pages = (total + 29) // 30  # 向上取整
-    zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for page in range(pages):
-            try:
-                page_buffer = generate_training_sign_in_sheet(payload, page=page)
-            except FileNotFoundError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            page_buffer.seek(0)
-            zf.writestr(f"training_sign_in_sheet_{safe_date}_page{page + 1}.xlsx", page_buffer.read())
-    zip_buffer.seek(0)
-
-    def _iter_zip():
-        zip_buffer.seek(0)
-        yield zip_buffer.read()
-
-    return StreamingResponse(
-        _iter_zip(),
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="training_sign_in_sheet_{safe_date}.zip"'},
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{safe_filename}\"; filename*=utf-8''{quote('培训签到表_' + safe_date + '.docx')}"
+        },
     )
 
 
@@ -490,33 +476,30 @@ async def export_training_notification(
     payload: TrainingNotificationInput,
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
-    """根据填写的培训信息自动生成培训通知 Word 文档。
-
-    若应出席受训人员包含李健文(110000673)或黄丽耘(110001372)，
-    自动为其创建培训台账记录。
-    """
+    """根据填写的培训信息自动生成培训通知 Word 文档，并自动为所有受训人员创建培训台账记录。"""
     try:
         buffer: BytesIO = generate_training_notification(payload)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # 自动关联创建培训台账记录
+    # 自动为所有受训人员创建培训台账记录
     employee_service = EmployeeService(service.repo.session)
+    created_count = 0
     for name in payload.trainee_names:
         emp = await employee_service.repo.list_employees(
             keyword=name, page=1, page_size=1
         )
         if emp[0] and emp[0][0]:
             employee = emp[0][0]
-            if employee.employee_number in {"110000673", "110001372"}:
-                await service.create_from_notification(
-                    employee_number=employee.employee_number,
-                    training_date=payload.training_date,
-                    training_subject=payload.subject,
-                    training_method=None,
-                    trainer=payload.trainer,
-                    source_id=f"notification_{payload.training_date}_{payload.subject}",
-                )
+            await service.create_from_notification(
+                employee_number=employee.employee_number,
+                training_date=payload.training_date,
+                training_subject=payload.subject,
+                training_method=None,
+                trainer=payload.trainer,
+                source_id=f"notification_{payload.training_date}_{payload.subject}",
+            )
+            created_count += 1
 
     def _iterfile():
         buffer.seek(0)
@@ -535,7 +518,7 @@ async def export_training_notification(
 async def export_training_evaluation(
     payload: TrainingEvaluationInput,
 ):
-    """根据填写的培训信息自动生成培训效果评估表 Excel 文档。"""
+    """根据填写的培训信息自动生成培训效果评估表 Word 文档。"""
     buffer: BytesIO = generate_training_evaluation(payload)
 
     def _iterfile():
@@ -543,37 +526,33 @@ async def export_training_evaluation(
         yield buffer.read()
 
     safe_date = str(payload.training_date).replace("-", "") if payload.training_date else "nodate"
-    filename = f"training_evaluation_{safe_date}.xlsx"
+    from urllib.parse import quote
+    safe_filename = f"training_evaluation_{safe_date}.docx"
     return StreamingResponse(
         _iterfile(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{safe_filename}\"; filename*=utf-8''{quote('培训效果评估表_' + safe_date + '.docx')}"
+        },
     )
 
 
 @router.post("/onboarding-evaluation", summary="生成员工上岗评估表")
 async def export_onboarding_evaluation(
     payload: OnboardingEvaluationInput,
-    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
 ):
-    """根据填写的评估信息自动生成员工上岗评估表文档。"""
-    buffer: BytesIO = generate_onboarding_evaluation(payload, factory)
+    """根据填写的评估信息自动生成员工上岗评估表 Excel 文档。"""
+    buffer: BytesIO = generate_onboarding_evaluation(payload)
 
     def _iterfile():
         buffer.seek(0)
         yield buffer.read()
 
     safe_date = str(payload.evaluation_date).replace("-", "") if payload.evaluation_date else "nodate"
-    ext = "xlsx" if factory == "old" else "docx"
-    media_type = (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        if factory == "old"
-        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
-    filename = f"onboarding_evaluation_{safe_date}.{ext}"
+    filename = f"onboarding_evaluation_{safe_date}.xlsx"
     return StreamingResponse(
         _iterfile(),
-        media_type=media_type,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -1098,7 +1077,7 @@ def _generate_training_ledger_excel(employee: dict, records: list[dict]) -> Byte
     ws.column_dimensions["G"].width = 12
 
     ws.merge_cells("A1:G1")
-    ws["A1"] = "丽珠集团新北江制药股份有限公司"
+    ws["A1"] = "丽珠集团福州福兴医药有限公司"
     ws["A1"].font = title_font
     ws["A1"].alignment = center_align
     ws.row_dimensions[1].height = 28
@@ -1289,6 +1268,22 @@ async def delete_training_ledger(
 
 
 # ─── AnnualTrainingPlan Routes ───
+
+@router.post("/annual-training-plans/upload", summary="上传年度培训计划")
+async def upload_annual_training_plan(
+    file: UploadFile,
+    service: EmployeeService = Depends(get_employee_service),
+):
+    """上传 Excel 年度培训计划，按年度+部门自动分类为计划项。"""
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "仅支持 .xlsx / .xls 格式")
+    try:
+        content = await file.read()
+        result = await service.upload_annual_plan(content)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return success_response(data=result, message=f"新增 {result['created']} 条计划项")
+
 
 @router.get("/annual-training-plans", summary="年度培训计划列表")
 async def list_annual_training_plans(
@@ -1530,430 +1525,201 @@ async def export_annual_training_plan(
         },
     )
 
-
-# ─── New Factory Routes (read-only, query _new clone tables) ───
-
-from types import SimpleNamespace
+# ─── Trainer Routes ───
 
 
-def _build_where(
-    base_table: str,
-    filters: list[tuple[str, str | None]],
-    keyword_fields: list[str] | None = None,
-    keyword: str | None = None,
-) -> tuple[str, dict]:
-    """Build WHERE clause and params for raw SQL."""
-    conditions = [f"{base_table}.is_deleted = false"]
-    params: dict = {}
-    for col, val in filters:
-        if val:
-            conditions.append(f"{base_table}.{col} ILIKE :{col}")
-            params[col] = f"%{val}%"
-    if keyword and keyword_fields:
-        ors = [f"{base_table}.{f} ILIKE :keyword" for f in keyword_fields]
-        conditions.append(f"({' OR '.join(ors)})")
-        params["keyword"] = f"%{keyword}%"
-    return " AND ".join(conditions), params
+@router.post("/trainers/upload", summary="上传内训师台账")
+async def upload_trainers(
+    file: UploadFile,
+    service: EmployeeService = Depends(get_employee_service),
+):
+    """上传 Excel 内训师名单，按姓名+部门自动新增或更新。"""
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "仅支持 .xlsx / .xls 格式")
+    try:
+        content = await file.read()
+        result = await service.upload_trainers(content)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return success_response(data=result, message=f"新增 {result['created']}，更新 {result['updated']}")
 
 
-async def _query_clone_table(
-    session: AsyncSession,
-    table: str,
-    schema: type,
-    where_sql: str,
-    params: dict,
-    page: int,
-    page_size: int,
-    sort_by: str = "created_at",
-    sort_order: str = "desc",
-) -> tuple[list, int]:
-    count_sql = text(f"SELECT COUNT(*) FROM {table} WHERE {where_sql}")
-    total = (await session.execute(count_sql, params)).scalar()
-
-    sql = text(f"""
-        SELECT * FROM {table}
-        WHERE {where_sql}
-        ORDER BY {sort_by} {sort_order}
-        LIMIT :limit OFFSET :offset
-    """)
-    params["limit"] = page_size
-    params["offset"] = (page - 1) * page_size
-
-    result = await session.execute(sql, params)
-    rows = result.mappings().all()
-    data = [
-        schema.model_validate(SimpleNamespace(**dict(row))).model_dump(mode="json")
-        for row in rows
-    ]
-    return data, total
-
-
-@router.get("/new/employees", summary="新厂员工列表")
-async def list_new_employees(
+@router.get("/trainers", summary="内训师台账列表", response_model=TrainerListResponse)
+async def list_trainers(
     department: str | None = Query(None),
-    status: str | None = Query(None),
     keyword: str | None = Query(None),
-    page_params: PageParams = Depends(),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_db),
 ):
-    where, params = _build_where(
-        "hr.employees_new",
-        [("department", department), ("status", status)],
-        keyword_fields=["name", "employee_number"],
-        keyword=keyword,
-    )
-    data, total = await _query_clone_table(
-        session, "hr.employees_new", EmployeeResponse,
-        where, params, page_params.page, page_params.page_size,
-    )
-    return paginated_response(
-        data=data, page=page_params.page,
-        page_size=page_params.page_size, total=total,
-    )
+    from app.modules.hr.models import HrTrainer
+    from app.core.response import paginated_response
 
-
-@router.get("/new/onboarding-records", summary="新厂入职台账列表")
-async def list_new_onboarding_records(
-    department: str | None = Query(None),
-    position: str | None = Query(None),
-    keyword: str | None = Query(None),
-    page_params: PageParams = Depends(),
-    session: AsyncSession = Depends(get_db),
-):
-    where, params = _build_where(
-        "hr.onboarding_records_new",
-        [("department", department), ("position", position)],
-        keyword_fields=["name", "employee_number"],
-        keyword=keyword,
-    )
-    data, total = await _query_clone_table(
-        session, "hr.onboarding_records_new", OnboardingRecordResponse,
-        where, params, page_params.page, page_params.page_size,
-        sort_by="hire_date", sort_order="desc",
-    )
-    return paginated_response(
-        data=data, page=page_params.page,
-        page_size=page_params.page_size, total=total,
-    )
-
-
-@router.get("/new/departure-records", summary="新厂离职台账列表")
-async def list_new_departure_records(
-    department: str | None = Query(None),
-    offboarding_type: str | None = Query(None),
-    keyword: str | None = Query(None),
-    page_params: PageParams = Depends(),
-    session: AsyncSession = Depends(get_db),
-):
-    where, params = _build_where(
-        "hr.departure_records_new",
-        [("department", department), ("offboarding_type", offboarding_type)],
-        keyword_fields=["name", "department", "position"],
-        keyword=keyword,
-    )
-    data, total = await _query_clone_table(
-        session, "hr.departure_records_new", DepartureRecordResponse,
-        where, params, page_params.page, page_params.page_size,
-        sort_by="offboarding_date", sort_order="desc",
-    )
-    return paginated_response(
-        data=data, page=page_params.page,
-        page_size=page_params.page_size, total=total,
-    )
-
-
-@router.get("/new/offboarding-records", summary="新厂离职管理列表")
-async def list_new_offboarding_records(
-    department: str | None = Query(None),
-    offboarding_type: str | None = Query(None),
-    keyword: str | None = Query(None),
-    page_params: PageParams = Depends(),
-    session: AsyncSession = Depends(get_db),
-):
-    # Reuse departure_records_new as offboarding data for new factory
-    where, params = _build_where(
-        "hr.departure_records_new",
-        [("department", department), ("offboarding_type", offboarding_type)],
-        keyword_fields=["name", "department", "position"],
-        keyword=keyword,
-    )
-    data, total = await _query_clone_table(
-        session, "hr.departure_records_new", DepartureRecordResponse,
-        where, params, page_params.page, page_params.page_size,
-        sort_by="offboarding_date", sort_order="desc",
-    )
-    return paginated_response(
-        data=data, page=page_params.page,
-        page_size=page_params.page_size, total=total,
-    )
-
-
-@router.get("/new/departments", summary="新厂部门列表")
-async def list_new_departments(
-    keyword: str | None = Query(None),
-    page_params: PageParams = Depends(),
-    session: AsyncSession = Depends(get_db),
-):
-    """Aggregate departments from employees_new (no standalone departments_new table)."""
-    where = "is_deleted = false"
-    params: dict = {}
+    query = select(HrTrainer).where(HrTrainer.is_deleted == False)
+    count_q = select(func.count()).select_from(HrTrainer).where(HrTrainer.is_deleted == False)
+    if department:
+        query = query.where(HrTrainer.department == department)
+        count_q = count_q.where(HrTrainer.department == department)
     if keyword:
-        where += " AND name ILIKE :keyword"
-        params["keyword"] = f"%{keyword}%"
-
-    count_sql = text(f"""
-        SELECT COUNT(DISTINCT department) FROM hr.employees_new
-        WHERE {where}
-    """)
-    total = (await session.execute(count_sql, params)).scalar()
-
-    sql = text(f"""
-        SELECT DISTINCT ON (department)
-            department AS name,
-            department AS code,
-            '' AS description,
-            gen_random_uuid() AS id,
-            NOW() AS created_at,
-            NOW() AS updated_at
-        FROM hr.employees_new
-        WHERE {where}
-        ORDER BY department
-        LIMIT :limit OFFSET :offset
-    """)
-    params["limit"] = page_params.page_size
-    params["offset"] = (page_params.page - 1) * page_params.page_size
-
-    result = await session.execute(sql, params)
-    rows = result.mappings().all()
-    data = [
-        DepartmentResponse.model_validate(SimpleNamespace(**dict(row))).model_dump(mode="json")
-        for row in rows
-    ]
-    return paginated_response(
-        data=data, page=page_params.page,
-        page_size=page_params.page_size, total=total,
-    )
-
-
-# ─── Candidate Routes ───
-
-@router.get("/candidates", summary="候选人列表")
-async def list_candidates(
-    position: str | None = Query(None, description="职位筛选"),
-    education: str | None = Query(None, description="学历筛选"),
-    recommendation_level: str | None = Query(None, description="推荐等级筛选（支持逗号分隔多个值）"),
-    sync_status: str | None = Query(None, description="飞书同步状态筛选: synced/failed/unsynced"),
-    keyword: str | None = Query(None, description="姓名/职位关键词"),
-    page_params: PageParams = Depends(),
-    service: CandidateService = Depends(get_candidate_service),
-):
-    candidates, total = await service.list_candidates(
-        position=position,
-        education=education,
-        recommendation_level=recommendation_level,
-        sync_status=sync_status,
-        keyword=keyword,
-        page=page_params.page,
-        page_size=page_params.page_size,
-    )
-    logger.debug("API recommendation_level=%s, total=%s", recommendation_level, total)
-    data = [
-        CandidateResponse.model_validate(c).model_dump(mode="json")
-        for c in candidates
-    ]
-    return paginated_response(
-        data=data,
-        page=page_params.page,
-        page_size=page_params.page_size,
-        total=total,
-    )
-
-
-@router.post("/candidates/parse-preview", summary="预览简历AI解析结果")
-async def preview_resume_parse(
-    resume: UploadFile = File(..., description="简历 PDF 附件"),
-    position: str = Form(..., max_length=64, description="应聘职位名称"),
-    service: CandidateService = Depends(get_candidate_service),
-):
-    """上传简历 PDF，转为图片后由 AI 视觉识别并返回预览字段（不保存）。"""
-    resume_bytes = await resume.read()
-    result = await service.parse_resume_preview(resume_bytes, position)
-    return success_response(data=result)
-
-
-@router.post("/candidates", summary="新建候选人")
-async def create_candidate(
-    name: str = Form(..., max_length=64, description="候选人姓名"),
-    position: str = Form(..., max_length=64, description="应聘职位名称"),
-    resume: UploadFile = File(..., description="简历 PDF 附件"),
-    gender: str | None = Form(None, max_length=8, description="性别"),
-    school: str | None = Form(None, max_length=128, description="学校名称"),
-    education: str | None = Form(None, max_length=16, description="学历"),
-    major: str | None = Form(None, max_length=64, description="专业"),
-    match_report: str | None = Form(None, description="AI 匹配度报告"),
-    recommendation_level: str | None = Form(
-        None, max_length=16, description="推荐等级"
-    ),
-    service: CandidateService = Depends(get_candidate_service),
-):
-    """手动新建候选人：上传简历 PDF，创建本地记录并同步到飞书。"""
-    resume_bytes = await resume.read()
-    candidate = await service.create_candidate_with_resume(
-        name=name,
-        position=position,
-        resume_bytes=resume_bytes,
-        filename=resume.filename or f"{name}.pdf",
-        gender=gender,
-        school=school,
-        education=education,
-        major=major,
-        match_report=match_report,
-        recommendation_level=recommendation_level,
-    )
-    return success_response(
-        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
-        message="候选人创建成功",
-    )
-
-
-@router.post("/candidates/sync-from-feishu", summary="从飞书同步候选人数据")
-async def sync_candidates_from_feishu(
-    service: CandidateService = Depends(get_candidate_service),
-):
-    """手动触发：从飞书多维表格拉取全部候选人数据并 upsert 到本地 PG。"""
-    stats = await service.sync_from_feishu()
-    msg = (
-        f"同步完成：新增 {stats['created']} 条，"
-        f"更新 {stats['updated']} 条，失败 {stats['failed']} 条"
-    )
-    return success_response(
-        data=stats,
-        message=msg,
-    )
-
-
-@router.get("/candidates/sync-status", summary="候选人同步状态")
-async def get_candidates_sync_status(
-    service: CandidateService = Depends(get_candidate_service),
-):
-    """查看本地与飞书的候选人数据同步统计。"""
-    status = await service.get_sync_status()
-    return success_response(
-        data=status.model_dump(mode="json"),
-    )
-
-
-@router.post("/candidates/{candidate_id}/sync-to-feishu", summary="同步候选人到飞书")
-async def sync_candidate_to_feishu(
-    candidate_id: UUID,
-    service: CandidateService = Depends(get_candidate_service),
-):
-    """手动触发：将单个候选人（含简历）同步到飞书多维表格。"""
-    candidate = await service.sync_candidate_to_feishu(candidate_id)
-    return success_response(
-        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
-        message="候选人与简历已同步到飞书",
-    )
-
-
-@router.get("/candidates/{candidate_id}", summary="候选人详情")
-async def get_candidate(
-    candidate_id: UUID,
-    service: CandidateService = Depends(get_candidate_service),
-):
-    candidate = await service.get_candidate(candidate_id)
-    return success_response(
-        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
-    )
-
-
-@router.put("/candidates/{candidate_id}", summary="更新候选人信息")
-async def update_candidate(
-    candidate_id: UUID,
-    payload: CandidateUpdate,
-    service: CandidateService = Depends(get_candidate_service),
-):
-    candidate = await service.update_candidate(candidate_id, payload)
-    return success_response(
-        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
-        message="候选人信息更新成功",
-    )
-
-
-@router.delete("/candidates/{candidate_id}", summary="删除候选人")
-async def delete_candidate(
-    candidate_id: UUID,
-    service: CandidateService = Depends(get_candidate_service),
-):
-    await service.delete_candidate(candidate_id)
-    return success_response(message="候选人删除成功")
-
-
-@router.put("/candidates/{candidate_id}/recommendation-level", summary="更新候选人推荐等级")
-async def update_candidate_recommendation_level(
-    candidate_id: UUID,
-    payload: CandidateUpdateRecommendationLevel,
-    service: CandidateService = Depends(get_candidate_service),
-):
-    candidate = await service.update_recommendation_level(
-        candidate_id, payload.recommendation_level
-    )
-    return success_response(
-        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
-        message="推荐等级更新成功",
-    )
-
-
-@router.get("/candidates/{candidate_id}/resume-preview", summary="简历预览")
-async def preview_candidate_resume(
-    candidate_id: UUID,
-    service: CandidateService = Depends(get_candidate_service),
-):
-    """获取候选人简历 PDF。优先读取本地存储，若不存在则从飞书下载。"""
-    import os
-
-    from app.core.exceptions import NotFoundException
-
-    candidate = await service.get_candidate(candidate_id)
-
-    # 优先读取本地文件
-    if candidate.resume_storage_path and os.path.exists(candidate.resume_storage_path):
-        def iter_file():
-            with open(candidate.resume_storage_path, "rb") as f:
-                while chunk := f.read(64 * 1024):
-                    yield chunk
-
-        return StreamingResponse(
-            content=iter_file(),
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="resume.pdf"'},
+        query = query.where(
+            or_(HrTrainer.name.ilike(f"%{keyword}%"), HrTrainer.trainable_departments.ilike(f"%{keyword}%"))
+        )
+        count_q = count_q.where(
+            or_(HrTrainer.name.ilike(f"%{keyword}%"), HrTrainer.trainable_departments.ilike(f"%{keyword}%"))
         )
 
-    # 回退：从飞书实时下载
-    attachments = candidate.resume_attachments or []
-    if not attachments:
-        raise NotFoundException("简历附件", str(candidate_id))
+    total = (await session.execute(count_q)).scalar() or 0
+    rows = (await session.execute(query.order_by(HrTrainer.department, HrTrainer.name).offset((page - 1) * page_size).limit(page_size))).scalars().all()
 
-    file_token = attachments[0].get("file_token")
-    if not file_token:
-        raise NotFoundException("简历附件", str(candidate_id))
-
-    try:
-        tmp_download_url = await service.bitable.get_resume_download_url(file_token)
-    except Exception as exc:
-        logger.warning("Failed to get feishu download url for candidate %s: %s", candidate_id, exc)
-        raise NotFoundException("简历附件", str(candidate_id)) from exc
-
-    import httpx
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        response = await client.get(tmp_download_url)
-        response.raise_for_status()
-
-    return StreamingResponse(
-        content=response.iter_bytes(),
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="resume.pdf"'},
+    return paginated_response(
+        data=[TrainerResponse.model_validate(r).model_dump(mode="json") for r in rows],
+        page=page, page_size=page_size, total=total,
     )
+
+
+# ─── SOP Catalog Routes ───
+
+@router.post("/sop-catalog/upload", summary="上传SOP目录")
+async def upload_sop_catalog(
+    file: UploadFile,
+    service: EmployeeService = Depends(get_employee_service),
+):
+    """上传 Excel SOP 目录，按 SOP编号 自动新增或更新。"""
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "仅支持 .xlsx / .xls 格式")
+    try:
+        content = await file.read()
+        result = await service.upload_sop_catalog(content)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return success_response(data=result, message=f"新增 {result['created']}，更新 {result['updated']}")
+
+
+@router.get("/sop-catalog", summary="SOP目录列表", response_model=SopCatalogListResponse)
+async def list_sop_catalog(
+    department: str | None = Query(None),
+    category: str | None = Query(None),
+    keyword: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.modules.hr.models import SopCatalog
+    from app.core.response import paginated_response
+
+    query = select(SopCatalog).where(SopCatalog.is_deleted == False)
+    count_q = select(func.count()).select_from(SopCatalog).where(SopCatalog.is_deleted == False)
+    if department:
+        query = query.where(SopCatalog.department == department)
+        count_q = count_q.where(SopCatalog.department == department)
+    if category:
+        query = query.where(SopCatalog.category == category)
+        count_q = count_q.where(SopCatalog.category == category)
+    if keyword:
+        query = query.where(SopCatalog.file_name.ilike(f"%{keyword}%"))
+        count_q = count_q.where(SopCatalog.file_name.ilike(f"%{keyword}%"))
+
+    total = (await session.execute(count_q)).scalar() or 0
+    rows = (await session.execute(query.order_by(SopCatalog.category, SopCatalog.file_name).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+
+    return paginated_response(
+        data=[SopCatalogResponse.model_validate(r).model_dump(mode="json") for r in rows],
+        page=page, page_size=page_size, total=total,
+    )
+
+
+# ─── Dept Training Personnel ───
+
+@router.get("/dept-training-personnel", summary="部门培训人员列表")
+async def list_dept_training_personnel(
+    department: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    session: AsyncSession = Depends(get_db),
+):
+    tbl = "hr.dept_training_personnel"
+    cols = "id, display_dept, department, admins, dept_head, primary_trainer, created_at"
+    query = f"SELECT {cols} FROM {tbl} WHERE is_deleted = false"
+    count_q = f"SELECT count(*) FROM {tbl} WHERE is_deleted = false"
+    if department:
+        query += f" AND (display_dept = :dept OR department = :dept)"
+        count_q += f" AND (display_dept = :dept OR department = :dept)"
+    query += " ORDER BY display_dept LIMIT :limit OFFSET :offset"
+
+    total = (await session.execute(text(count_q), {"dept": department} if department else {})).scalar() or 0
+    rows = (await session.execute(text(query), {"dept": department, "limit": page_size, "offset": (page-1)*page_size} if department else {"limit": page_size, "offset": (page-1)*page_size})).fetchall()
+
+    from app.core.response import paginated_response
+    data = [{"id": r[0], "display_dept": r[1], "department": r[2], "admins": r[3], "dept_head": r[4], "primary_trainer": r[5], "created_at": str(r[6]) if r[6] else None} for r in rows]
+    return paginated_response(data=data, page=page, page_size=page_size, total=total)
+
+
+# ─── Training Evaluation (补录) ───
+
+@router.post("/training-evaluations", summary="保存培训评估补录数据")
+async def save_training_evaluation(
+    payload: TrainingEvaluationInput,
+    session: AsyncSession = Depends(get_db),
+):
+    """保存评估数据，返回完整 Word 文档（含统计字段）。"""
+    from app.modules.hr.evaluation_document_generator import generate_training_evaluation
+    buffer = generate_training_evaluation(payload)
+
+    def _iter():
+        buffer.seek(0)
+        yield buffer.read()
+
+    safe_date = str(payload.training_date).replace("-", "") if payload.training_date else "nodate"
+    from urllib.parse import quote
+    safe_fn = f"evaluation_{safe_date}.docx"
+    return StreamingResponse(
+        _iter(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename=\"{safe_fn}\"; filename*=utf-8''{quote('培训效果评估表_' + safe_date + '.docx')}"},
+    )
+
+
+@router.get("/training-evaluations/list", summary="培训评估列表")
+async def list_training_evaluations(
+    keyword: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_db),
+):
+    tbl = "hr.training_evaluations"
+    cols = "id, training_content, training_date, trainer, expected_count, actual_count, excellent_count, qualified_count, unqualified_count, created_at"
+    where = "WHERE is_deleted = false"
+    if keyword:
+        where += f" AND training_content ILIKE '%{keyword}%'"
+    count = (await session.execute(text(f"SELECT count(*) FROM {tbl} {where}"))).scalar() or 0
+    rows = (await session.execute(text(f"SELECT {cols} FROM {tbl} {where} ORDER BY created_at DESC LIMIT :l OFFSET :o"), {"l": page_size, "o": (page-1)*page_size})).fetchall()
+    data = [{"id": r[0], "training_content": r[1], "training_date": str(r[2]) if r[2] else None, "trainer": r[3],
+             "expected_count": r[4], "actual_count": r[5], "excellent_count": r[6], "qualified_count": r[7],
+             "unqualified_count": r[8], "created_at": str(r[9]) if r[9] else None} for r in rows]
+    from app.core.response import paginated_response
+    return paginated_response(data=data, page=page, page_size=page_size, total=count)
+
+
+@router.get("/training-evaluations/pending", summary="待评估的培训列表")
+async def list_pending_evaluations(
+    keyword: str | None = Query(None),
+    session: AsyncSession = Depends(get_db),
+):
+    """Return trainings from the annual plan that haven't been evaluated yet."""
+    rows = (await session.execute(text("""
+        SELECT p.id, p.content_and_textbook, p.target_audience, p.training_method,
+               p.training_hours, p.remarks, pl.department, pl.year
+        FROM hr.annual_training_plan_items p
+        JOIN hr.annual_training_plans pl ON pl.id = p.plan_id
+        WHERE p.is_deleted = false
+        AND NOT EXISTS (SELECT 1 FROM hr.training_evaluations e WHERE e.is_deleted = false AND e.training_content = p.content_and_textbook)
+        ORDER BY pl.year DESC, p.content_and_textbook
+        LIMIT 200
+    """))).fetchall()
+
+    data = [{"id": str(r[0]), "content": r[1], "audience": r[2], "method": r[3],
+             "hours": r[4], "remarks": r[5], "department": r[6], "year": r[7]} for r in rows]
+    return success_response(data=data)
 
 
 router.include_router(analysis_router)

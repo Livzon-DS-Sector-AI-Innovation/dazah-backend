@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.base_model import BaseModel
 
 
-class Department(BaseModel):
+class HrDepartment(BaseModel):
     __tablename__ = "departments"
     __table_args__ = (
         Index("ix_departments_code", "code"),
@@ -48,8 +48,8 @@ class Team(BaseModel):
         ForeignKey("hr.departments.id"), nullable=False, comment="所属部门ID"
     )
 
-    department: Mapped["Department"] = relationship(
-        "Department", back_populates="teams", lazy="select"
+    department: Mapped["HrDepartment"] = relationship(
+        "HrDepartment", back_populates="teams", lazy="select"
     )
 
 
@@ -80,6 +80,9 @@ class Employee(BaseModel):
         String(32), nullable=True, comment="职类"
     )
     level: Mapped[str | None] = mapped_column(String(32), nullable=True, comment="级别")
+    concurrent_departments: Mapped[str | None] = mapped_column(
+        String(256), nullable=True, comment="兼任部门"
+    )
 
     # ─── Qualifications ───
     qualifications: Mapped[list[str] | None] = mapped_column(
@@ -244,6 +247,11 @@ class Employee(BaseModel):
         default="待审批",
         server_default="待审批",
         comment="状态: 在职, 离职, 试用期, 待审批",
+    )
+
+    # ─── Sort order ───
+    sort_order: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Excel行序号"
     )
 
     # ─── Feishu sync metadata ───
@@ -699,54 +707,41 @@ class AnnualTrainingPlanItem(BaseModel):
     plan: Mapped["AnnualTrainingPlan"] = relationship(
         "AnnualTrainingPlan", back_populates="items", lazy="select"
     )
-class Candidate(BaseModel):
-    __tablename__ = "candidates"
+
+
+# ─── Trainer ───
+
+class HrTrainer(BaseModel):
+    __tablename__ = "trainers"
     __table_args__ = (
-        Index("ix_candidates_name", "name"),
-        Index("ix_candidates_position", "position"),
-        Index("ix_candidates_recommendation_level", "recommendation_level"),
-        Index("ix_candidates_feishu_record_id", "feishu_record_id"),
+        Index("ix_trainers_department", "department"),
+        Index("ix_trainers_name", "name"),
         {"schema": "hr"},
     )
 
-    # ─── Basic info ───
-    name: Mapped[str] = mapped_column(String(64), nullable=False, comment="候选人姓名")
-    position: Mapped[str] = mapped_column(String(64), nullable=False, comment="应聘职位名称")
-    gender: Mapped[str | None] = mapped_column(String(8), nullable=True, comment="性别")
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    department: Mapped[str | None] = mapped_column(String(64))
+    trainable_departments: Mapped[str | None] = mapped_column(Text, comment="可培训部门")
+    qualification_scope: Mapped[str | None] = mapped_column(Text, comment="资格范围")
+    certification_date: Mapped[date | None] = mapped_column(Date)
+    confirmation_date: Mapped[date | None] = mapped_column(Date)
+    confirmation_reminder: Mapped[date | None] = mapped_column(Date)
+    remarks: Mapped[str | None] = mapped_column(Text)
+    is_primary_trainer: Mapped[bool] = mapped_column(default=False, server_default="false")
+    admin: Mapped[str | None] = mapped_column(String(64))
 
-    # ─── Education ───
-    school: Mapped[str | None] = mapped_column(String(128), nullable=True, comment="学校名称")
-    education: Mapped[str | None] = mapped_column(String(16), nullable=True, comment="学历")
-    major: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="专业")
 
-    # ─── AI report ───
-    match_report: Mapped[str | None] = mapped_column(Text, nullable=True, comment="候选人匹配度报告")
+# ─── SOP Catalog ───
 
-    # ─── Recommendation level ───
-    recommendation_level: Mapped[str | None] = mapped_column(
-        String(16), nullable=True, comment="推荐等级"
-    )
-
-    # ─── Resume attachments (JSON metadata from Feishu) ───
-    resume_attachments: Mapped[list[dict] | None] = mapped_column(
-        JSON, nullable=True, comment="简历附件元数据"
-    )
-
-    # ─── Local resume file path (downloaded from Feishu during sync) ───
-    resume_storage_path: Mapped[str | None] = mapped_column(
-        String(256), nullable=True, comment="本地简历存储路径"
+class SopCatalog(BaseModel):
+    __tablename__ = "sop_catalog"
+    __table_args__ = (
+        Index("ix_sop_catalog_department", "department"),
+        Index("ix_sop_catalog_category", "category"),
+        {"schema": "hr"},
     )
 
-    # ─── Feishu sync metadata ───
-    feishu_record_id: Mapped[str | None] = mapped_column(
-        String(32), nullable=True, comment="飞书多维表格 record_id"
-    )
-    feishu_synced_at: Mapped[date | None] = mapped_column(
-        Date, nullable=True, comment="上次飞书同步时间"
-    )
-    feishu_sync_status: Mapped[str | None] = mapped_column(
-        String(16), nullable=True, comment="飞书同步状态: synced/failed"
-    )
-    feishu_sync_error: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="飞书同步失败原因"
-    )
+    file_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    sop_number: Mapped[str | None] = mapped_column(String(64))
+    category: Mapped[str | None] = mapped_column(String(128))
+    department: Mapped[str | None] = mapped_column(String(128))

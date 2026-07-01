@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -5,6 +7,17 @@ from app.platform.identity.models import Department, User
 
 
 class UserRepository:
+    async def get_by_id(
+        self, session: AsyncSession, user_id: UUID,
+    ) -> User | None:
+        result = await session.execute(
+            select(User).where(
+                User.id == user_id,
+                User.is_deleted == False,  # noqa: E712
+            ),
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_feishu_open_id(
         self, session: AsyncSession, open_id: str,
     ) -> User | None:

@@ -523,6 +523,12 @@ class HazardReport(BaseModel):
     __tablename__ = "hazard_reports"
     __table_args__ = (
         Index("uq_hazard_reports_hazard_no", "hazard_no", unique=True, postgresql_where=text("is_deleted = false")),
+        Index(
+            "uq_hazard_reports_feishu_record_id",
+            "feishu_record_id",
+            unique=True,
+            postgresql_where=text("is_deleted = false AND feishu_record_id IS NOT NULL"),
+        ),
         {"schema": "safety"},
     )
 
@@ -591,7 +597,7 @@ class HazardReport(BaseModel):
     )
     verify_level_2_status: Mapped[str] = mapped_column(
         String(20), default="pending", server_default="pending", nullable=False,
-        comment="分管领导复核状态 (Bitable「分管领导复核」): pending/approved/rejected"
+        comment="分管领导复核状态 (Bitable「分管领导复核」): pending/approved/rejected/no_review_needed"
     )
     verify_level_3_status: Mapped[str] = mapped_column(
         String(20), default="pending", server_default="pending", nullable=False,
@@ -643,6 +649,42 @@ class HazardReport(BaseModel):
     )
     feishu_record_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, comment="飞书多维表格记录 ID，双向同步关联"
+    )
+
+    # ── AI 整改初审 ──
+    ai_review_result: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True,
+        comment="AI 整改初审结果 JSON（RectificationReviewOutput 完整输出）"
+    )
+    ai_review_status: Mapped[str] = mapped_column(
+        String(32), default="pending", server_default="pending", nullable=False,
+        comment="AI 初审状态: pending / processing / completed / failed"
+    )
+    ai_review_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="AI 初审完成时间"
+    )
+
+    # ── 飞书通知追踪 ──
+    rectification_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="整改通知最近发送时间"
+    )
+    rectification_notify_status: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="整改通知状态: success / failed"
+    )
+    rectification_notify_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="整改通知失败原因"
+    )
+    review_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="复核通知最近发送时间"
+    )
+    review_notified_level: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="复核通知级别: 1/2/3"
+    )
+    review_notify_status: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="复核通知状态: success / failed"
+    )
+    review_notify_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="复核通知失败原因"
     )
 
     # 关系
@@ -829,6 +871,7 @@ class HazardIdentification(BaseModel):
     __tablename__ = "hazard_identifications"
     __table_args__ = (
         Index("uq_hazard_identifications_no", "hazard_id_no", unique=True, postgresql_where=text("is_deleted = false")),
+        Index("ix_hazard_identifications_regulation_batch", "regulation_id", "batch_id"),
         {"schema": "safety"},
     )
 
@@ -842,6 +885,23 @@ class HazardIdentification(BaseModel):
     )
     attachment_original_name: Mapped[str | None] = mapped_column(
         String(255), nullable=True, comment="附件原始文件名"
+    )
+    regulation_id: Mapped[uuid.UUID | None] = mapped_column(
+        nullable=True, comment="引用的安全操作规程 ID（替代附件上传）"
+    )
+    regulation_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="引用的安全操作规程名称"
+    )
+
+    # ── 多工段辨识（batch / per-stage）──
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True, comment="批次ID，同一regulation多工段同时创建时共享"
+    )
+    stage_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="工艺阶段名称（Chapter 7 H2 标题）"
+    )
+    chapter7_context: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="该工段对应的 Chapter 7 节选 Markdown（供Script 1使用）"
     )
 
     # ── 脚本1 输出：附件解析（AI → 人工审核） ──
@@ -1072,42 +1132,6 @@ class RegulationRevision(BaseModel):
     )
 
 
-# ==================== AI 工作流配置 ==================
-
-
-class AIWorkflowConfig(BaseModel):
-    """AI 工作流配置 —— 每个安全模块可配置独立的 AI 工作流"""
-
-    __tablename__ = "ai_workflow_configs"
-    __table_args__ = (
-        Index("uq_ai_workflow_config_module_code", "module_code", unique=True, postgresql_where=text("is_deleted = false")),
-        {"schema": "safety", "comment": "AI 工作流配置表"},
-    )
-
-    module_code: Mapped[str] = mapped_column(
-        String(64), nullable=False, comment="模块代码（hazard-identification / regulation / hazard 等）"
-    )
-    workflow_name: Mapped[str] = mapped_column(
-        String(128), nullable=False, comment="工作流名称"
-    )
-    workflow_description: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="工作流描述"
-    )
-    trigger_event: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, comment="触发事件（submit / revision_created 等）"
-    )
-    is_enabled: Mapped[bool] = mapped_column(
-        Boolean, default=True, server_default="true", nullable=False, comment="是否启用"
-    )
-    script_configs: Mapped[list | dict | None] = mapped_column(
-        JSON, nullable=True, comment="脚本配置 JSON 数组"
-    )
-    sort_order: Mapped[int] = mapped_column(
-        Integer, default=0, server_default="0", nullable=False, comment="排序顺序"
-    )
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
-
-
 # ==================== 特殊作业人员资质 ====================
 
 
@@ -1256,6 +1280,16 @@ class SafetyKnowledgeArticle(BaseModel):
     attachment_original_name: Mapped[str | None] = mapped_column(
         String(255), nullable=True, comment="附件原始文件名"
     )
+    # ── AI 知识增强字段 ──
+    knowledge_card: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="AI 知识卡片 JSON（结构化法规摘要，供 AI 识别注入 prompt）"
+    )
+    card_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="知识卡片生成时间"
+    )
+    card_version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False, comment="知识卡片版本号"
+    )
 
 
 # ==================== 风险作业报备 ====================
@@ -1358,10 +1392,6 @@ class DailyRiskReport(BaseModel):
     report_no: Mapped[str] = mapped_column(String(64), nullable=False, comment="报备编号")
     report_date: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, comment="报备作业日期"
-    )
-    report_type: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="regular", server_default="regular",
-        comment="报备类型: regular(常规作业) / non_regular(非常规作业)"
     )
     department: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="报备部门")
     hazard_identification_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -1829,210 +1859,4 @@ class ContractorWorkRecord(BaseModel):
     )
     permit: Mapped["SpecialOperationPermit | None"] = relationship(
         "SpecialOperationPermit", foreign_keys=[permit_id]
-    )
-
-
-# ==================== 定时任务（Scheduled Task） ====================
-
-
-class ScheduledTask(BaseModel):
-    """定时任务配置 — 按 cron 表达式聚合安全数据，推送到飞书群聊"""
-
-    __tablename__ = "scheduled_tasks"
-    __table_args__ = (
-        Index("uq_scheduled_tasks_name", "name", unique=True, postgresql_where=text("is_deleted = false")),
-        {"schema": "safety"},
-    )
-
-    name: Mapped[str] = mapped_column(String(200), nullable=False, comment="任务名称")
-    description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="任务描述")
-    cron_expression: Mapped[str] = mapped_column(
-        String(100), nullable=False, comment="Cron 表达式，如 0 9 * * *"
-    )
-    cron_desc: Mapped[str | None] = mapped_column(
-        String(200), nullable=True, comment="Cron 可读描述，如「每天上午9点」"
-    )
-    feishu_chat_id: Mapped[str] = mapped_column(
-        String(100), nullable=False, comment="目标飞书群聊 chat_id"
-    )
-    feishu_chat_name: Mapped[str | None] = mapped_column(
-        String(200), nullable=True, comment="飞书群聊名称快照"
-    )
-    header_color: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="blue", server_default="blue",
-        comment="卡片头部颜色: blue/orange/green/red/purple"
-    )
-    data_sources: Mapped[list | None] = mapped_column(
-        JSON, nullable=True, default=list, comment="数据来源配置"
-    )
-    card_template: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="消息卡片 Markdown 模板"
-    )
-    is_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="true",
-        comment="是否启用"
-    )
-    last_run_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, comment="上次执行时间"
-    )
-    last_run_status: Mapped[str | None] = mapped_column(
-        String(20), nullable=True, comment="上次执行状态: success/failure"
-    )
-    last_error: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="上次错误信息"
-    )
-    next_run_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, comment="下次执行时间"
-    )
-
-
-class ScheduledTaskLog(BaseModel):
-    """定时任务执行日志"""
-
-    __tablename__ = "scheduled_task_logs"
-    __table_args__ = (
-        {"schema": "safety"},
-    )
-
-    task_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, comment="关联 scheduled_tasks.id"
-    )
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, comment="开始执行时间"
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, comment="完成时间"
-    )
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="running", server_default="running",
-        comment="执行状态: running/success/failure"
-    )
-    data_snapshot: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="聚合数据快照"
-    )
-    card_content: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="发送的卡片 JSON 内容"
-    )
-    feishu_msg_id: Mapped[str | None] = mapped_column(
-        String(100), nullable=True, comment="飞书返回的消息 ID"
-    )
-    error_message: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="错误信息"
-    )
-    duration_ms: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="执行耗时（毫秒）"
-    )
-
-
-class ApiCallConfig(BaseModel):
-    """API调用配置表"""
-
-    __tablename__ = "api_call_configs"
-    __table_args__ = {"schema": "safety"}
-
-    config_name: Mapped[str] = mapped_column(
-        String(128), nullable=False, comment="配置名称"
-    )
-    api_base_url: Mapped[str] = mapped_column(
-        String(500), nullable=False, comment="API基础URL"
-    )
-    api_key: Mapped[str] = mapped_column(
-        String(500), nullable=False, comment="API密钥"
-    )
-    model_name: Mapped[str] = mapped_column(
-        String(128), nullable=False, comment="模型名称"
-    )
-    temperature: Mapped[float] = mapped_column(
-        Float, nullable=False, server_default="0.1", comment="温度参数"
-    )
-    timeout_seconds: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="120", comment="超时秒数"
-    )
-    max_tokens: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="最大Token数"
-    )
-    extra_config: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="额外配置JSON"
-    )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="false", comment="是否激活"
-    )
-    notes: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="备注"
-    )
-
-
-class HazardRevisionArchive(BaseModel):
-    """危害修订归档表"""
-
-    __tablename__ = "hazard_revision_archives"
-    __table_args__ = {"schema": "safety"}
-
-    regulation_name: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="法规名称"
-    )
-    hazard_document_path: Mapped[str | None] = mapped_column(
-        String(500), nullable=True, comment="危害文档路径"
-    )
-    hazard_document_original_name: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, comment="危害文档原始名称"
-    )
-    identification_date: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, comment="识别日期"
-    )
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="active", comment="状态"
-    )
-    notes: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="备注"
-    )
-
-
-class HazardRevisionRecord(BaseModel):
-    """危害修订记录表"""
-
-    __tablename__ = "hazard_revision_records"
-    __table_args__ = {"schema": "safety"}
-
-    hazard_revision_no: Mapped[str] = mapped_column(
-        String(64), nullable=False, comment="危害修订编号"
-    )
-    regulation_revision_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, comment="法规修订ID"
-    )
-    regulation_name: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="法规名称"
-    )
-    identifier_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, comment="识别器ID"
-    )
-    identifier_name: Mapped[str | None] = mapped_column(
-        String(100), nullable=True, comment="识别器名称"
-    )
-    identification_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, comment="识别时间"
-    )
-    identification_type: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="auto_trigger", comment="识别类型"
-    )
-    process_change_content: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="工艺变更内容"
-    )
-    identification_scope: Mapped[str | None] = mapped_column(
-        String(200), nullable=True, comment="识别范围"
-    )
-    review_opinion: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="pending", comment="审查意见"
-    )
-    hazard_document_path: Mapped[str | None] = mapped_column(
-        String(500), nullable=True, comment="危害文档路径"
-    )
-    hazard_document_original_name: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, comment="危害文档原始名称"
-    )
-    linked_hazard_archive_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, comment="关联的危害归档ID"
-    )
-    notes: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="备注"
     )

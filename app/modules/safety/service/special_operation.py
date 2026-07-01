@@ -1,12 +1,15 @@
 """Safety business workflows."""
 
 import logging
+import os
 import uuid
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.storage import delete_object
+from app.core.storage import is_enabled as minio_enabled
 from app.modules.safety.models import (
     SpecialOperationPermit,
     SpecialOperationPersonnel,
@@ -18,7 +21,7 @@ from app.modules.safety.schemas import (
     SpecialOperationPersonnelCreate,
     SpecialOperationPersonnelUpdate,
 )
-from app.platform.audit.service import record_audit_log
+from app.modules.safety.service._helpers import audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +48,34 @@ class SpecialOperationService:
         new_value: dict[str, Any] | None = None,
         extra: dict[str, Any] | None = None,
     ) -> None:
+        await audit_log(
+            self.session,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            user_id=user_id,
+            old_value=old_value,
+            new_value=new_value,
+            extra=extra,
+        )
+
+    @staticmethod
+    def _cleanup_file(file_path: str | None) -> None:
+        """Delete a single file from MinIO or local disk."""
+        if not file_path:
+            return
         try:
-            await record_audit_log(
-                self.session,
-                action=action,
-                user_id=user_id,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                old_value=old_value,
-                new_value=new_value,
-                extra=extra,
-            )
-        except Exception:
-            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
+            if minio_enabled():
+                try:
+                    delete_object("safety", file_path)
+                except Exception:
+                    pass
+            else:
+                abs_path = os.path.abspath(file_path)
+                if os.path.exists(abs_path):
+                    os.remove(abs_path)
+        except OSError:
+            pass
 
     # ==================== 人员资质 CRUD ====================
 
@@ -104,8 +122,11 @@ class SpecialOperationService:
 
     async def delete_personnel(self, personnel_id: uuid.UUID) -> bool:
         """删除人员资质"""
+        personnel = await self.repo.get_special_operation_personnel_by_id(personnel_id)
         result = await self.repo.delete_special_operation_personnel(personnel_id)
         if result:
+            if personnel:
+                self._cleanup_file(personnel.certificate_file_path)
             await self._audit("delete", "special_operation_personnel", resource_id=personnel_id)
         return result
 

@@ -1,22 +1,29 @@
 """HR business workflows live here."""
 
 import logging
-import os
 from datetime import date, datetime
-from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.exceptions import DuplicateException, NotFoundException
+from app.modules.hr.feishu import FeishuBitableSync
+from app.modules.hr.feishu.departure_datasource import (
+    DepartureBitableDataSource,
+)
+from app.modules.hr.feishu.employee_datasource import (
+    EmployeeBitableDataSource,
+)
+from app.modules.hr.feishu.onboarding_datasource import (
+    OnboardingBitableDataSource,
+)
 from app.modules.hr.models import (
     AnnualTrainingPlan,
     AnnualTrainingPlanItem,
-    Candidate,
-    Department,
     DepartureRecord,
     Employee,
+    HrDepartment,
     OffboardingRecord,
     OnboardingRecord,
     Team,
@@ -26,52 +33,32 @@ from app.modules.hr.models import (
 from app.modules.hr.repository import (
     AnnualTrainingPlanItemRepository,
     AnnualTrainingPlanRepository,
-    CandidateRepository,
-    DepartureRecordRepository,
     DepartmentRepository,
+    DepartureRecordRepository,
     EmployeeRepository,
     OffboardingRecordRepository,
     OnboardingRecordRepository,
     TeamRepository,
-    TrainingLedgerRepository,
     TrainingLedgerPageRepository,
+    TrainingLedgerRepository,
 )
 from app.modules.hr.schemas import (
     AnnualTrainingPlanCreate,
     AnnualTrainingPlanItemBatchUpdate,
-    AnnualTrainingPlanItemCreate,
     AnnualTrainingPlanUpdate,
-    CandidateCreate,
-    CandidateUpdate,
-    DepartureRecordCreate,
-    DepartureRecordUpdate,
     DepartmentCreate,
     DepartmentUpdate,
+    DepartureRecordCreate,
+    DepartureRecordUpdate,
     EmployeeCreate,
     EmployeeUpdate,
     OffboardingRecordCreate,
     OffboardingRecordUpdate,
-    OnboardingRecordCreate,
-    OnboardingRecordUpdate,
     SyncStatusResponse,
     TeamCreate,
     TeamUpdate,
     TrainingLedgerCreate,
     TrainingLedgerUpdate,
-)
-from app.platform.ai.service import AiChatService
-from app.platform.integrations.feishu import FeishuBitableSync
-from app.platform.integrations.feishu.candidate_datasource import (
-    CandidateBitableDataSource,
-)
-from app.platform.integrations.feishu.employee_datasource import (
-    EmployeeBitableDataSource,
-)
-from app.platform.integrations.feishu.onboarding_datasource import (
-    OnboardingBitableDataSource,
-)
-from app.platform.integrations.feishu.departure_datasource import (
-    DepartureBitableDataSource,
 )
 
 logger = logging.getLogger(__name__)
@@ -225,7 +212,7 @@ class EmployeeService:
         # 根据手机号获取飞书 open_id（非阻塞，失败仅记录日志）
         if data.phone:
             try:
-                from app.platform.integrations.feishu.im import FeishuIM
+                from app.modules.hr.feishu.im import FeishuIM
 
                 im = FeishuIM()
                 # 飞书接口要求手机号带 +86 区号
@@ -256,6 +243,153 @@ class EmployeeService:
             await self.repo.update(result)
 
         return result
+
+    # ── Excel 列名 → 模型字段名 映射 ──
+    _UPLOAD_COLUMN_MAP: dict[str, str] = {
+        "工号": "employee_number",
+        "姓名": "name",
+        "域账号": "domain_account",
+        "部门": "department",
+        "班组": "team",
+        "职位": "position",
+        "岗位类别": "job_category",
+        "级别": "level",
+        "兼任部门": "concurrent_departments",
+        "资格": "qualifications",
+        "资格类型": "qualification_type",
+        "性别": "gender",
+        "籍贯": "native_place",
+        "政治面貌": "political_status",
+        "婚姻状况": "marital_status",
+        "户籍类型": "household_type",
+        "用工性质": "status_category",
+        "出生年份": "birth_year",
+        "出生月份": "birth_month",
+        "出生日": "birth_day",
+        "年龄": "age",
+        "参加工作时间": "work_start_date",
+        "进厂时间": "factory_entry_date",
+        "进丽珠时间": "livo_entry_date",
+        "入职日期": "hire_date",
+        "毕业时间": "graduation_date",
+        "工龄": "work_years",
+        "厂龄": "factory_tenure",
+        "公司工龄": "company_tenure",
+        "学历": "education",
+        "分类": "classification",
+        "毕业学校": "school",
+        "专业": "major",
+        "身份证号": "id_card",
+        "身份证有效期": "id_card_expiry",
+        "身份证地址": "id_card_address",
+        "现居住地址": "current_address",
+        "合同类型": "contract_type",
+        "合同开始日期": "contract_start_date",
+        "合同结束日期": "contract_end_date",
+        "合同开始日期2": "contract_start_2",
+        "合同结束日期2": "contract_end_2",
+        "合同开始日期3": "contract_start_3",
+        "合同结束日期3": "contract_end_3",
+        "合同开始日期4": "contract_start_4",
+        "合同结束日期4": "contract_end_4",
+        "手机": "phone",
+        "邮箱": "email",
+        "紧急联系人": "emergency_contact_name",
+        "紧急联系人电话": "emergency_contact_phone",
+        "紧急联系人关系": "emergency_contact_relation",
+        "银行卡号": "bank_account",
+        "培训编号": "training_id",
+        "调动历史": "transfer_history",
+        "备注": "remarks",
+    }
+
+    _DATE_FIELDS: set[str] = {
+        "work_start_date", "factory_entry_date", "livo_entry_date",
+        "hire_date", "graduation_date", "id_card_expiry",
+        "contract_start_date", "contract_end_date",
+        "contract_start_2", "contract_end_2",
+        "contract_start_3", "contract_end_3",
+        "contract_start_4", "contract_end_4",
+    }
+
+    _INT_FIELDS: set[str] = {
+        "birth_year", "birth_month", "birth_day", "age", "work_years",
+    }
+
+    async def upload_employees(self, file_bytes: bytes) -> dict:
+        """从 Excel 文件批量导入员工，按工号 upsert。返回 {created, updated, errors}。"""
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        wb = load_workbook(BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            raise ValueError("文件为空")
+
+        header = [str(c).strip() if c else "" for c in rows[0]]
+        # 建立列索引
+        col_map: dict[int, str] = {}
+        for idx, col_name in enumerate(header):
+            field = self._UPLOAD_COLUMN_MAP.get(col_name)
+            if field:
+                col_map[idx] = field
+
+        if "employee_number" not in col_map.values():
+            raise ValueError("缺少「工号」列，无法导入")
+
+        created = 0
+        updated = 0
+        errors: list[str] = []
+
+        for row_idx, row in enumerate(rows[1:], start=2):
+            if all(c is None for c in row):
+                continue
+            try:
+                data: dict = {}
+                for col_idx, field_name in col_map.items():
+                    val = row[col_idx] if col_idx < len(row) else None
+                    if val is None or (isinstance(val, str) and val.strip() == ""):
+                        continue
+                    if isinstance(val, str):
+                        val = val.strip()
+                    if field_name in self._DATE_FIELDS and isinstance(val, str):
+                        val = date.fromisoformat(val)
+                    elif field_name in self._DATE_FIELDS and isinstance(val, datetime):
+                        val = val.date()
+                    elif field_name in self._INT_FIELDS:
+                        try:
+                            val = int(float(str(val)))
+                        except (ValueError, TypeError):
+                            continue
+                    elif field_name == "qualifications":
+                        val = [v.strip() for v in str(val).split(",") if v.strip()]
+                    data[field_name] = val
+
+                if "employee_number" not in data:
+                    errors.append(f"第{row_idx}行: 缺少工号")
+                    continue
+
+                existing = await self.repo.get_by_employee_number(data["employee_number"])
+                if existing:
+                    if "department" in data and data["department"] != existing.department:
+                        existing.department = data["department"]
+                        await self.repo.session.flush()
+                    if "position" in data and data["position"] != existing.position:
+                        existing.position = data["position"]
+                        await self.repo.session.flush()
+                    updated += 1
+                else:
+                    if "hire_date" not in data:
+                        data["hire_date"] = date.today()
+                    if "status" not in data:
+                        data["status"] = "待审批"
+                    await self.repo.upsert_by_employee_number(data)
+                    created += 1
+            except Exception as e:
+                errors.append(f"第{row_idx}行: {e}")
+
+        return {"created": created, "updated": updated, "errors": errors}
 
     async def approve_employee(self, employee_number: str) -> Employee:
         employee = await self.repo.get_by_employee_number(employee_number)
@@ -316,8 +450,8 @@ class EmployeeService:
         keyword: str | None = None,
         page: int = 1,
         page_size: int = 20,
-        sort_by: str = "created_at",
-        sort_order: str = "desc",
+        sort_by: str = "sort_order",
+        sort_order: str = "asc",
     ) -> tuple[list[Employee], int]:
         return await self.repo.list_employees(
             department=department,
@@ -335,7 +469,7 @@ class EmployeeService:
         Args:
             payload: TrainingNotifyInput instance.
         """
-        from app.platform.integrations.feishu.im import FeishuIM
+        from app.modules.hr.feishu.im import FeishuIM
 
         im = FeishuIM()
 
@@ -469,14 +603,12 @@ class EmployeeService:
         # Data consistency is ensured by the sync process itself.
         feishu_total = synced_count
 
-        conflict_count = await self.repo.count_conflicts()
-
         return SyncStatusResponse(
             local_total=local_total,
             feishu_total=feishu_total,
             synced_count=synced_count,
             unsynced_count=unsynced_count,
-            conflict_count=conflict_count,
+            conflict_count=0,  # TODO: implement conflict detection
             last_sync_at=None,
         )
 
@@ -501,7 +633,7 @@ class EmployeeService:
         Filters out empty values to avoid Feishu validation errors
         (especially for phone fields which reject empty strings).
         """
-        from app.platform.integrations.feishu.bitable import _to_ms_timestamp
+        from app.modules.hr.feishu.bitable import _to_ms_timestamp
 
         # Build raw fields, keeping None/empty filtering for later
         raw: dict = {
@@ -580,24 +712,252 @@ class EmployeeService:
 
         return fields
 
+    # ── 年度培训计划上传 ──
+
+    _PLAN_COLUMN_MAP: dict[str, str] = {
+        "年度": "year",
+        "年份": "year",
+        "部门": "department",
+        "月份": "month",
+        "培训人数": "trainee_count",
+        "课时": "duration_hours",
+        "培训内容及使用教材": "content_and_textbook",
+        "培训内容": "content_and_textbook",
+        "培训对象": "target_audience",
+        "参加岗位/参加人数": "position_and_count",
+        "培训方式": "training_method",
+        "培训学时": "training_hours",
+        "确认者": "confirmer",
+    }
+
+    async def upload_annual_plan(self, file_bytes: bytes) -> dict:
+        """从 Excel 批量导入年度培训计划，按年度+部门自动分类。"""
+        from io import BytesIO
+        from openpyxl import load_workbook
+        from app.modules.hr.models import AnnualTrainingPlan, AnnualTrainingPlanItem
+
+        wb = load_workbook(BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            raise ValueError("文件为空")
+        header = [str(c).strip() if c else "" for c in rows[0]]
+        col_map = {idx: self._PLAN_COLUMN_MAP[h] for idx, h in enumerate(header) if h in self._PLAN_COLUMN_MAP}
+
+        plan_cache: dict[tuple, AnnualTrainingPlan] = {}
+        created, updated, errors = 0, 0, []
+
+        for row_idx, row in enumerate(rows[1:], start=2):
+            if all(c is None for c in row):
+                continue
+            try:
+                data = {}
+                for ci, fn in col_map.items():
+                    v = row[ci] if ci < len(row) else None
+                    if v is None or (isinstance(v, str) and v.strip() == ""):
+                        continue
+                    if isinstance(v, str):
+                        v = v.strip()
+                    if fn == "year":
+                        v = int(float(str(v)))
+                    if fn in ("trainee_count",):
+                        v = int(float(str(v)))
+                    data[fn] = v
+
+                dept = data.get("department", "")
+                year = data.get("year", 2026)
+                if not dept:
+                    errors.append(f"第{row_idx}行: 缺少部门"); continue
+
+                # 找或创建年度计划
+                cache_key = (year, dept)
+                plan = plan_cache.get(cache_key)
+                if not plan:
+                    q = select(AnnualTrainingPlan).where(
+                        AnnualTrainingPlan.year == year,
+                        AnnualTrainingPlan.department == dept,
+                        AnnualTrainingPlan.is_deleted == False,
+                    )
+                    r = await self.repo.session.execute(q)
+                    plan = r.scalar_one_or_none()
+                    if not plan:
+                        plan = AnnualTrainingPlan(year=year, department=dept, status="草稿")
+                        self.repo.session.add(plan)
+                        await self.repo.session.flush()
+                    plan_cache[cache_key] = plan
+
+                # 添加计划项
+                item_data = {k: v for k, v in data.items() if k not in ("year", "department")}
+                item = AnnualTrainingPlanItem(plan_id=plan.id, **item_data)
+                self.repo.session.add(item)
+                await self.repo.session.flush()
+                created += 1
+            except Exception as e:
+                errors.append(f"第{row_idx}行: {e}")
+
+        return {"created": created, "updated": updated, "errors": errors}
+
+    # ── SOP 目录上传 ──
+
+    _SOP_COLUMN_MAP: dict[str, str] = {
+        "文件名": "file_name",
+        "SOP编号": "sop_number",
+        "类别": "category",
+        "部门": "department",
+    }
+
+    async def upload_sop_catalog(self, file_bytes: bytes) -> dict:
+        """从 Excel 批量导入 SOP 目录，按 SOP编号 upsert。"""
+        from io import BytesIO
+        from openpyxl import load_workbook
+        from app.modules.hr.models import SopCatalog
+
+        wb = load_workbook(BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            raise ValueError("文件为空")
+
+        header = [str(c).strip() if c else "" for c in rows[0]]
+        col_map: dict[int, str] = {}
+        for idx, col_name in enumerate(header):
+            field = self._SOP_COLUMN_MAP.get(col_name)
+            if field:
+                col_map[idx] = field
+
+        created = 0
+        updated = 0
+        errors: list[str] = []
+
+        for row_idx, row in enumerate(rows[1:], start=2):
+            if all(c is None for c in row):
+                continue
+            try:
+                data: dict = {}
+                for col_idx, field_name in col_map.items():
+                    val = row[col_idx] if col_idx < len(row) else None
+                    if val is None or (isinstance(val, str) and val.strip() == ""):
+                        continue
+                    if isinstance(val, str):
+                        val = val.strip()
+                    data[field_name] = val
+
+                if "file_name" not in data:
+                    errors.append(f"第{row_idx}行: 缺少文件名")
+                    continue
+
+                sop_num = data.get("sop_number")
+                existing = None
+                if sop_num:
+                    existing = await self.repo.session.execute(
+                        select(SopCatalog).where(
+                            SopCatalog.sop_number == sop_num,
+                            SopCatalog.is_deleted == False,  # noqa: E712
+                        )
+                    )
+                    existing = existing.scalar_one_or_none()
+
+                if existing:
+                    for k, v in data.items():
+                        if v is not None:
+                            setattr(existing, k, v)
+                    await self.repo.session.flush()
+                    updated += 1
+                else:
+                    new_sop = SopCatalog(**data)
+                    self.repo.session.add(new_sop)
+                    await self.repo.session.flush()
+                    created += 1
+            except Exception as e:
+                errors.append(f"第{row_idx}行: {e}")
+
+        return {"created": created, "updated": updated, "errors": errors}
+
+
+    # ── 内训师上传 ──
+
+    _TRAINER_COLUMN_MAP: dict[str, str] = {
+        "姓名": "name",
+        "部门": "department",
+        "可培训部门": "trainable_departments",
+        "资格范围": "qualification_scope",
+        "认证日期": "certification_date",
+        "确认日期": "confirmation_date",
+        "确认提醒": "confirmation_reminder",
+        "备注": "remarks",
+        "是否主训师": "is_primary_trainer",
+        "管理员": "admin",
+    }
+
+    async def upload_trainers(self, file_bytes: bytes) -> dict:
+        """从 Excel 批量导入内训师，按姓名+部门 upsert。"""
+        from io import BytesIO
+        from openpyxl import load_workbook
+        from app.modules.hr.models import HrTrainer
+
+        wb = load_workbook(BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            raise ValueError("文件为空")
+        header = [str(c).strip() if c else "" for c in rows[0]]
+        col_map = {idx: self._TRAINER_COLUMN_MAP.get(h, "") for idx, h in enumerate(header) if h in self._TRAINER_COLUMN_MAP}
+        created, updated, errors = 0, 0, []
+        for row_idx, row in enumerate(rows[1:], start=2):
+            if all(c is None for c in row):
+                continue
+            try:
+                data = {}
+                for ci, fn in col_map.items():
+                    v = row[ci] if ci < len(row) else None
+                    if v is None or (isinstance(v, str) and v.strip() == ""):
+                        continue
+                    if isinstance(v, str):
+                        v = v.strip()
+                    if fn == "is_primary_trainer":
+                        v = str(v).strip() in ("是", "1", "True", "true", "Y", "y")
+                    data[fn] = v
+                name = data.get("name")
+                dept = data.get("department")
+                if not name:
+                    errors.append(f"第{row_idx}行: 缺少姓名"); continue
+                existing = None
+                if name:
+                    q = select(HrTrainer).where(HrTrainer.name == name, HrTrainer.is_deleted == False)
+                    if dept:
+                        q = q.where(HrTrainer.department == dept)
+                    r = await self.repo.session.execute(q)
+                    existing = r.scalar_one_or_none()
+                if existing:
+                    for k, v in data.items():
+                        if v is not None: setattr(existing, k, v)
+                    updated += 1
+                else:
+                    self.repo.session.add(HrTrainer(**data))
+                    created += 1
+                await self.repo.session.flush()
+            except Exception as e:
+                errors.append(f"第{row_idx}行: {e}")
+        return {"created": created, "updated": updated, "errors": errors}
+
 
 class DepartmentService:
     def __init__(self, session: AsyncSession) -> None:
         self.repo = DepartmentRepository(session)
         self.feishu = FeishuBitableSync()
 
-    async def get_department(self, department_id: UUID) -> Department:
+    async def get_department(self, department_id: UUID) -> HrDepartment:
         department = await self.repo.get_by_id(department_id)
         if not department:
             raise NotFoundException("部门", str(department_id))
         return department
 
-    async def create_department(self, data: DepartmentCreate) -> Department:
+    async def create_department(self, data: DepartmentCreate) -> HrDepartment:
         existing = await self.repo.get_by_code(data.code)
         if existing:
             raise DuplicateException("部门编码", data.code)
 
-        department = Department(**data.model_dump())
+        department = HrDepartment(**data.model_dump())
         result = await self.repo.create(department)
 
         try:
@@ -607,7 +967,7 @@ class DepartmentService:
 
         return result
 
-    async def update_department(self, department_id: UUID, data: DepartmentUpdate) -> Department:
+    async def update_department(self, department_id: UUID, data: DepartmentUpdate) -> HrDepartment:
         department = await self.get_department(department_id)
         update_data = data.model_dump(exclude_unset=True)
 
@@ -644,12 +1004,24 @@ class DepartmentService:
         keyword: str | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> tuple[list[Department], int]:
-        return await self.repo.list_departments(
+    ) -> tuple[list[HrDepartment], int]:
+        departments, total = await self.repo.list_departments(
             keyword=keyword,
             page=page,
             page_size=page_size,
         )
+        # Attach employee count to each department
+        from sqlalchemy import select, func
+        from app.modules.hr.models import Employee
+        for dept in departments:
+            count = await self.repo.session.scalar(
+                select(func.count()).select_from(Employee).where(
+                    Employee.department == dept.name,
+                    Employee.is_deleted.is_(False),
+                )
+            )
+            dept.employee_count = count or 0
+        return departments, total
 
 
 class TeamService:
@@ -781,7 +1153,6 @@ class OffboardingRecordService:
             page_size=page_size,
         )
 
-
 class OnboardingRecordService:
     def __init__(self, session: AsyncSession) -> None:
         self.repo = OnboardingRecordRepository(session)
@@ -830,7 +1201,7 @@ class OnboardingRecordService:
 
         for rec in raw_records:
             try:
-                from app.platform.integrations.feishu.onboarding_datasource import (
+                from app.modules.hr.feishu.onboarding_datasource import (
                     OnboardingRecord as BitableOnboardingRecord,
                 )
 
@@ -938,7 +1309,7 @@ class DepartureRecordService:
 
         for rec in raw_records:
             try:
-                from app.platform.integrations.feishu.departure_datasource import (
+                from app.modules.hr.feishu.departure_datasource import (
                     DepartureRecord as BitableDepartureRecord,
                 )
 
@@ -1148,443 +1519,3 @@ class AnnualTrainingPlanItemService:
             created = await self.repo.create(item)
             results.append(created)
         return results
-class CandidateService:
-    def __init__(self, session: AsyncSession) -> None:
-        self.repo = CandidateRepository(session)
-        self.bitable = CandidateBitableDataSource()
-        settings = get_settings()
-        self.ai_chat = AiChatService(
-            api_key=settings.MOONSHOT_API_KEY or "",
-            model=settings.AI_MODEL or "kimi-k2.5",
-        )
-
-    async def get_candidate(self, candidate_id: UUID) -> Candidate:
-        candidate = await self.repo.get_by_id(candidate_id)
-        if not candidate:
-            raise NotFoundException("候选人", str(candidate_id))
-        return candidate
-
-    async def list_candidates(
-        self,
-        *,
-        position: str | None = None,
-        education: str | None = None,
-        keyword: str | None = None,
-        recommendation_level: str | None = None,
-        sync_status: str | None = None,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> tuple[list[Candidate], int]:
-        return await self.repo.list_candidates(
-            position=position,
-            education=education,
-            keyword=keyword,
-            recommendation_level=recommendation_level,
-            sync_status=sync_status,
-            page=page,
-            page_size=page_size,
-        )
-
-    async def create_candidate(self, data: CandidateCreate) -> Candidate:
-        candidate = Candidate(**data.model_dump())
-        return await self.repo.create(candidate)
-
-    async def parse_resume_preview(
-        self, resume_bytes: bytes, position: str
-    ) -> dict[str, str]:
-        """Convert PDF to images and parse resume via vision-capable AI."""
-        logger.info(
-            "parse_resume_preview called: position=%s, pdf_size=%d bytes",
-            position,
-            len(resume_bytes),
-        )
-        images: list[bytes] = []
-        try:
-            import fitz
-
-            doc = fitz.open(stream=resume_bytes, filetype="pdf")
-            page_count = len(doc)
-            logger.info("PDF opened: %d pages", page_count)
-            # Limit to first 5 pages to control token cost
-            for idx, page in enumerate(doc):
-                if idx >= 5:
-                    logger.warning(
-                        "Resume PDF has more than 5 pages, only first 5 will be parsed"
-                    )
-                    break
-                pix = page.get_pixmap(dpi=150)
-                img_bytes = pix.tobytes("png")
-                logger.info(
-                    "Page %d rendered: %dx%d, %d bytes",
-                    idx + 1,
-                    pix.width,
-                    pix.height,
-                    len(img_bytes),
-                )
-                images.append(img_bytes)
-            doc.close()
-        except Exception:
-            logger.exception("Failed to convert uploaded PDF to images")
-            return {
-                "gender": "",
-                "school": "",
-                "education": "",
-                "major": "",
-                "match_report": "",
-                "recommendation_level": "",
-            }
-
-        if not images:
-            logger.warning("No images extracted from PDF")
-            return {
-                "gender": "",
-                "school": "",
-                "education": "",
-                "major": "",
-                "match_report": "",
-                "recommendation_level": "",
-            }
-
-        logger.info(
-            "Calling AI vision parser with %d images for position=%s",
-            len(images),
-            position,
-        )
-        try:
-            result = await self.ai_chat.parse_resume_from_images(images, position)
-            logger.info("AI parser result: %s", result)
-            return result
-        except Exception:
-            logger.exception("Failed to parse resume images via AI")
-            return {
-                "gender": "",
-                "school": "",
-                "education": "",
-                "major": "",
-                "match_report": "",
-                "recommendation_level": "",
-            }
-
-    async def create_candidate_with_resume(
-        self,
-        name: str,
-        position: str,
-        resume_bytes: bytes,
-        filename: str,
-        *,
-        gender: str | None = None,
-        school: str | None = None,
-        education: str | None = None,
-        major: str | None = None,
-        match_report: str | None = None,
-        recommendation_level: str | None = None,
-    ) -> Candidate:
-        """Create a candidate with resume upload and Feishu sync."""
-        # 1. Create local candidate record
-        candidate = Candidate(
-            name=name,
-            position=position,
-            gender=gender or None,
-            school=school or None,
-            education=education or None,
-            major=major or None,
-            match_report=match_report or None,
-            recommendation_level=recommendation_level or None,
-        )
-        created = await self.repo.create(candidate)
-
-        # 2. Save PDF locally (always keep local copy as fallback)
-        upload_dir = os.path.join(
-            os.path.dirname(__file__), "..", "..", "..", "uploads", "resumes"
-        )
-        upload_dir = os.path.abspath(upload_dir)
-        os.makedirs(upload_dir, exist_ok=True)
-        ext = os.path.splitext(filename)[1] or ".pdf"
-        file_path = os.path.join(upload_dir, f"{created.id}{ext}")
-        with open(file_path, "wb") as f:
-            f.write(resume_bytes)
-        created.resume_storage_path = file_path
-        await self.repo.update(created)
-
-        # 3. Upload to Feishu Drive and create Bitable record
-        sync_error_parts: list[str] = []
-        feishu_file: dict[str, Any] = {}
-
-        try:
-            feishu_file = await self.bitable.upload_resume(
-                resume_bytes, filename or f"{name}.pdf"
-            )
-        except Exception as exc:
-            logger.exception("Failed to upload resume to Feishu Drive")
-            sync_error_parts.append(f"Drive upload failed: {exc}")
-
-        try:
-            fields: dict[str, Any] = {
-                "候选人姓名": name,
-                "应聘职位名称": position,
-                "性别": gender or "",
-                "学校名称": school or "",
-                "学历": education or "",
-                "专业": major or "",
-                "候选人匹配度报告-AI.输出结果": match_report or "",
-                "推荐等级": recommendation_level or "",
-            }
-            if feishu_file.get("file_token"):
-                fields["简历 PDF"] = [
-                    {
-                        "file_token": feishu_file["file_token"],
-                        "name": feishu_file.get(
-                            "name", filename or f"{name}.pdf"
-                        ),
-                        "size": feishu_file.get("size", len(resume_bytes)),
-                        "type": "application/pdf",
-                    }
-                ]
-            record_id = await self.bitable.create(fields)
-            created.feishu_record_id = record_id
-            created.feishu_synced_at = date.today()
-            created.feishu_sync_status = "synced"
-            created.feishu_sync_error = None
-            await self.repo.update(created)
-        except Exception as exc:
-            logger.exception("Failed to create candidate record in Feishu")
-            sync_error_parts.append(f"Bitable create failed: {exc}")
-            created.feishu_sync_status = "failed"
-            created.feishu_sync_error = "; ".join(sync_error_parts) if sync_error_parts else str(exc)
-            await self.repo.update(created)
-
-        return created
-
-    async def update_candidate(self, candidate_id: UUID, data: CandidateUpdate) -> Candidate:
-        candidate = await self.get_candidate(candidate_id)
-        update_data = data.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(candidate, field, value)
-        updated = await self.repo.update(candidate)
-
-        # Sync back to Feishu if we have a record id and relevant fields changed
-        if candidate.feishu_record_id:
-            feishu_field_map = {
-                "position": "应聘职位名称",
-                "gender": "性别",
-                "school": "学校名称",
-                "education": "学历",
-                "major": "专业",
-            }
-            feishu_fields = {
-                feishu_field_map[k]: v
-                for k, v in update_data.items()
-                if k in feishu_field_map and v is not None
-            }
-            if feishu_fields:
-                try:
-                    await self.bitable.update(candidate.feishu_record_id, feishu_fields)
-                except Exception as exc:
-                    logger.exception(
-                        "Failed to sync candidate update to Feishu %s", candidate_id
-                    )
-                    updated.feishu_sync_status = "failed"
-                    updated.feishu_sync_error = f"Update sync failed: {exc}"
-                    await self.repo.update(updated)
-
-        return updated
-
-    async def update_recommendation_level(self, candidate_id: UUID, level: str) -> Candidate:
-        candidate = await self.get_candidate(candidate_id)
-        candidate.recommendation_level = level
-        updated = await self.repo.update(candidate)
-
-        # Sync back to Feishu if we have a record id
-        if candidate.feishu_record_id:
-            try:
-                await self.bitable.update_recommendation_level(
-                    candidate.feishu_record_id, level
-                )
-            except Exception as exc:
-                logger.exception(
-                    "Failed to sync recommendation level to Feishu for %s",
-                    candidate_id,
-                )
-                updated.feishu_sync_status = "failed"
-                updated.feishu_sync_error = f"Recommendation level sync failed: {exc}"
-                await self.repo.update(updated)
-
-        return updated
-
-    async def sync_candidate_to_feishu(self, candidate_id: UUID) -> Candidate:
-        """Retry syncing a candidate (and resume) to Feishu.
-
-        Uses local resume file if available, otherwise raises an error.
-        """
-        candidate = await self.get_candidate(candidate_id)
-
-        if not candidate.resume_storage_path or not os.path.exists(candidate.resume_storage_path):
-            raise RuntimeError("Local resume file not found, cannot sync to Feishu")
-
-        with open(candidate.resume_storage_path, "rb") as f:
-            resume_bytes = f.read()
-
-        filename = os.path.basename(candidate.resume_storage_path)
-        sync_error_parts: list[str] = []
-        feishu_file: dict[str, Any] = {}
-
-        try:
-            feishu_file = await self.bitable.upload_resume(
-                resume_bytes, filename or f"{candidate.name}.pdf"
-            )
-        except Exception as exc:
-            logger.exception("Failed to upload resume to Feishu Drive during retry")
-            sync_error_parts.append(f"Drive upload failed: {exc}")
-
-        try:
-            fields: dict[str, Any] = {
-                "候选人姓名": candidate.name or "",
-                "应聘职位名称": candidate.position or "",
-                "性别": candidate.gender or "",
-                "学校名称": candidate.school or "",
-                "学历": candidate.education or "",
-                "专业": candidate.major or "",
-                "候选人匹配度报告-AI.输出结果": candidate.match_report or "",
-                "推荐等级": candidate.recommendation_level or "",
-            }
-            if feishu_file.get("file_token"):
-                fields["简历 PDF"] = [
-                    {
-                        "file_token": feishu_file["file_token"],
-                        "name": feishu_file.get("name", filename or f"{candidate.name}.pdf"),
-                        "size": feishu_file.get("size", len(resume_bytes)),
-                        "type": "application/pdf",
-                    }
-                ]
-
-            if candidate.feishu_record_id:
-                await self.bitable.update(candidate.feishu_record_id, fields)
-            else:
-                record_id = await self.bitable.create(fields)
-                candidate.feishu_record_id = record_id
-
-            candidate.feishu_synced_at = date.today()
-            candidate.feishu_sync_status = "synced"
-            candidate.feishu_sync_error = None
-            await self.repo.update(candidate)
-        except Exception as exc:
-            logger.exception("Failed to sync candidate record to Feishu during retry")
-            sync_error_parts.append(f"Bitable write failed: {exc}")
-            candidate.feishu_sync_status = "failed"
-            candidate.feishu_sync_error = "; ".join(sync_error_parts) if sync_error_parts else str(exc)
-            await self.repo.update(candidate)
-            raise RuntimeError(candidate.feishu_sync_error) from exc
-
-        return candidate
-
-    async def delete_candidate(self, candidate_id: UUID) -> None:
-        candidate = await self.get_candidate(candidate_id)
-        await self.repo.soft_delete(candidate)
-
-        # Optionally delete from Feishu if record exists
-        if candidate.feishu_record_id:
-            try:
-                await self.bitable.delete(candidate.feishu_record_id)
-            except Exception:
-                logger.exception("Failed to delete candidate from Feishu %s", candidate_id)
-
-    async def sync_from_feishu(self) -> dict:
-        """Pull all candidate records from Feishu Bitable and upsert into local PG.
-
-        Returns:
-            {"created": N, "updated": N, "failed": N, "total": N}
-        """
-        raw_records = await self.bitable.fetch_all(page_size=500)
-        stats = {"created": 0, "updated": 0, "failed": 0, "total": len(raw_records)}
-
-        for rec in raw_records:
-            try:
-                data = rec.to_dict()
-                data["feishu_synced_at"] = date.today()
-                rid = data.get("feishu_record_id")
-                if not rid:
-                    stats["failed"] += 1
-                    continue
-
-                await self.repo.upsert_by_feishu_record_id(data)
-                existing = await self.repo.get_by_feishu_record_id(rid)
-                if existing and existing.created_at and (
-                    datetime.utcnow() - existing.created_at.replace(tzinfo=None)
-                ).total_seconds() < 60:
-                    stats["created"] += 1
-                else:
-                    stats["updated"] += 1
-
-                # Download resume PDF if attachment exists and not already stored locally
-                if existing and rec.resume_attachments:
-                    has_local = (
-                        existing.resume_storage_path
-                        and os.path.exists(existing.resume_storage_path)
-                    )
-                    if not has_local:
-                        await self._download_resume(existing, rec.resume_attachments[0])
-            except Exception:
-                logger.exception("Failed to sync candidate record %s", rec.record_id)
-                stats["failed"] += 1
-
-        return stats
-
-    async def _download_resume(self, candidate: Candidate, attachment: dict) -> None:
-        """Download resume PDF from Feishu and save to local storage.
-
-        Args:
-            candidate: The candidate record (must have id set).
-            attachment: The first attachment dict from resume_attachments.
-        """
-        import os
-
-        file_token = attachment.get("file_token")
-        if not file_token:
-            logger.warning("No file_token in attachment for candidate %s", candidate.id)
-            return
-
-        try:
-            tmp_download_url = await self.bitable.get_resume_download_url(file_token)
-
-            import httpx
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                response = await client.get(tmp_download_url)
-                response.raise_for_status()
-
-            upload_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "uploads", "resumes")
-            upload_dir = os.path.abspath(upload_dir)
-            os.makedirs(upload_dir, exist_ok=True)
-
-            # Preserve original extension if present, default to .pdf
-            original_name = attachment.get("name", "")
-            ext = os.path.splitext(original_name)[1] if original_name else ".pdf"
-            if not ext:
-                ext = ".pdf"
-            file_path = os.path.join(upload_dir, f"{candidate.id}{ext}")
-            with open(file_path, "wb") as f:
-                f.write(response.content)
-
-            candidate.resume_storage_path = file_path
-            await self.repo.update(candidate)
-            logger.info("Downloaded resume for candidate %s to %s", candidate.id, file_path)
-        except Exception:
-            logger.exception("Failed to download resume for candidate %s", candidate.id)
-
-    async def get_sync_status(self) -> SyncStatusResponse:
-        local_total = await self.repo.count_total()
-        synced_count = await self.repo.count_synced()
-        failed_count = await self.repo.count_failed_sync()
-        pending_count = await self.repo.count_pending_sync()
-        unsynced_count = local_total - synced_count
-        feishu_total = synced_count
-
-        return SyncStatusResponse(
-            local_total=local_total,
-            feishu_total=feishu_total,
-            synced_count=synced_count,
-            unsynced_count=unsynced_count,
-            conflict_count=0,
-            pending_count=pending_count,
-            failed_count=failed_count,
-            last_sync_at=None,
-        )

@@ -1,4 +1,4 @@
-"""Safety business workflows."""
+"""Safety business workflows — 特殊作业报备服务."""
 
 import json
 import logging
@@ -8,7 +8,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.safety.ai_workflow_configs import SAFETY_WORKFLOW_CONFIGS
 from app.modules.safety.models import (
     SpecialOperationReport,
 )
@@ -17,12 +16,115 @@ from app.modules.safety.schemas import (
     SpecialOperationReportCreate,
     SpecialOperationReportUpdate,
 )
-from app.platform.audit.service import record_audit_log
-from app.core.llm import llm_client
-from app.modules.safety.ai_prompts import (
-    STANDALONE_WORKFLOW_CONFIG,
-    build_prompt,
-)
+from app.modules.safety.service._helpers import audit_log
+from app.platform.integrations.ai.client import AIService
+
+logger = logging.getLogger(__name__)
+
+# ═══════════════════════════════════════════════════════════
+# AI 提示词模板（硬编码）
+# ═══════════════════════════════════════════════════════════
+
+CRITICAL_IDENTIFICATION_PROMPT = """## 报备信息
+从特殊作业报备中获取以下信息：
+- 作业类型（动火/受限空间/高处/吊装/临时用电/盲板抽堵/动土/断路）
+- 作业级别（特级/一级/二级）
+- 作业地点
+- 作业部门
+- 作业内容描述
+- 风险等级
+- 安全措施
+- 风险评估
+- 应急消防器材配置
+
+## 任务
+判定当前特殊作业报备是否属于「关键风险作业」。
+
+## 判定标准（参照 GB 30871-2022）
+1. 特级或一级动火作业
+2. 受限空间内涉及易燃易爆、有毒有害介质的作业
+3. 30米以上的高处作业
+4. 涉及重大危险源的临时用电
+5. 涉及有毒有害、易燃易爆介质的盲板抽堵
+6. 超过5米的深基坑动土作业
+7. 大型或特大型起重吊装（100吨以上或非常规起重）
+8. 涉及有毒有害、易燃易爆介质的管线打开
+9. 两个及以上特殊作业类型的交叉作业
+10. 风险等级为一级或二级的高风险作业
+
+## 约束
+- 仅基于报备中已填写的信息进行判定，不得编造未提供的信息
+- 信息不足时倾向于不判定为关键作业
+- 遵循保守原则：不确定时不判定为关键作业
+- 你是一名化工安全专家，严格按照 GB 30871-2022 标准判定
+
+## 参考标准
+- GB 30871-2022《危险化学品企业特殊作业安全规范》
+- 企业特殊作业安全管理制度
+- 企业风险分级管控标准
+
+## 输出格式
+返回 JSON 格式（只返回 JSON，不要额外说明）：
+```json
+{
+  "is_critical": true,
+  "reason": "判定理由（说明符合哪些关键作业判定条件，或不符合的原因）"
+}
+```"""
+
+NATURAL_QUERY_PARSE_PROMPT = """## 用户输入
+用户通过自然语言描述台账筛选条件，例如：
+- "查看所有动火作业"
+- "上周高处作业的台账"
+- "关键作业中未完成的"
+- "生产部的受限空间作业"
+
+需要将用户的自然语言输入解析为结构化的筛选参数。
+
+## 任务
+将用户的自然语言查询转换为结构化的特殊作业台账筛选条件。
+
+## 可用筛选字段
+- operation_type: hot_work/confined_space/height_work/temporary_electricity/blind_plate/excavation/lifting/road_breaking
+- operation_level: special/grade1/grade2
+- risk_level: level_1/level_2/level_3/level_4
+- department: 部门名称（字符串）
+- date_from: 开始日期 YYYY-MM-DD
+- date_to: 结束日期 YYYY-MM-DD
+- keyword: 模糊搜索关键词
+- is_critical: true/false
+
+## 映射规则
+- 作业类型：动火作业→hot_work, 受限空间→confined_space, 高处作业→height_work, 临时用电→temporary_electricity, 盲板抽堵→blind_plate, 动土作业→excavation, 起重吊装→lifting, 断路作业→road_breaking
+- 风险等级：一级/重大→level_1, 二级/较大→level_2, 三级/一般→level_3, 四级/低→level_4
+- 作业级别：特级→special, 一级→grade1, 二级→grade2
+
+## 约束
+- 无法识别的字段设为 null
+- 对时间表达（今天、本周、上月等）正确计算日期范围
+- 保留用户原始输入中的关键词
+- 你是一个数据库查询助手，只返回 JSON
+
+## 参考
+- 特殊作业报备数据模型（八大特殊作业类型）
+- GB 30871-2022《危险化学品企业特殊作业安全规范》分类标准
+- 企业风险分级管控标准
+
+## 输出格式
+返回 JSON 格式（未匹配字段设为 null，只返回 JSON 不要额外说明）：
+```json
+{
+  "operation_type": null,
+  "operation_level": null,
+  "risk_level": null,
+  "department": null,
+  "date_from": null,
+  "date_to": null,
+  "keyword": null,
+  "is_critical": null,
+  "explanation": "用中文简述你理解的筛选条件"
+}
+```"""
 
 logger = logging.getLogger(__name__)
 
@@ -44,19 +146,16 @@ class SpecialOperationReportService:
         new_value: dict[str, Any] | None = None,
         extra: dict[str, Any] | None = None,
     ) -> None:
-        try:
-            await record_audit_log(
-                self.session,
-                action=action,
-                user_id=user_id,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                old_value=old_value,
-                new_value=new_value,
-                extra=extra,
-            )
-        except Exception:
-            logger.exception("审计日志记录失败 (%s:%s)", resource_type, action)
+        await audit_log(
+            self.session,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            user_id=user_id,
+            old_value=old_value,
+            new_value=new_value,
+            extra=extra,
+        )
 
     # ── CRUD ──
 
@@ -171,37 +270,24 @@ class SpecialOperationReportService:
 
     # ── AI 判定 ──
 
-    async def _get_workflow_config(self, module_code: str) -> dict:
-        """获取独立工作流配置（DB 优先，fallback 到硬编码 STANDALONE_WORKFLOW_CONFIG）"""
-        workflow = await self.repo.get_ai_workflow_config_by_module(module_code)
-        if workflow and workflow.is_enabled and workflow.script_configs:
-            scripts = workflow.script_configs
-            if isinstance(scripts, list) and len(scripts) > 0:
-                first = scripts[0]
-                if first.get("is_enabled", True):
-                    logger.debug(
-                        "使用 DB 工作流配置: %s — %s", module_code, first.get("name")
-                    )
-                    return first
-        # Fallback：安全模块配置优先，再到平台全局配置
-        config = SAFETY_WORKFLOW_CONFIGS.get(module_code) or STANDALONE_WORKFLOW_CONFIG.get(module_code, {})
-        if config:
-            logger.debug("使用硬编码工作流配置: %s — %s", module_code, config.get("name"))
-        return config
+    async def _get_ai_service(self) -> "AIService":
+        """获取文本模型 AIService（硬编码配置）"""
+        from app.modules.safety.service.config import create_ai_service
+        return create_ai_service("text")
 
     async def _identify_critical(
         self, report: "SpecialOperationReport"
     ) -> tuple[bool, str | None]:
         """判定报备是否为关键作业（AI 优先，失败时基于规则 fallback）"""
         try:
-            
+            ai = await self._get_ai_service()
             return await self._ai_identify_critical(ai, report)
         except Exception as e:
             logger.warning("AI 关键作业判定失败，使用规则 fallback: %s", e)
             return self._rule_based_identify_critical(report)
 
     async def _ai_identify_critical(
-        self, report: "SpecialOperationReport"
+        self, ai: "AIService", report: "SpecialOperationReport"
     ) -> tuple[bool, str | None]:
         """使用 AI 判定关键作业（提示词由工作流配置提供）"""
         OP_TYPE_LABELS = {
@@ -224,19 +310,15 @@ class SpecialOperationReportService:
             f"应急消防器材：{report.emergency_equipment or '未指定'}"
         )
 
-        # 从工作流配置构建提示词（DB 优先，fallback 到硬编码）
-        wf_config = await self._get_workflow_config("special-ops-critical")
-        if wf_config:
-            prompt = build_prompt(wf_config) + "\n\n## 本次判定输入\n" + context
-        else:
-            prompt = context  # 极端情况：无任何配置可用
+        # 使用硬编码提示词构建 prompt
+        prompt = CRITICAL_IDENTIFICATION_PROMPT + "\n\n## 本次判定输入\n" + context
 
         messages = [
             {"role": "system", "content": "你是一名化工安全专家，严格按照 GB 30871-2022 标准判定。只返回 JSON。"},
             {"role": "user", "content": prompt},
         ]
 
-        response_text = await llm_client.chat(messages, response_format="json_object")
+        response_text = await ai.chat(messages, response_format="json_object")
         result = json.loads(response_text)
         return result.get("is_critical", False), result.get("reason")
 
@@ -316,20 +398,16 @@ class SpecialOperationReportService:
             "起重吊装": "lifting", "断路作业": "road_breaking",
         }
 
-        # 从工作流配置构建提示词（DB 优先，fallback 到硬编码）
-        wf_config = await self._get_workflow_config("special-ops-export")
-        if wf_config:
-            prompt = build_prompt(wf_config) + "\n\n用户查询：" + natural_query
-        else:
-            prompt = natural_query
+        # 使用硬编码提示词构建 prompt
+        prompt = NATURAL_QUERY_PARSE_PROMPT + "\n\n用户查询：" + natural_query
 
         try:
-            
+            ai = await self._get_ai_service()
             messages = [
                 {"role": "system", "content": "你是一个数据库查询助手。只返回 JSON。"},
                 {"role": "user", "content": prompt},
             ]
-            response_text = await llm_client.chat(messages, response_format="json_object")
+            response_text = await ai.chat(messages, response_format="json_object")
             import json
             result = json.loads(response_text)
             # 验证 operation_type 值

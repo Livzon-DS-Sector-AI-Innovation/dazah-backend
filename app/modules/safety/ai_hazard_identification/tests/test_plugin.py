@@ -9,14 +9,14 @@ from __future__ import annotations
 import pytest
 
 from app.modules.safety.ai_hazard_identification.prompts import (
+    FEWSHOT_EXAMPLES,
+    OUTPUT_FORMAT,
     SYSTEM_ROLE,
     WORK_RULES,
-    OUTPUT_FORMAT,
-    FEWSHOT_EXAMPLES,
     build_context_text,
     build_full_prompt,
-    get_expected_keys,
     get_db_seed_config,
+    get_expected_keys,
 )
 from app.modules.safety.ai_hazard_identification.rules import (
     RuleEngine,
@@ -32,7 +32,6 @@ from app.modules.safety.ai_hazard_identification.schemas import (
     RectificationSuggestion,
 )
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # 测试数据
 # ═══════════════════════════════════════════════════════════════════════════
@@ -43,9 +42,8 @@ VALID_OUTPUT_DICT = {
     "hazard_category": "instrument_electrical",
     "hazard_level": "major",
     "rectification_suggestion": {
-        "immediate": "立即加装防爆堵头，使用吸尘器清理箱内积尘",
-        "short_term": "一周内排查全区域所有防爆电箱，确保封堵完好",
-        "long_term": "修订防爆设备巡检制度，将封堵检查纳入周检",
+        "corrective": "立即加装防爆堵头，使用吸尘器清理箱内积尘，一周内排查全区域所有防爆电箱确保封堵完好",
+        "preventive": "修订防爆设备巡检制度，将封堵检查纳入周检，建立防爆设备全生命周期台账",
     },
     "major_hazard_basis": "《化工和危险化学品生产经营单位重大生产安全事故隐患判定标准》第十条：爆炸危险场所未按国家标准安装使用防爆电气设备；GB 3836.1-2010 第15章",
 }
@@ -95,7 +93,7 @@ class TestSchemas:
         assert output.hazard_type == HazardTypeEnum.UNSAFE_CONDITION
         assert output.hazard_category == HazardCategoryEnum.INSTRUMENT_ELECTRICAL
         assert output.hazard_level == HazardLevelEnum.MAJOR
-        assert output.rectification_suggestion.immediate
+        assert output.rectification_suggestion.corrective
 
     def test_output_invalid_enum_rejected(self):
         """无效枚举值应被 Pydantic 拒绝。"""
@@ -126,11 +124,19 @@ class TestPrompts:
         for section in sections:
             assert section in WORK_RULES, f"缺少规则节: {section}"
 
+    def test_work_rules_contains_shutdown_criterion(self):
+        """隐患级别判定规则应包含停产整改判断（新增最高优先级）。"""
+        assert "停产整改判断" in WORK_RULES
+        assert "全厂停产或全车间停产" in WORK_RULES
+        assert "局部停产" in WORK_RULES
+
     def test_output_format_is_valid_json_template(self):
         # 输出格式应该是一个描述（不是 JSON，因为在 Python 字符串里）
         assert "key_defect" in OUTPUT_FORMAT
         assert "hazard_type" in OUTPUT_FORMAT
         assert "rectification_suggestion" in OUTPUT_FORMAT
+        assert "corrective" in OUTPUT_FORMAT
+        assert "preventive" in OUTPUT_FORMAT
 
     def test_expected_keys(self):
         keys = get_expected_keys()
@@ -162,6 +168,24 @@ class TestPrompts:
             assert ex["output"]["hazard_type"] in valid_types
             assert ex["output"]["hazard_category"] in valid_cats
             assert ex["output"]["hazard_level"] in valid_levels
+
+    def test_fewshot_examples_have_two_tier_rectification(self):
+        """Few-shot 示例的整改建议应使用两层结构。"""
+        for ex in FEWSHOT_EXAMPLES:
+            rs = ex["output"]["rectification_suggestion"]
+            assert "corrective" in rs, f"缺少 corrective 字段"
+            assert "preventive" in rs, f"缺少 preventive 字段"
+            assert len(rs["corrective"]) > 30
+            assert len(rs["preventive"]) > 20
+
+    def test_fewshot_example1_demonstrates_shutdown_priority(self):
+        """示例1（防爆电箱堵头）应演示停产整改优先判定：加装堵头无需断电 → general。"""
+        ex1 = FEWSHOT_EXAMPLES[0]
+        assert ex1["output"]["hazard_level"] == "general", \
+            "示例1应判定为general（加装堵头无需设备断电，可直接在线操作）"
+        assert "无需设备断电" in ex1["output"]["rectification_suggestion"]["corrective"] or \
+               "无需断电" in ex1["output"]["rectification_suggestion"]["corrective"], \
+            "示例1的整改措施应明确标注加装堵头无需断电"
 
     def test_build_context_text(self):
         text = build_context_text(
@@ -229,11 +253,11 @@ class TestRuleEngine:
 
     def test_empty_rectification_detected(self):
         output = make_output(rectification_suggestion=RectificationSuggestion(
-            immediate="", short_term="", long_term=""
+            corrective="", preventive=""
         ))
         result = self.engine.validate(make_input(), output)
         assert not result.is_valid
-        assert len([e for e in result.errors if "不能为空" in e]) == 3
+        assert len([e for e in result.errors if "不能为空" in e]) == 2
 
     def test_basis_too_short_detected(self):
         # 5-19 字的依据（通过 Pydantic min_length=5，但触发 RuleEngine <20 检查）
@@ -244,9 +268,8 @@ class TestRuleEngine:
 
     def test_banned_phrase_detected(self):
         output = make_output(rectification_suggestion=RectificationSuggestion(
-            immediate="加强管理，注意安全",
-            short_term="需加强培训，提高意识",
-            long_term="制定制度加强管理",
+            corrective="加强管理，注意安全",
+            preventive="需加强培训，提高意识",
         ))
         result = self.engine.validate(make_input(), output)
         assert any("加强管理" in w for w in result.warnings)
@@ -283,11 +306,11 @@ class TestAutoCorrect:
 
     def test_fills_empty_rectification(self):
         output = make_output(rectification_suggestion=RectificationSuggestion(
-            immediate="具体措施", short_term="", long_term=""
+            corrective="具体措施", preventive=""
         ))
         corrected = auto_correct(output)
-        assert corrected.rectification_suggestion.short_term != ""
-        assert "整改方案" in corrected.rectification_suggestion.short_term
+        assert corrected.rectification_suggestion.preventive != ""
+        assert "整改方案" in corrected.rectification_suggestion.preventive
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -326,7 +349,9 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_identify_basic(self):
-        from app.modules.safety.ai_hazard_identification.plugin import AIHazardIdentifier
+        from app.modules.safety.ai_hazard_identification.plugin import (
+            AIHazardIdentifier,
+        )
 
         mock_ai = MockAIService()
         plugin = AIHazardIdentifier(mock_ai)
@@ -334,11 +359,15 @@ class TestIntegration:
         output = await plugin.identify(make_input("防爆电箱堵头缺失"))
         assert output.hazard_type == HazardTypeEnum.UNSAFE_CONDITION
         assert output.hazard_level == HazardLevelEnum.MAJOR
+        assert output.rectification_suggestion.corrective
+        assert output.rectification_suggestion.preventive
         assert mock_ai.call_count == 1
 
     @pytest.mark.asyncio
     async def test_identify_uses_vision_when_photos_available(self):
-        from app.modules.safety.ai_hazard_identification.plugin import AIHazardIdentifier
+        from app.modules.safety.ai_hazard_identification.plugin import (
+            AIHazardIdentifier,
+        )
 
         # Mock with vision support
         class VisionMockService(MockAIService):
@@ -370,7 +399,9 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_identify_batch(self):
-        from app.modules.safety.ai_hazard_identification.plugin import AIHazardIdentifier
+        from app.modules.safety.ai_hazard_identification.plugin import (
+            AIHazardIdentifier,
+        )
 
         mock_ai = MockAIService()
         plugin = AIHazardIdentifier(mock_ai)
@@ -403,7 +434,9 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_prompt_includes_context(self):
-        from app.modules.safety.ai_hazard_identification.plugin import AIHazardIdentifier
+        from app.modules.safety.ai_hazard_identification.plugin import (
+            AIHazardIdentifier,
+        )
 
         mock_ai = MockAIService()
         plugin = AIHazardIdentifier(mock_ai)
@@ -434,16 +467,15 @@ class TestQualityBenchmarks:
         self.engine = RuleEngine()
 
     def test_example1_electric_box(self):
-        """示例1: 防爆电箱堵头 — 应通过所有规则。"""
+        """示例1: 防爆电箱堵头 — 停产整改判断为最高优先级（无需断电可直接操作）。"""
         output = HazardIdentificationOutput(
             key_defect="现场防爆电箱一处备用引入口未使用防爆堵头封堵，箱体内部积尘严重，存在粉尘进入电箱引发短路或爆炸的风险",
             hazard_type=HazardTypeEnum.UNSAFE_CONDITION,
             hazard_category=HazardCategoryEnum.INSTRUMENT_ELECTRICAL,
-            hazard_level=HazardLevelEnum.MAJOR,
+            hazard_level=HazardLevelEnum.GENERAL,
             rectification_suggestion=RectificationSuggestion(
-                immediate="对该电箱未封堵的引入口加装防爆堵头，使用吸尘器清理箱内积尘（禁止使用压缩空气吹扫）",
-                short_term="由电气工程师对责任区域内所有防爆电箱逐一排查，确保所有备用引入口封堵完好，3个工作日内完成",
-                long_term="修订防爆电气设备巡检制度，将引入口封堵状态纳入每周例行检查项，建立检查台账",
+                corrective="对该电箱未封堵的引入口加装防爆堵头（安装堵头无需设备断电，可直接在线操作），使用防爆吸尘器清理箱内积尘，3个工作日内完成",
+                preventive="修订防爆电气设备巡检制度，将引入口封堵状态纳入每周例行检查项，建立防爆设备全生命周期台账",
             ),
             major_hazard_basis="《化工和危险化学品生产经营单位重大生产安全事故隐患判定标准》第十条：爆炸危险场所未按国家标准安装使用防爆电气设备；GB 3836.1-2010 第15章：电气设备引入装置的密封要求",
         )
@@ -458,9 +490,8 @@ class TestQualityBenchmarks:
             hazard_category=HazardCategoryEnum.VIOLATION_OPERATION,
             hazard_level=HazardLevelEnum.SERIOUS,
             rectification_suggestion=RectificationSuggestion(
-                immediate="立即停止该作业人员的高处作业，监督其正确佩戴安全带并确认挂点牢固后方可继续作业",
-                short_term="对当班全体作业人员进行高处作业安全专项培训，重点讲解安全带正确佩戴方法",
-                long_term="在车间高处作业区域统一设置固定式安全绳挂点装置，纳入每日班前安全检查项",
+                corrective="立即停止该作业人员的高处作业，监督其正确佩戴安全带并确认挂点牢固后方可继续作业；对当班全体作业人员进行高处作业安全专项培训，重点讲解安全带正确佩戴方法",
+                preventive="在车间高处作业区域统一设置固定式安全绳挂点装置，纳入每日班前安全检查项；修订《高处作业安全管理规定》，明确安全带使用具体要求",
             ),
             major_hazard_basis="GB 30871-2022 第5.2条：高处作业人员应正确佩戴符合国家标准的安全带；《安全生产法》第四十五条",
         )
@@ -475,9 +506,8 @@ class TestQualityBenchmarks:
             hazard_category=HazardCategoryEnum.EMERGENCY_MGMT,
             hazard_level=HazardLevelEnum.SERIOUS,
             rectification_suggestion=RectificationSuggestion(
-                immediate="立即将通道上的30袋物料转移至指定物料暂存区，恢复通道畅通，确保净宽≥1.4m",
-                short_term="在消防通道两侧地面施划黄色禁停标线，在墙面张贴'消防通道禁止堆放'警示标识",
-                long_term="修订车间定置管理制度，明确消防疏散通道净宽≥1.4m的硬性指标，由安全员每月专项检查",
+                corrective="立即将通道上的30袋物料转移至指定物料暂存区，恢复通道畅通，确保净宽≥1.4m；在消防通道两侧地面施划黄色禁停标线，在墙面张贴'消防通道禁止堆放'警示标识",
+                preventive="修订车间定置管理制度，明确消防疏散通道净宽≥1.4m的硬性指标，由安全员每月专项检查并拍照留档",
             ),
             major_hazard_basis="GB 50016-2014（2018年版）第7.3.1条：疏散通道的净宽度不应小于1.1m；《安全生产法》第四十二条",
         )
@@ -492,9 +522,8 @@ class TestQualityBenchmarks:
             hazard_category=HazardCategoryEnum.SPECIAL_OPERATION,
             hazard_level=HazardLevelEnum.GENERAL,
             rectification_suggestion=RectificationSuggestion(
-                immediate="立即暂停该动火作业，要求现场监护人和动火负责人到场补签确认",
-                short_term="组织涉及动火作业审批的相关人员进行作业票证规范填写专项培训",
-                long_term="建立特殊作业票证三级审核制度，每周对已归档票证做10%随机抽查",
+                corrective="立即暂停该动火作业，要求现场监护人和动火负责人到场补签确认；组织涉及动火作业审批的相关人员进行作业票证规范填写专项培训",
+                preventive="建立特殊作业票证三级审核制度，每周对已归档票证做10%随机抽查；检查结果纳入月度安全绩效考核",
             ),
             major_hazard_basis="GB 30871-2022 第4.7条：特殊作业审批手续应齐全；《安全生产法》第四十六条",
         )

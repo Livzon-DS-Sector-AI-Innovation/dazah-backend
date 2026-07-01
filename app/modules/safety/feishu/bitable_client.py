@@ -22,7 +22,7 @@ _env_dir = Path(__file__).resolve().parent.parent.parent.parent.parent
 _app_env = get_settings().APP_ENV
 _env_path = _env_dir / f".env.{_app_env}"
 if _env_path.exists():
-    load_dotenv(_env_path)
+    load_dotenv(_env_path, override=True)
 
 SAFETY_BITABLE_APP_TOKEN = get_settings().SAFETY_FEISHU_BITABLE_APP_TOKEN
 SAFETY_BITABLE_HAZARD_TABLE_ID = get_settings().SAFETY_FEISHU_BITABLE_HAZARD_TABLE_ID
@@ -116,23 +116,46 @@ class SafetyBitableClient:
 
         使用飞书 Drive API 下载 Bitable 附件。
         优先使用 extra（从 Bitable API 返回的 url 中提取）；若无 extra 则直接尝试。
+        单次请求超时 120s，失败自动重试最多 3 次（指数退避）。
         """
+        import asyncio
+
         token = await self._token()
         base_url = f"https://open.feishu.cn/open-apis/drive/v1/medias/{file_token}/download"
 
         async def _try_download(url: str) -> bytes | None:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as http:
-                resp = await http.get(
-                    url,
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-                if resp.status_code == 200:
-                    return resp.content
-                logger.warning(
-                    "Bitable 下载附件失败: url=%s... status=%s body=%s",
-                    url[:100], resp.status_code, (resp.text or "")[:200],
-                )
-                return None
+            last_error = None
+            for attempt in range(3):
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=120, follow_redirects=True,
+                    ) as http:
+                        resp = await http.get(
+                            url,
+                            headers={"Authorization": f"Bearer {token}"},
+                        )
+                        if resp.status_code == 200:
+                            return resp.content
+                        logger.warning(
+                            "Bitable 下载附件失败: url=%s... status=%s body=%s (attempt %d/3)",
+                            url[:100], resp.status_code, (resp.text or "")[:200], attempt + 1,
+                        )
+                        last_error = f"HTTP {resp.status_code}"
+                except Exception as exc:
+                    logger.warning(
+                        "Bitable 下载附件异常: url=%s... error=%s (attempt %d/3)",
+                        url[:100], exc, attempt + 1,
+                    )
+                    last_error = str(exc)
+
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)  # 1s, 2s 退避
+
+            logger.error(
+                "Bitable 下载附件最终失败(3次重试耗尽): url=%s... last_error=%s",
+                url[:100], last_error,
+            )
+            return None
 
         # 1. 有 extra → 直接用 extra 下载
         if extra:
@@ -155,37 +178,73 @@ class SafetyBitableClient:
         1. 带 Authorization header 请求（兼容 open.feishu.cn 域名）
         2. 不带 Authorization header 请求（兼容内部预签名 URL，auth 已内嵌在 query）
         3. 验证 Content-Type 是图片/文件，避免将 HTML 错误页误存为图片
+
+        单次请求超时 120s，失败自动重试最多 3 次（指数退避）。
         """
+        import asyncio
+
         token = await self._token()
 
         async def _try(headers: dict | None = None) -> bytes | None:
             h = headers if headers is not None else {}
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as http:
-                resp = await http.get(download_url, headers=h)
-                if resp.status_code != 200:
+            last_error = None
+            for attempt in range(3):
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=120, follow_redirects=True,
+                    ) as http:
+                        resp = await http.get(download_url, headers=h)
+                        if resp.status_code != 200:
+                            logger.warning(
+                                "Bitable URL 下载附件失败: url=%s... status=%s body=%s (attempt %d/3)",
+                                download_url[:120], resp.status_code,
+                                (resp.text or "")[:200], attempt + 1,
+                            )
+                            last_error = f"HTTP {resp.status_code}"
+                            if attempt < 2:
+                                await asyncio.sleep(2 ** attempt)
+                            continue
+                        content = resp.content
+                        ct = resp.headers.get("content-type", "")
+                        # 验证：拒绝空内容 或 明显是 JSON/HTML 错误响应
+                        if not content:
+                            logger.warning(
+                                "Bitable URL 下载到空内容: url=%s... (attempt %d/3)",
+                                download_url[:120], attempt + 1,
+                            )
+                            last_error = "Empty content"
+                            if attempt < 2:
+                                await asyncio.sleep(2 ** attempt)
+                            continue
+                        if ct.startswith("application/json") or ct.startswith("text/html"):
+                            text = content[:500].decode(errors="replace")
+                            logger.warning(
+                                "Bitable URL 返回非文件内容(ct=%s): url=%s... body=%s (attempt %d/3)",
+                                ct, download_url[:120], text, attempt + 1,
+                            )
+                            last_error = f"Bad content-type: {ct}"
+                            if attempt < 2:
+                                await asyncio.sleep(2 ** attempt)
+                            continue
+                        logger.debug(
+                            "Bitable URL 下载成功: size=%d ct=%s url=%s...",
+                            len(content), ct, download_url[:120],
+                        )
+                        return content
+                except Exception as exc:
                     logger.warning(
-                        "Bitable URL 下载附件失败: url=%s... status=%s body=%s",
-                        download_url[:120], resp.status_code, (resp.text or "")[:200],
+                        "Bitable URL 下载异常: url=%s... error=%s (attempt %d/3)",
+                        download_url[:120], exc, attempt + 1,
                     )
-                    return None
-                content = resp.content
-                ct = resp.headers.get("content-type", "")
-                # 验证：拒绝空内容 或 明显是 JSON/HTML 错误响应
-                if not content:
-                    logger.warning("Bitable URL 下载到空内容: url=%s...", download_url[:120])
-                    return None
-                if ct.startswith("application/json") or ct.startswith("text/html"):
-                    text = content[:500].decode(errors="replace")
-                    logger.warning(
-                        "Bitable URL 返回非文件内容(ct=%s): url=%s... body=%s",
-                        ct, download_url[:120], text,
-                    )
-                    return None
-                logger.debug(
-                    "Bitable URL 下载成功: size=%d ct=%s url=%s...",
-                    len(content), ct, download_url[:120],
-                )
-                return content
+                    last_error = str(exc)
+                    if attempt < 2:
+                        await asyncio.sleep(2 ** attempt)
+
+            logger.error(
+                "Bitable URL 下载最终失败(3次重试耗尽): url=%s... last_error=%s",
+                download_url[:120], last_error,
+            )
+            return None
 
         # 策略1: 带 Authorization header
         result = await _try({"Authorization": f"Bearer {token}"})
@@ -206,13 +265,38 @@ class SafetyBitableClient:
         *,
         filter_str: str | None = None,
         page_size: int = 100,
-    ) -> list[dict[str, Any]]:
-        """搜索记录，返回 [{"record_id": "...", "fields": {...}}, ...]."""
+        page_token: str | None = None,
+        automatic_fields: bool = False,
+        filter_info: dict[str, Any] | None = None,
+        sort: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """搜索记录。
+
+        返回 {"items": [...], "has_more": bool, "page_token": str|None, "total": int|None}.
+
+        filter_str: 字符串公式过滤（如 'CurrentValue.[状态]="待整改"'）
+        filter_info: 结构化过滤（与 filter_str 互斥，优先使用 filter_info）
+            格式: {"conjunction": "and",
+                   "conditions": [{"field_name": "...", "operator": "...", "value": [...]}]}
+        sort: 排序条件列表 [{"field_name": "字段名", "desc": true}]
+            注意：飞书 search API 不支持对系统字段（修改时间等）排序
+        automatic_fields: 是否返回系统字段
+            （created_time, last_modified_time, created_by, last_modified_by）
+        page_token: 分页游标，首次请求不传
+        """
         token = await self._token()
         tid = table_id or self.table_id
         payload: dict[str, Any] = {"page_size": page_size}
-        if filter_str:
+        if filter_info:
+            payload["filter"] = filter_info
+        elif filter_str:
             payload["filter"] = filter_str
+        if automatic_fields:
+            payload["automatic_fields"] = True
+        if sort:
+            payload["sort"] = sort
+        if page_token:
+            payload["page_token"] = page_token
 
         async with httpx.AsyncClient(timeout=30) as http:
             resp = await http.post(
@@ -221,13 +305,72 @@ class SafetyBitableClient:
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json; charset=utf-8",
                 },
+                params={"field_name_type": "name"},
                 json=payload,
             )
             data = resp.json()
             if data.get("code") != 0:
                 logger.error("Bitable search_records 失败: %s", data.get("msg"))
-                return []
-            return data.get("data", {}).get("items", [])
+                return {
+                    "items": [], "has_more": False,
+                    "page_token": None, "total": None,
+                }
+            result = data.get("data", {})
+            return {
+                "items": result.get("items", []),
+                "has_more": result.get("has_more", False),
+                "page_token": result.get("page_token"),
+                "total": result.get("total"),
+            }
+
+    async def list_all_records(
+        self,
+        table_id: str | None = None,
+        *,
+        filter_str: str | None = None,
+        filter_info: dict[str, Any] | None = None,
+        sort: list[dict[str, Any]] | None = None,
+        automatic_fields: bool = False,
+        page_size: int = 200,
+    ) -> list[dict[str, Any]]:
+        """分页拉取全部匹配记录。
+
+        返回 [{"record_id": "...", "fields": {...}, ...}, ...]。
+        自动处理分页，直至 has_more=false 或 page_token 为空。
+        """
+        all_items: list[dict[str, Any]] = []
+        pt: str | None = None
+        page_count = 0
+
+        while True:
+            page_count += 1
+            result = await self.search_records(
+                table_id=table_id,
+                filter_str=filter_str,
+                filter_info=filter_info,
+                sort=sort,
+                automatic_fields=automatic_fields,
+                page_size=page_size,
+                page_token=pt,
+            )
+            items = result.get("items", [])
+            all_items.extend(items)
+            logger.debug(
+                "Bitable list_all_records page %d: %d items (total=%s, has_more=%s)",
+                page_count, len(items), result.get("total"), result.get("has_more"),
+            )
+
+            if not result.get("has_more"):
+                break
+            pt = result.get("page_token")
+            if not pt:
+                break
+
+        logger.info(
+            "Bitable list_all_records 完成: %d 页 %d 条记录",
+            page_count, len(all_items),
+        )
+        return all_items
 
     async def list_fields(self, table_id: str | None = None) -> list[dict[str, Any]]:
         """列出表格的所有字段。"""

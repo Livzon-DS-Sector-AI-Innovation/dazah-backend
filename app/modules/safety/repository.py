@@ -10,7 +10,6 @@ from sqlalchemy.orm import selectinload
 
 from app.modules.safety.models import (
     Accident,
-    AIWorkflowConfig,
     Contractor,
     ContractorWorkRecord,
     DailyRiskReport,
@@ -24,8 +23,6 @@ from app.modules.safety.models import (
     SafetyCheck,
     SafetyKnowledgeArticle,
     SafetyTraining,
-    ScheduledTask,
-    ScheduledTaskLog,
     SpecialOperationPermit,
     SpecialOperationPersonnel,
     SpecialOperationReport,
@@ -595,6 +592,7 @@ class SafetyRepository:
         risk_level: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
+        batch_id: str | None = None,
     ) -> tuple[list["HazardIdentification"], int]:
         """获取危险源辨识列表"""
         from datetime import datetime as dt_module
@@ -606,6 +604,14 @@ class SafetyRepository:
             HazardIdentification.is_deleted == False
         )
 
+        if batch_id:
+            try:
+                bid = uuid.UUID(batch_id)
+            except ValueError:
+                bid = None
+            if bid:
+                query = query.where(HazardIdentification.batch_id == bid)
+                count_query = count_query.where(HazardIdentification.batch_id == bid)
         if department:
             query = query.where(HazardIdentification.department == department)
             count_query = count_query.where(HazardIdentification.department == department)
@@ -766,6 +772,14 @@ class SafetyRepository:
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
+    async def count_hi_today(self, date_prefix: str) -> int:
+        """统计指定日期前缀的危险源编号数量（含软删除），用于自动生成序号。"""
+        query = select(func.count(HazardIdentification.id)).where(
+            HazardIdentification.hazard_id_no.like(f"HI-{date_prefix}-%"),
+        )
+        result = await self.session.execute(query)
+        return result.scalar() or 0
+
     async def create_hazard_identification(
         self, data: dict[str, Any]
     ) -> "HazardIdentification":
@@ -810,6 +824,42 @@ class SafetyRepository:
         )
         result = await self.session.execute(query)
         return result.rowcount > 0
+
+    async def create_hazard_identifications_batch(
+        self, records_data: list[dict[str, Any]]
+    ) -> list["HazardIdentification"]:
+        """批量创建危险源辨识记录（共享 batch_id，单次 INSERT）。"""
+        items = [HazardIdentification(**data) for data in records_data]
+        self.session.add_all(items)
+        await self.session.flush()
+
+        # 批量 re-fetch 以获取 server-generated 默认值
+        ids = [item.id for item in items]
+        stmt = (
+            select(HazardIdentification)
+            .where(HazardIdentification.id.in_(ids))
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_hazard_identifications_by_batch_id(
+        self, batch_id: uuid.UUID, skip: int = 0, limit: int = 100
+    ) -> tuple[list["HazardIdentification"], int]:
+        """按 batch_id 查询辨识记录。"""
+        base = (
+            select(HazardIdentification)
+            .where(
+                HazardIdentification.batch_id == batch_id,
+                HazardIdentification.is_deleted == False,
+            )
+        )
+        count_query = select(func.count()).select_from(base.subquery())
+        total_result = await self.session.execute(count_query)
+        total = total_result.scalar() or 0
+
+        query = base.order_by(HazardIdentification.created_at.asc()).offset(skip).limit(limit)
+        result = await self.session.execute(query)
+        return list(result.scalars().all()), total
 
     # ==================== OperationRegulation Operations ====================
 
@@ -980,102 +1030,6 @@ class SafetyRepository:
         query = (
             update(RegulationRevision)
             .where(RegulationRevision.id == revision_id, RegulationRevision.is_deleted == False)
-            .values(is_deleted=True)
-        )
-        result = await self.session.execute(query)
-        return result.rowcount > 0
-
-    # ==================== AI 工作流配置 Operations ====================
-
-    async def get_ai_workflow_configs(
-        self,
-        skip: int = 0,
-        limit: int = 100,
-        module_code: str | None = None,
-        is_enabled: bool | None = None,
-    ) -> tuple[list[AIWorkflowConfig], int]:
-        """获取 AI 工作流配置列表"""
-        query = select(AIWorkflowConfig).where(AIWorkflowConfig.is_deleted == False)
-
-        if module_code:
-            query = query.where(AIWorkflowConfig.module_code == module_code)
-        if is_enabled is not None:
-            query = query.where(AIWorkflowConfig.is_enabled == is_enabled)
-
-        count_query = select(func.count(AIWorkflowConfig.id)).where(
-            AIWorkflowConfig.is_deleted == False
-        )
-        if module_code:
-            count_query = count_query.where(AIWorkflowConfig.module_code == module_code)
-        if is_enabled is not None:
-            count_query = count_query.where(AIWorkflowConfig.is_enabled == is_enabled)
-
-        total = (await self.session.execute(count_query)).scalar_one()
-
-        query = query.order_by(AIWorkflowConfig.sort_order, AIWorkflowConfig.created_at)
-        query = query.offset(skip).limit(limit)
-        result = await self.session.execute(query)
-        items = list(result.scalars().all())
-
-        return items, total or 0
-
-    async def get_ai_workflow_config_by_id(
-        self, config_id: uuid.UUID
-    ) -> AIWorkflowConfig | None:
-        """获取 AI 工作流配置详情"""
-        query = select(AIWorkflowConfig).where(
-            AIWorkflowConfig.id == config_id,
-            AIWorkflowConfig.is_deleted == False,
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def get_ai_workflow_config_by_module(
-        self, module_code: str
-    ) -> AIWorkflowConfig | None:
-        """按模块代码获取 AI 工作流配置"""
-        query = select(AIWorkflowConfig).where(
-            AIWorkflowConfig.module_code == module_code,
-            AIWorkflowConfig.is_deleted == False,
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def create_ai_workflow_config(
-        self, data: dict[str, Any]
-    ) -> AIWorkflowConfig:
-        """创建 AI 工作流配置"""
-        item = AIWorkflowConfig(**data)
-        self.session.add(item)
-        await self.session.flush()
-        stmt = select(AIWorkflowConfig).where(AIWorkflowConfig.id == item.id)
-        result = await self.session.execute(stmt)
-        return result.scalar_one()
-
-    async def update_ai_workflow_config(
-        self, config_id: uuid.UUID, data: dict[str, Any]
-    ) -> AIWorkflowConfig | None:
-        """更新 AI 工作流配置"""
-        query = (
-            update(AIWorkflowConfig)
-            .where(
-                AIWorkflowConfig.id == config_id,
-                AIWorkflowConfig.is_deleted == False,
-            )
-            .values(**data, updated_at=func.now())
-            .returning(AIWorkflowConfig)
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def delete_ai_workflow_config(self, config_id: uuid.UUID) -> bool:
-        """删除 AI 工作流配置（软删除）"""
-        query = (
-            update(AIWorkflowConfig)
-            .where(
-                AIWorkflowConfig.id == config_id,
-                AIWorkflowConfig.is_deleted == False,
-            )
             .values(is_deleted=True)
         )
         result = await self.session.execute(query)
@@ -2171,116 +2125,3 @@ class SafetyRepository:
         result = await self.session.execute(query)
         return result.rowcount > 0
 
-    # ==================== Scheduled Task Operations ====================
-
-    async def get_scheduled_tasks(
-        self,
-        skip: int = 0,
-        limit: int = 20,
-        is_enabled: bool | None = None,
-        search: str | None = None,
-    ) -> tuple[list[ScheduledTask], int]:
-        """获取定时任务列表"""
-        conditions = [ScheduledTask.is_deleted == False]
-        if is_enabled is not None:
-            conditions.append(ScheduledTask.is_enabled == is_enabled)
-        if search:
-            conditions.append(ScheduledTask.name.ilike(f"%{search}%"))
-
-        query = select(ScheduledTask).where(*conditions)
-        count_query = select(func.count()).select_from(ScheduledTask).where(*conditions)
-        total = await self.session.scalar(count_query)
-        query = query.offset(skip).limit(limit).order_by(ScheduledTask.created_at.desc())
-        result = await self.session.execute(query)
-        items = list(result.scalars().all())
-        return items, total or 0
-
-    async def get_scheduled_task_by_id(self, task_id: uuid.UUID) -> ScheduledTask | None:
-        """获取单个定时任务"""
-        query = select(ScheduledTask).where(
-            ScheduledTask.id == task_id, ScheduledTask.is_deleted == False
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def get_due_scheduled_tasks(self) -> list[ScheduledTask]:
-        """获取到期需要执行的定时任务"""
-        from datetime import datetime as dt
-        now = dt.now()
-        query = select(ScheduledTask).where(
-            ScheduledTask.is_deleted == False,
-            ScheduledTask.is_enabled == True,
-            ScheduledTask.next_run_at <= now,
-        )
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
-
-    async def create_scheduled_task(self, data: dict[str, Any]) -> ScheduledTask:
-        """创建定时任务"""
-        item = ScheduledTask(**data)
-        self.session.add(item)
-        await self.session.flush()
-        # eager re-fetch
-        query = select(ScheduledTask).where(ScheduledTask.id == item.id)
-        result = await self.session.execute(query)
-        return result.scalar_one()
-
-    async def update_scheduled_task(
-        self, task_id: uuid.UUID, data: dict[str, Any]
-    ) -> ScheduledTask | None:
-        """更新定时任务"""
-        query = (
-            update(ScheduledTask)
-            .where(ScheduledTask.id == task_id, ScheduledTask.is_deleted == False)
-            .values(**data, updated_at=func.now())
-            .returning(ScheduledTask)
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def delete_scheduled_task(self, task_id: uuid.UUID) -> bool:
-        """删除定时任务（软删除）"""
-        query = (
-            update(ScheduledTask)
-            .where(ScheduledTask.id == task_id, ScheduledTask.is_deleted == False)
-            .values(is_deleted=True)
-        )
-        result = await self.session.execute(query)
-        return result.rowcount > 0
-
-    # ── Execution Logs ──
-
-    async def create_task_log(self, data: dict[str, Any]) -> ScheduledTaskLog:
-        """创建执行日志"""
-        item = ScheduledTaskLog(**data)
-        self.session.add(item)
-        await self.session.flush()
-        query = select(ScheduledTaskLog).where(ScheduledTaskLog.id == item.id)
-        result = await self.session.execute(query)
-        return result.scalar_one()
-
-    async def update_task_log(
-        self, log_id: uuid.UUID, data: dict[str, Any]
-    ) -> ScheduledTaskLog | None:
-        """更新执行日志"""
-        query = (
-            update(ScheduledTaskLog)
-            .where(ScheduledTaskLog.id == log_id)
-            .values(**data, updated_at=func.now())
-            .returning(ScheduledTaskLog)
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
-
-    async def get_task_logs(
-        self, task_id: uuid.UUID, skip: int = 0, limit: int = 20
-    ) -> tuple[list[ScheduledTaskLog], int]:
-        """获取任务执行日志"""
-        conditions = [ScheduledTaskLog.task_id == task_id, ScheduledTaskLog.is_deleted == False]
-        query = select(ScheduledTaskLog).where(*conditions)
-        count_query = select(func.count()).select_from(ScheduledTaskLog).where(*conditions)
-        total = await self.session.scalar(count_query)
-        query = query.offset(skip).limit(limit).order_by(ScheduledTaskLog.started_at.desc())
-        result = await self.session.execute(query)
-        items = list(result.scalars().all())
-        return items, total or 0

@@ -27,8 +27,8 @@ _handlers: dict[str, list] = {}
 _stop: asyncio.Event | None = None
 _ws_task: asyncio.Task | None = None
 
-# 长连接重试上限
-_MAX_RECONNECT_ATTEMPTS = 3
+# 长连接重连：与设备模块一致，不设置重试上限，持续重连直到显式 stop
+# 连接失败/断连后等待 10s 重试，由无限 while 循环驱动
 
 # 飞书 endpoint
 FEISHU_DOMAIN = "https://open.feishu.cn"
@@ -167,6 +167,9 @@ async def _ping_loop(ws, service_id: int) -> None:
 # 帧活动计数器（用于诊断连接是否存活）
 _frame_count: dict[str, int] = {"received": 0, "control": 0, "data": 0, "event": 0, "error": 0}
 
+# PONG 看门狗：记录最后一次收到 PONG 的时间，用于检测静默断连
+_last_pong_at: float = 0.0  # monotonic seconds
+
 
 def _get_frame_stats() -> dict:
     """返回帧活动统计。"""
@@ -193,7 +196,8 @@ async def _handle_binary_message(ws, message: bytes) -> None:
                 type_val = _get_by_key(frame.headers, HEADER_TYPE)
                 msg_type = MessageType(type_val)
                 if msg_type == MessageType.PONG:
-                    logger.info("安全飞书 ← PONG (连接存活, 共收到 %d 帧)", _frame_count["received"])
+                    _last_pong_at = asyncio.get_running_loop().time()
+                    logger.debug("安全飞书 ← PONG (连接存活, 共收到 %d 帧)", _frame_count["received"])
                 else:
                     logger.info("安全飞书 CONTROL 帧: %s (共 %d 帧)", msg_type, _frame_count["received"])
             except Exception:
@@ -220,7 +224,7 @@ async def _handle_binary_message(ws, message: bytes) -> None:
                         card_resp = await asyncio.wait_for(
                             _dispatch_event(event), timeout=2.9,
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.warning("卡片操作超时，返回通用 ACK")
                         card_resp = None
                     # ── 构建飞书 WS 协议要求的 Response 信封 ──
@@ -257,7 +261,8 @@ async def _handle_binary_message(ws, message: bytes) -> None:
 async def start_ws() -> None:
     """启动安全模块飞书 WebSocket 连接。
 
-    3 次连接失败后自动退出。可通过 POST /api/v1/safety/feishu/ws/restart 手动恢复。
+    与设备交互机器人一致：无限重连模式，连接断开后自动重试，不设重试上限。
+    仅当显式调用 stop_ws() 或 restart_ws() 时才会停止。
     """
     global _stop, _ws_task
     _stop = asyncio.Event()
@@ -270,20 +275,20 @@ async def start_ws() -> None:
         return
 
     logger.info(
-        "启动安全模块飞书事件订阅 (app_id=%s, 最大重试=%d)",
-        SAFETY_FEISHU_APP_ID, _MAX_RECONNECT_ATTEMPTS,
+        "启动安全模块飞书事件订阅 (app_id=%s, 无限重连模式)",
+        SAFETY_FEISHU_APP_ID,
     )
 
     attempt = 0
-    while not _stop.is_set() and attempt < _MAX_RECONNECT_ATTEMPTS:
+    while not _stop.is_set():
         try:
             # 1. 获取 WebSocket URL + service_id
             ws_url, service_id = await _get_ws_url_and_config()
             if not ws_url:
                 attempt += 1
                 logger.error(
-                    "安全飞书无法获取 WebSocket URL，%d/%d 次重试",
-                    attempt, _MAX_RECONNECT_ATTEMPTS,
+                    "安全飞书无法获取 WebSocket URL，第 %d 次重试，10 秒后重连",
+                    attempt,
                 )
                 await asyncio.sleep(10)
                 continue
@@ -306,7 +311,16 @@ async def start_ws() -> None:
                     ensure_bitable_subscribed,
                 )
 
-                await ensure_bitable_subscribed()
+                subscribed = await ensure_bitable_subscribed()
+                if not subscribed:
+                    _subscription_ok = False
+                    logger.error(
+                        "⚠️ Bitable 事件订阅失败！WebSocket 已连接但不会收到任何 Bitable 事件。"
+                        "请检查 SAFETY_FEISHU_BITABLE_APP_TOKEN 配置和飞书应用权限。"
+                    )
+                else:
+                    _subscription_ok = True
+                    logger.info("✅ Bitable 事件订阅就绪，WebSocket 将接收实时事件推送")
 
                 # 4. 启动 protobuf PING 心跳循环
                 ping_task = asyncio.create_task(_ping_loop(ws, service_id))
@@ -317,6 +331,14 @@ async def start_ws() -> None:
                         try:
                             message = await asyncio.wait_for(ws.recv(), timeout=180)
                         except TimeoutError:
+                            # PONG 看门狗：若超过 300s 未收到 PONG，标记连接可能已僵死
+                            now = asyncio.get_running_loop().time()
+                            if _last_pong_at > 0 and (now - _last_pong_at) > 300:
+                                logger.error(
+                                    "⚠️ PONG 超时: 已 %.0fs 未收到 PONG，连接可能已僵死，将主动断开重连",
+                                    now - _last_pong_at,
+                                )
+                                break  # 退出接收循环，触发重连
                             logger.debug("安全飞书 WS recv 超时(180s)，继续等待...")
                             continue
 
@@ -346,30 +368,23 @@ async def start_ws() -> None:
         except websockets.exceptions.ConnectionClosed as e:
             attempt += 1
             logger.warning(
-                "安全飞书 WebSocket 连接关闭: %s，%d/%d 次重试",
-                e, attempt, _MAX_RECONNECT_ATTEMPTS,
+                "安全飞书 WebSocket 连接关闭: %s，第 %d 次重试，10 秒后重连",
+                e, attempt,
             )
         except Exception:
             attempt += 1
             logger.exception(
-                "安全飞书 WebSocket 异常，%d/%d 次重试",
-                attempt, _MAX_RECONNECT_ATTEMPTS,
+                "安全飞书 WebSocket 异常，第 %d 次重试，10 秒后重连",
+                attempt,
             )
 
-        if attempt < _MAX_RECONNECT_ATTEMPTS:
-            try:
-                await asyncio.wait_for(_stop.wait(), timeout=10)
-            except TimeoutError:
-                pass
+        # 无限重连模式：等待 10s 后自动重试（除非显式 stop）
+        try:
+            await asyncio.wait_for(_stop.wait(), timeout=10)
+        except TimeoutError:
+            pass
 
-    if attempt >= _MAX_RECONNECT_ATTEMPTS:
-        logger.error(
-            "安全飞书 WebSocket 重试次数已达上限 (%d/%d)，已停止。"
-            "可通过 POST /api/v1/safety/feishu/ws/restart 手动恢复",
-            attempt, _MAX_RECONNECT_ATTEMPTS,
-        )
-    else:
-        logger.info("安全飞书 WebSocket 客户端已停止")
+    logger.info("安全飞书 WebSocket 客户端已停止")
 
 
 async def _dispatch_event(event: dict[str, Any]) -> Any:
@@ -399,7 +414,7 @@ async def stop_ws() -> None:
 
 
 async def restart_ws() -> dict:
-    """手动恢复 WS 连接（重试次数耗尽后调用）。"""
+    """手动重启 WS 连接（先停止旧连接，再启动新连接）。"""
     global _stop, _ws_task
 
     if _stop:
@@ -421,12 +436,22 @@ async def restart_ws() -> dict:
     }
 
 
+# 订阅状态（由 start_ws 在连接成功后设置）
+_subscription_ok: bool = False
+
+
 async def get_ws_status() -> dict:
     """查询当前 WS 连接状态。"""
     task_alive = _ws_task is not None and not _ws_task.done()
+    pong_ago: float | None = None
+    if _last_pong_at > 0:
+        pong_ago = asyncio.get_running_loop().time() - _last_pong_at
     return {
         "connected": task_alive,
+        "subscription_ok": _subscription_ok,
         "registered_events": list(_handlers.keys()),
-        "max_reconnect_attempts": _MAX_RECONNECT_ATTEMPTS,
+        "mode": "unlimited",  # 无限重连模式，与设备交互机器人一致
         "frame_stats": _get_frame_stats(),
+        "last_pong_seconds_ago": round(pong_ago, 1) if pong_ago is not None else None,
+        "pong_watchdog_healthy": pong_ago is not None and pong_ago < 300 if pong_ago is not None else None,
     }

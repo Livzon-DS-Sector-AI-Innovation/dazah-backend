@@ -140,9 +140,21 @@ class HazardReportResponse(HazardReportBase):
     ai_error_message: str | None = None
     script1_review_status: str = "pending"
     script2_review_status: str = "pending"
+    # ── AI 整改初审 ──
+    ai_review_result: dict | None = None
+    ai_review_status: str = "pending"
+    ai_review_completed_at: datetime | None = None
     ai_generated: bool = False
     created_at: datetime
     updated_at: datetime
+    # ── 飞书通知追踪 ──
+    rectification_notified_at: datetime | None = None
+    rectification_notify_status: str | None = None
+    rectification_notify_error: str | None = None
+    review_notified_at: datetime | None = None
+    review_notified_level: int | None = None
+    review_notify_status: str | None = None
+    review_notify_error: str | None = None
 
     class Config:
         from_attributes = True
@@ -160,5 +172,13 @@ class DepartmentLeaderResponse(BaseModel):
     department: str = Field(..., description="部门名称")
     leader_name: str | None = Field(None, description="负责人姓名")
     leader_id: str | None = Field(None, description="负责人 UUID")
+
+
+class DepartmentSafetyOfficerResponse(BaseModel):
+    """部门分管安全员查询响应"""
+
+    department: str = Field(..., description="部门名称")
+    safety_officer_name: str | None = Field(None, description="安全员姓名")
+    safety_officer_id: str | None = Field(None, description="安全员 UUID")
 
 

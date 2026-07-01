@@ -27,6 +27,7 @@ class DepartmentResponse(DepartmentBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    employee_count: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -149,6 +150,7 @@ class EmployeeBase(BaseModel):
     transfer_history: str | None = Field(None, description="异动记录")
     remarks: list[str] | None = Field(None, description="备注")
     status: str = Field("待审批", max_length=16, description="状态")
+    sort_order: int | None = Field(None, description="Excel行序号")
 
 
 class EmployeeCreate(EmployeeBase):
@@ -245,6 +247,7 @@ class TrainingSignInSheetInput(BaseModel):
     instructor: str | None = Field(None, max_length=64, description="授课人")
     location: str | None = Field(None, max_length=128, description="培训地点")
     training_method: str | None = Field(None, max_length=32, description="培训方式")
+    assessment_method: str | None = Field(None, max_length=32, description="考核方式")
     employee_names: list[str] = Field(default_factory=list, description="应出席受训人员姓名列表")
     remarks: str | None = Field(None, max_length=512, description="备注")
 
@@ -257,6 +260,8 @@ class TrainingNotificationInput(BaseModel):
     training_time_end: str | None = Field(None, max_length=32, description="培训结束时间")
     location: str | None = Field(None, max_length=128, description="培训地点")
     trainer: str | None = Field(None, max_length=64, description="培训师")
+    training_method: str | None = Field(None, max_length=32, description="培训方式")
+    assessment_method: str | None = Field(None, max_length=32, description="考核方式")
     content: str | None = Field(None, max_length=512, description="培训内容")
     trainee_names: list[str] = Field(default_factory=list, description="培训人员姓名列表")
     issuer_department: str | None = Field(None, max_length=64, description="落款部门")
@@ -281,33 +286,15 @@ class TrainingNotifyInput(BaseModel):
 
 
 class TrainingEvaluationInput(BaseModel):
-    subject: str = Field(..., max_length=128, description="培训主题")
+    subject: str = Field(..., max_length=256, description="培训主题")
     training_date: date | None = Field(None, description="培训日期")
-    training_time_start: str | None = Field(None, max_length=32, description="培训开始时间")
-    training_time_end: str | None = Field(None, max_length=32, description="培训结束时间")
+    training_time_start: str | None = Field(None, max_length=32)
+    training_time_end: str | None = Field(None, max_length=32)
     duration_hours: float | None = Field(None, description="学时")
-    training_method: str | None = Field(None, max_length=32, description="培训方式")
-    is_exam: bool = Field(False, description="是否考试")
-    trainer_type: str | None = Field(None, max_length=64, description="培训人员类型")
-    trainer: str | None = Field(None, max_length=64, description="授课人")
-    department_personnel: str | None = Field(None, max_length=256, description="部门/班组/人员")
-    expected_count: int | None = Field(None, description="应出席人数")
-    actual_count: int | None = Field(None, description="实际出席人数")
-    absent_count: int | None = Field(None, description="缺席人数")
-    textbook: str | None = Field(None, max_length=256, description="培训教材")
-    makeup_training: bool | None = Field(None, description="是否补课")
-    assessment_method: str | None = Field(None, max_length=32, description="考核方式")
-    pass_count: int | None = Field(None, description="合格人数")
-    fail_count: int | None = Field(None, description="不合格人数")
-    absent_exam_count: int | None = Field(None, description="缺考人数")
-    absent_exam_handling: str | None = Field(None, max_length=512, description="缺考人员处理方式和原因")
-    excellent_count: int | None = Field(None, description="优秀人数")
-    qualified_count: int | None = Field(None, description="合格人数")
-    unqualified_count: int | None = Field(None, description="不合格人数")
-    evaluation_conclusion: str | None = Field(None, max_length=1024, description="培训效果评估及结论")
-    organizer: str | None = Field(None, max_length=64, description="培训组织人")
-    organizer_date: date | None = Field(None, description="组织日期")
-    remarks: str | None = Field(None, max_length=512, description="备注")
+    training_method: str | None = Field(None, max_length=32)
+    trainer: str | None = Field(None, max_length=64)
+    trainee_names: list[str] = Field(default_factory=list)
+    assessment_method: str | None = Field(None, max_length=32)
 
 
 class OnboardingEvaluationInput(BaseModel):
@@ -779,51 +766,46 @@ class AnnualTrainingPlanItemResponse(AnnualTrainingPlanItemBase):
 
 class AnnualTrainingPlanItemBatchUpdate(BaseModel):
     items: list[AnnualTrainingPlanItemCreate] = Field(default_factory=list, description="明细列表")
-class CandidateBase(BaseModel):
-    name: str = Field(..., max_length=64, description="候选人姓名")
-    position: str = Field(..., max_length=64, description="应聘职位名称")
-    gender: str | None = Field(None, max_length=8, description="性别")
-    school: str | None = Field(None, max_length=128, description="学校名称")
-    education: str | None = Field(None, max_length=16, description="学历")
-    major: str | None = Field(None, max_length=64, description="专业")
-    match_report: str | None = Field(None, description="候选人匹配度报告")
-    recommendation_level: str | None = Field(None, max_length=16, description="推荐等级")
 
 
-class CandidateResponse(CandidateBase):
+# ─── Trainer Schemas ───
+
+class TrainerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
-    resume_attachments: list[dict] | None = None
-    feishu_record_id: str | None = None
-    feishu_synced_at: date | None = None
-    feishu_sync_status: str | None = None
-    feishu_sync_error: str | None = None
+    name: str
+    department: str | None = None
+    trainable_departments: str | None = None
+    qualification_scope: str | None = None
+    certification_date: date | None = None
+    confirmation_date: date | None = None
+    confirmation_reminder: date | None = None
+    remarks: str | None = None
+    is_primary_trainer: bool = False
+    admin: str | None = None
     created_at: datetime | None = None
-    updated_at: datetime | None = None
 
 
-class CandidateListResponse(BaseModel):
-    code: int
-    message: str
-    data: list[CandidateResponse]
+class TrainerListResponse(BaseModel):
+    code: int = 0
+    message: str = "ok"
+    data: list[TrainerResponse] = Field(default_factory=list)
     meta: dict | None = None
 
 
-class CandidateUpdateRecommendationLevel(BaseModel):
-    recommendation_level: str = Field(..., max_length=16, description="推荐等级")
+# ─── SOP Catalog Schemas ───
+
+class SopCatalogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    file_name: str
+    sop_number: str | None = None
+    category: str | None = None
+    department: str | None = None
 
 
-class CandidateCreate(CandidateBase):
-    pass
-
-
-class CandidateUpdate(BaseModel):
-    name: str | None = Field(None, max_length=64, description="候选人姓名")
-    position: str | None = Field(None, max_length=64, description="应聘职位名称")
-    gender: str | None = Field(None, max_length=8, description="性别")
-    school: str | None = Field(None, max_length=128, description="学校名称")
-    education: str | None = Field(None, max_length=16, description="学历")
-    major: str | None = Field(None, max_length=64, description="专业")
-    match_report: str | None = Field(None, description="候选人匹配度报告")
-    recommendation_level: str | None = Field(None, max_length=16, description="推荐等级")
+class SopCatalogListResponse(BaseModel):
+    code: int = 0
+    message: str = "ok"
+    data: list[SopCatalogResponse] = Field(default_factory=list)
+    meta: dict | None = None
