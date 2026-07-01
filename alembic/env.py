@@ -3,7 +3,6 @@ from importlib import import_module
 from logging.config import fileConfig
 from typing import Literal
 
-
 from alembic import context
 from app.core.config import get_settings
 from app.shared.base_model import Base
@@ -84,14 +83,15 @@ def process_revision_directives(context, revision, directives):
             has_create_schema = False
             for op_list in upgrade_ops:
                 for op in op_list.ops:
-                    if hasattr(op, 'sql') and f'CREATE SCHEMA' in str(op.sql).upper():
+                    if hasattr(op, 'sql') and 'CREATE SCHEMA' in str(op.sql).upper():
                         if schema in str(op.sql):
                             has_create_schema = True
                             break
 
             if not has_create_schema:
                 # Create a raw SQL operation for CREATE SCHEMA
-                create_schema_op = ops.ExecuteSQLOp(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+                sql = f"CREATE SCHEMA IF NOT EXISTS {schema}"
+                create_schema_op = ops.ExecuteSQLOp(sql)
                 create_schema_ops.append(create_schema_op)
 
         # Prepend CREATE SCHEMA operations to the first upgrade ops list
