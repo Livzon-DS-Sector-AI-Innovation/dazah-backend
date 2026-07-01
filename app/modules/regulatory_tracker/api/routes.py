@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import CurrentUser
 from app.core.response import success_response, error_response
 from app.modules.regulatory_tracker import repository as repo
 from app.modules.regulatory_tracker.utils.excel_export import generate_regulatory_excel
@@ -356,7 +357,7 @@ async def trigger_sync_job(
     # AI 分析现在在 sync_service 中自动执行
     from app.modules.regulatory_tracker.services.sync_service import run_sync_job
 
-    async def _run_sync():
+    async def _run_sync(current_user: CurrentUser):
         from app.core.database import async_session_factory
         async with async_session_factory() as session:
             await run_sync_job(

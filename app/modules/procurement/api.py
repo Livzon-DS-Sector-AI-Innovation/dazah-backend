@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.deps import CurrentUser
 from app.core.response import paginated_response, success_response
 from app.modules.procurement.contract_generator import (
     generate_contract,
@@ -408,7 +409,7 @@ async def reject_purchase_request_record(
     description="返回指定合同分类的可填写字段，用于前端动态展示合同生成表单。",
     response_model=ContractTemplateMetadata,
 )
-async def get_contract_template(category: ContractCategory):
+async def get_contract_template(category: ContractCategory, current_user: CurrentUser):
     metadata = get_contract_template_metadata(category)
     return success_response(data=metadata.model_dump(mode="json"))
 
@@ -418,7 +419,7 @@ async def get_contract_template(category: ContractCategory):
     summary="生成采购合同",
     description="根据合同分类、基础信息、供应商信息和明细行生成 Word 合同。",
 )
-async def create_contract(payload: ContractGenerateRequest):
+async def create_contract(payload: ContractGenerateRequest, current_user: CurrentUser):
     try:
         buffer, filename, media_type = generate_contract(payload)
     except FileNotFoundError as exc:

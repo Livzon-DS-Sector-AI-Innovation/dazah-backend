@@ -4,6 +4,7 @@ from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import CurrentUser
 from app.core.response import success_response
 from app.modules.warehouse.schemas import (
     PackagingMaterialListResponse,
@@ -264,7 +265,7 @@ async def get_feishu_domain_records(
     summary="查询仓储飞书 WebSocket 状态",
     response_model=WarehouseFeishuWsStatusApiResponse,
 )
-async def get_feishu_ws_status():
+async def get_feishu_ws_status(current_user: CurrentUser):
     from app.modules.warehouse.ws_client import get_ws_status
 
     return success_response(data=(await get_ws_status()).model_dump(mode="json"))
@@ -275,7 +276,7 @@ async def get_feishu_ws_status():
     summary="重启仓储飞书 WebSocket 长连接",
     response_model=WarehouseFeishuWsStatusApiResponse,
 )
-async def restart_feishu_ws():
+async def restart_feishu_ws(current_user: CurrentUser):
     from app.modules.warehouse.ws_client import restart_ws_from_db
 
     return success_response(data=(await restart_ws_from_db()).model_dump(mode="json"))
