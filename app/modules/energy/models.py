@@ -30,7 +30,6 @@ from app.shared.base_model import BaseModel
 class EnergyType(enum.StrEnum):
     ELECTRICITY = "electricity"
     WATER = "water"
-    GAS = "gas"
     STEAM = "steam"
 
 
@@ -97,7 +96,7 @@ class EnergyDeviceConfig(BaseModel):
             name="uq_energy_device_config_platform_device",
         ),
         CheckConstraint(
-            "energy_type IN ('electricity', 'water', 'gas', 'steam')",
+            "energy_type IN ('electricity', 'water', 'steam')",
             name="ck_energy_device_config_energy_type",
         ),
         CheckConstraint(
@@ -201,7 +200,7 @@ class EnergyMonthlyRecord(BaseModel):
             name="uq_energy_monthly_record",
         ),
         CheckConstraint(
-            "energy_type IN ('electricity', 'water', 'gas', 'steam')",
+            "energy_type IN ('electricity', 'water', 'steam')",
             name="ck_energy_monthly_record_energy_type",
         ),
         {"schema": "energy"},
@@ -270,7 +269,7 @@ class EnergyAlertRule(BaseModel):
     __tablename__ = "energy_alert_rules"
     __table_args__ = (
         CheckConstraint(
-            "energy_type IN ('electricity', 'water', 'gas', 'steam')",
+            "energy_type IN ('electricity', 'water', 'steam')",
             name="ck_energy_alert_rule_energy_type",
         ),
         CheckConstraint(

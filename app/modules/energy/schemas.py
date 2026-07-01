@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, BeforeValidator, Field
 
 StrUUID = Annotated[str, BeforeValidator(str)]
-EnergyType = Literal["electricity", "water", "gas", "steam"]
+EnergyType = Literal["electricity", "water", "steam"]
 MonitorLevel = Literal["normal", "important", "urgent"]
 CollectStatus = Literal["success", "partial", "failed"]
 WorkshopCategory = Literal["workshop", "position", "support", "utility"]
