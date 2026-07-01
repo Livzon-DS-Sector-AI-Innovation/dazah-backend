@@ -12,6 +12,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import delete_object
+from app.core.tasks import spawn_task
 from app.core.storage import is_enabled as minio_enabled
 from app.modules.safety.feishu.notification import send_user_card
 from app.modules.safety.models import HazardReport
@@ -424,9 +425,7 @@ class HazardService:
 
         # 整改回复后，异步触发 AI 初审（非阻塞），AI 结果将决定后续通知路由
         if updated:
-            asyncio.create_task(
-                self.run_rectification_review(hazard_id)
-            )
+            spawn_task(self.run_rectification_review(hazard_id), name="rectification-review")
 
         return updated
 
@@ -512,9 +511,9 @@ class HazardService:
                 # re-fetch 获取最新状态
                 updated = await self.repo.get_hazard_by_id(hazard_id)
                 if updated:
-                    asyncio.create_task(_send_verify_notification(updated, 3))
+                    spawn_task(_send_verify_notification(updated, 3), name="verify-notification")
             else:
-                asyncio.create_task(_send_verify_notification(updated, level + 1))
+                spawn_task(_send_verify_notification(updated, level + 1), name="verify-notification")
 
         return updated
 
@@ -547,9 +546,7 @@ class HazardService:
 
         # 重新整改回复后，异步触发 AI 初审（非阻塞），AI 结果将决定后续通知路由
         if updated:
-            asyncio.create_task(
-                self.run_rectification_review(hazard_id)
-            )
+            spawn_task(self.run_rectification_review(hazard_id), name="rectification-review")
 
         return updated
 
@@ -868,7 +865,7 @@ class HazardService:
     ) -> HazardReport | None:
         """执行整改回复 AI 初审（公开方法，供 API 和 Bitable handler 调用）。
 
-        使用独立的数据库 session：此方法通过 asyncio.create_task 在后台执行，
+        使用独立的数据库 session：此方法通过 spawn_task 在后台执行，
         请求作用域的 session 可能在 AI 调用完成前就已关闭。
         独立 session 确保 AI 调用期间数据库连接始终有效。
 
@@ -922,15 +919,11 @@ class HazardService:
                     await bg_session.commit()
                     passed = await bg_service.repo.get_hazard_by_id(hazard_id)
                     if passed:
-                        asyncio.create_task(_send_verify_notification(passed, 1))
+                        spawn_task(_send_verify_notification(passed, 1), name="verify-notification")
                         # 同步「已回复」状态到 Bitable
-                        asyncio.create_task(
-                            _sync_rectification_status_to_bitable(passed, "replied")
-                        )
+                        spawn_task(_sync_rectification_status_to_bitable(passed, "replied"), name="sync-rectification-to-bitable")
                         # 同步 AI 初审结果到 Bitable
-                        asyncio.create_task(
-                            _sync_ai_review_to_bitable(passed, result)
-                        )
+                        spawn_task(_sync_ai_review_to_bitable(passed, result), name="sync-ai-review-to-bitable")
                     logger.info(
                         "AI 初审通过 → 通知一级复核人: hazard_id=%s", hazard_id
                     )
@@ -942,18 +935,12 @@ class HazardService:
                     await bg_session.commit()
                     rejected = await bg_service.repo.get_hazard_by_id(hazard_id)
                     if rejected:
-                        asyncio.create_task(
-                            _send_rectification_notification(rejected)
-                        )
+                        spawn_task(_send_rectification_notification(rejected), name="rectification-notification")
                         # 同步「已驳回」状态到 Bitable，防止 Bitable 仍显示「已回复」
                         # 导致部门负责人误认为仍需复核
-                        asyncio.create_task(
-                            _sync_rectification_status_to_bitable(rejected, "rejected")
-                        )
+                        spawn_task(_sync_rectification_status_to_bitable(rejected, "rejected"), name="sync-rectification-to-bitable")
                         # 同步 AI 初审结果到 Bitable
-                        asyncio.create_task(
-                            _sync_ai_review_to_bitable(rejected, result)
-                        )
+                        spawn_task(_sync_ai_review_to_bitable(rejected, result), name="sync-ai-review-to-bitable")
                     logger.info(
                         "AI 初审不通过 → 自动驳回，通知责任人: hazard_id=%s",
                         hazard_id,
@@ -971,13 +958,9 @@ class HazardService:
                     await bg_session.commit()
                     unknown = await bg_service.repo.get_hazard_by_id(hazard_id)
                     if unknown:
-                        asyncio.create_task(
-                            _send_rectification_notification(unknown)
-                        )
+                        spawn_task(_send_rectification_notification(unknown), name="rectification-notification")
                         # 同步 AI 初审结果到 Bitable
-                        asyncio.create_task(
-                            _sync_ai_review_to_bitable(unknown, result)
-                        )
+                        spawn_task(_sync_ai_review_to_bitable(unknown, result), name="sync-ai-review-to-bitable")
                 return updated
             except AIOutputError as e:
                 logger.error("AI 整改初审失败(hazard %s): %s", hazard_id, e)
@@ -991,7 +974,7 @@ class HazardService:
                 )
                 await bg_session.commit()
                 # AI 失败兜底：开放复核 + 通知一级复核人进行人工审核，避免流程卡死
-                asyncio.create_task(_send_verify_notification(item, 1))
+                spawn_task(_send_verify_notification(item, 1), name="verify-notification")
                 return None
             except Exception as e:
                 logger.error("AI 整改初审异常(hazard %s): %s", hazard_id, e)
@@ -1005,7 +988,7 @@ class HazardService:
                 )
                 await bg_session.commit()
                 # AI 异常兜底：开放复核 + 通知一级复核人进行人工审核，避免流程卡死
-                asyncio.create_task(_send_verify_notification(item, 1))
+                spawn_task(_send_verify_notification(item, 1), name="verify-notification")
                 return None
 
     # ── AI 服务工厂 ──
