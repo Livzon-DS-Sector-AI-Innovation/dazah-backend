@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+from app.shared.config_reader import get_module_setting, get_module_setting_bool
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -25,9 +26,6 @@ from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
-# ── 浏览器配置 ──────────────────────────────────────────
-CRAWLER_HEADLESS = os.getenv("NMPA_CRAWLER_HEADLESS", "false").lower() == "true"
-CRAWLER_BROWSERS_PATH = os.getenv("CRAWLER_BROWSERS_PATH", "")
 
 LAUNCH_ARGS = [
     "--no-sandbox",
@@ -109,17 +107,7 @@ delete navigator.__proto__.webdriver;
 # 主入口：数据查询首页（显示所有分类卡片）
 NMPA_DATASEARCH_HOME = "https://www.nmpa.gov.cn/datasearch/home-index.html"
 
-# 备案信息搜索页（需根据实际 URL 调整）
-# CC 需在浏览器中手动打开 NMPA → 数据查询 → 药品 → 备案信息，
-# 从地址栏复制完整 URL 替换下面这行
-NMPA_BAXX_SEARCH_URL = os.getenv(
-    "NMPA_BAXX_SEARCH_URL",
-    "https://www.nmpa.gov.cn/datasearch/search-result.html"
-)
 
-# API 端点匹配模式列表（用于识别数据 API）
-# 如果不知道具体 API 端点，设置 API_DISCOVERY_MODE=true 自动发现
-API_DISCOVERY_MODE = os.getenv("NMPA_API_DISCOVERY_MODE", "true").lower() == "true"
 
 # 已知的 NMPA 数据 API URL 关键词（按优先级）
 API_MATCH_PATTERNS = [
@@ -131,12 +119,6 @@ API_MATCH_PATTERNS = [
     "nmpa.gov.cn/search",
 ]
 
-# 详情页 URL 模板（需根据实际调整）
-# 备案信息详情页通常格式: https://www.nmpa.gov.cn/datasearch/search-info?recordId=xxx
-NMPA_DETAIL_URL_TEMPLATE = os.getenv(
-    "NMPA_DETAIL_URL_TEMPLATE",
-    "https://www.nmpa.gov.cn/datasearch/search-info?recordId={record_id}"
-)
 
 
 class NmpaRecordAdapter:
@@ -154,13 +136,23 @@ class NmpaRecordAdapter:
 
     def __init__(
         self,
-        headless: bool = False,
+        headless: bool | None = None,
         list_url: str | None = None,
-        discovery_mode: bool = True,
+        discovery_mode: bool | None = None,
+        browsers_path: str | None = None,
+        detail_url_template: str | None = None,
     ):
-        self.headless = headless
-        self.list_url = list_url or NMPA_BAXX_SEARCH_URL
-        self.discovery_mode = discovery_mode
+        self._headless_override = headless
+        self._list_url_override = list_url
+        self._discovery_mode_override = discovery_mode
+        self._browsers_path_override = browsers_path
+        self._detail_url_template_override = detail_url_template
+        # These will be populated in start() after reading from config
+        self.headless = False
+        self.list_url = ""
+        self.discovery_mode = True
+        self.browsers_path = ""
+        self.detail_url_template = ""
         self._pw = None
         self._browser = None
         self._context = None
@@ -172,8 +164,37 @@ class NmpaRecordAdapter:
 
     async def start(self):
         """启动浏览器"""
-        if CRAWLER_BROWSERS_PATH:
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = CRAWLER_BROWSERS_PATH
+        # Read config from database if not overridden
+        self.headless = self._headless_override
+        if self.headless is None:
+            self.headless = await get_module_setting_bool("regulatory_tracker", "NMPA_CRAWLER_HEADLESS", False)
+        
+        self.list_url = self._list_url_override
+        if self.list_url is None:
+            self.list_url = await get_module_setting(
+                "regulatory_tracker",
+                "NMPA_BAXX_SEARCH_URL",
+                "https://www.nmpa.gov.cn/datasearch/search-result.html"
+            )
+        
+        self.discovery_mode = self._discovery_mode_override
+        if self.discovery_mode is None:
+            self.discovery_mode = await get_module_setting_bool("regulatory_tracker", "NMPA_API_DISCOVERY_MODE", True)
+        
+        self.browsers_path = self._browsers_path_override
+        if self.browsers_path is None:
+            self.browsers_path = await get_module_setting("regulatory_tracker", "CRAWLER_BROWSERS_PATH", "")
+        
+        self.detail_url_template = self._detail_url_template_override
+        if self.detail_url_template is None:
+            self.detail_url_template = await get_module_setting(
+                "regulatory_tracker",
+                "NMPA_DETAIL_URL_TEMPLATE",
+                "https://www.nmpa.gov.cn/datasearch/search-info?recordId={record_id}"
+            )
+        
+        if self.browsers_path:
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = self.browsers_path
 
         self._pw = await async_playwright().start()
         launch_kwargs: dict[str, Any] = {
@@ -547,8 +568,7 @@ class NmpaRecordAdapter:
 
     # ── 记录标准化 ────────────────────────────────────────
 
-    @staticmethod
-    def normalize_record(record: dict) -> dict[str, Any]:
+    def normalize_record(self, record: dict) -> dict[str, Any]:
         """将 NMPA 原始记录标准化。
 
         字段映射会尝试多种可能的字段名，CC 可根据实际 API 返回调整。
@@ -597,7 +617,7 @@ class NmpaRecordAdapter:
         # 原文链接
         original_url = record.get("url") or record.get("originalUrl") or ""
         if not original_url and doc_id:
-            original_url = NMPA_DETAIL_URL_TEMPLATE.format(record_id=doc_id)
+            original_url = self.detail_url_template.format(record_id=doc_id)
 
         return {
             "document_id": doc_id,
