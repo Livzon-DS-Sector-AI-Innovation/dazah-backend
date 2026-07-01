@@ -1,41 +1,36 @@
 from datetime import date
 from io import BytesIO
-from urllib.parse import quote
+import logging
 from uuid import UUID
 
-from fastapi import Depends, Query
+logger = logging.getLogger(__name__)
+from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from urllib.parse import quote
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser, get_current_user
-from app.core.exceptions import NotFoundException, AppException
 from app.core.response import paginated_response, success_response
-from app.modules.hr.analysis_api import router as analysis_router
-from app.modules.hr.document_generator import generate_onboarding_training_record
-from app.modules.hr.evaluation_document_generator import generate_training_evaluation
-from app.modules.hr.notification_document_generator import (
-    generate_training_notification,
-)
-from app.modules.hr.onboarding_evaluation_document_generator import (
-    generate_onboarding_evaluation,
-)
-from app.modules.hr.prejob_document_generator import generate_prejob_training_plan
 from app.modules.hr.schemas import (
     AnnualTrainingPlanCreate,
     AnnualTrainingPlanItemBatchUpdate,
     AnnualTrainingPlanItemResponse,
     AnnualTrainingPlanResponse,
     AnnualTrainingPlanUpdate,
-    DepartmentCreate,
-    DepartmentResponse,
-    DepartmentUpdate,
+    CandidateCreate,
+    CandidateListResponse,
+    CandidateResponse,
+    CandidateUpdate,
+    CandidateUpdateRecommendationLevel,
     DepartureRecordCreate,
     DepartureRecordResponse,
     DepartureRecordUpdate,
+    DepartmentCreate,
+    DepartmentResponse,
+    DepartmentUpdate,
     EmployeeCreate,
     EmployeeResponse,
     EmployeeUpdate,
@@ -49,32 +44,52 @@ from app.modules.hr.schemas import (
     TeamUpdate,
     TrainingEvaluationInput,
     TrainingLedgerCreate,
-    TrainingLedgerPageCreate,
-    TrainingLedgerPageResponse,
     TrainingLedgerResponse,
     TrainingLedgerUpdate,
+    TrainingLedgerPageCreate,
+    TrainingLedgerPageResponse,
     TrainingNotificationInput,
     TrainingNotifyInput,
     TrainingSignInSheetInput,
 )
+from app.modules.hr.models import Employee
+from app.modules.hr.document_generator import generate_onboarding_training_record
+from app.modules.hr.evaluation_document_generator import generate_training_evaluation
+from app.modules.hr.notification_document_generator import generate_training_notification
+from app.modules.hr.onboarding_evaluation_document_generator import generate_onboarding_evaluation
+from app.modules.hr.prejob_document_generator import generate_prejob_training_plan
+from app.modules.hr.signin_document_generator import generate_training_sign_in_sheet
+from app.modules.hr.analysis_api import router as analysis_router
 from app.modules.hr.service import (
     AnnualTrainingPlanItemService,
     AnnualTrainingPlanService,
-    DepartmentService,
+    CandidateService,
     DepartureRecordService,
+    DepartmentService,
     EmployeeService,
     OffboardingRecordService,
     OnboardingRecordService,
     TeamService,
-    TrainingLedgerPageService,
     TrainingLedgerService,
+    TrainingLedgerPageService,
 )
-from app.modules.hr.signin_document_generator import generate_training_sign_in_sheet
 from app.shared.module_api import create_module_router
 from app.shared.module_registry import MODULES_BY_CODE
 from app.shared.schemas import PageParams
 
 router = create_module_router(MODULES_BY_CODE["hr"])
+
+
+async def _get_new_employee(employee_id: UUID, session: AsyncSession) -> Employee:
+    """Query employees_new clone table and construct an Employee instance."""
+    sql = text(
+        "SELECT * FROM hr.employees_new WHERE id = :id AND is_deleted = false"
+    )
+    result = await session.execute(sql, {"id": str(employee_id)})
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="未找到该新厂员工")
+    return Employee(**dict(row))
 
 
 def get_employee_service(session: AsyncSession = Depends(get_db)) -> EmployeeService:
@@ -135,11 +150,16 @@ def get_annual_training_plan_item_service(
     return AnnualTrainingPlanItemService(session)
 
 
+def get_candidate_service(
+    session: AsyncSession = Depends(get_db),
+) -> CandidateService:
+    return CandidateService(session)
+
+
 # ─── Employee Routes ───
 
 @router.get("/employees", summary="员工列表")
 async def list_employees(
-    current_user: CurrentUser | None = Depends(get_current_user),
     department: str | None = Query(None, description="部门筛选"),
     status: str | None = Query(None, description="状态筛选"),
     keyword: str | None = Query(None, description="姓名或工号关键词"),
@@ -168,7 +188,6 @@ async def list_employees(
 @router.post("/employees", summary="创建员工")
 async def create_employee(
     payload: EmployeeCreate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     employee = await service.create_employee(payload)
@@ -181,7 +200,6 @@ async def create_employee(
 
 @router.post("/employees/sync-from-feishu", summary="从飞书多维表格同步员工数据")
 async def sync_employees_from_feishu(
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     """手动触发：从飞书多维表格拉取全部员工数据并 upsert 到本地 PG。"""
@@ -198,7 +216,6 @@ async def sync_employees_from_feishu(
 
 @router.get("/employees/sync-status", summary="飞书同步状态")
 async def get_employee_sync_status(
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     """查看本地与飞书的数据同步统计。"""
@@ -211,7 +228,6 @@ async def get_employee_sync_status(
 @router.get("/employees/by-number/{employee_number}", summary="根据工号查询员工")
 async def get_employee_by_number(
     employee_number: str,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     employee = await service.get_employee_by_number(employee_number)
@@ -223,7 +239,6 @@ async def get_employee_by_number(
 @router.get("/employees/{employee_id}", summary="员工详情")
 async def get_employee(
     employee_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     employee = await service.get_employee(employee_id)
@@ -236,7 +251,6 @@ async def get_employee(
 async def update_employee(
     employee_id: UUID,
     payload: EmployeeUpdate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     employee = await service.update_employee(employee_id, payload)
@@ -249,7 +263,6 @@ async def update_employee(
 @router.delete("/employees/{employee_id}", summary="删除员工")
 async def delete_employee(
     employee_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     await service.delete_employee(employee_id)
@@ -259,7 +272,6 @@ async def delete_employee(
 @router.post("/employees/{employee_id}/sync-to-feishu", summary="同步单个员工到飞书")
 async def sync_employee_to_feishu(
     employee_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     """将本地单个员工强制同步到飞书多维表格。"""
@@ -273,7 +285,6 @@ async def sync_employee_to_feishu(
 @router.post("/webhook/feishu-approval", summary="飞书审批完成回调")
 async def feishu_approval_webhook(
     payload: dict,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     """接收飞书审批完成通知，更新员工状态为在职。"""
@@ -297,15 +308,22 @@ async def feishu_approval_webhook(
 )
 async def export_onboarding_training_record(
     employee_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
     service: EmployeeService = Depends(get_employee_service),
+    session: AsyncSession = Depends(get_db),
 ):
     """根据员工数据自动生成并下载入职培训记录 Word 文档。"""
-    employee = await service.get_employee(employee_id)
+    if factory == "old":
+        employee = await service.get_employee(employee_id)
+    else:
+        try:
+            employee = await _get_new_employee(employee_id, session)
+        except HTTPException:
+            employee = await service.get_employee(employee_id)
     try:
-        buffer: BytesIO = generate_onboarding_training_record(employee)
+        buffer: BytesIO = generate_onboarding_training_record(employee, factory)
     except FileNotFoundError as e:
-        raise AppException(status_code=400, message=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
     def _iterfile():
         buffer.seek(0)
@@ -325,24 +343,37 @@ async def export_onboarding_training_record(
 )
 async def export_prejob_training_plan(
     employee_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
     service: EmployeeService = Depends(get_employee_service),
+    session: AsyncSession = Depends(get_db),
 ):
-    """根据员工数据自动生成并下载岗前培训计划 Excel 文档。"""
-    employee = await service.get_employee(employee_id)
+    """根据员工数据自动生成并下载岗前培训计划文档。"""
+    if factory == "old":
+        employee = await service.get_employee(employee_id)
+    else:
+        try:
+            employee = await _get_new_employee(employee_id, session)
+        except HTTPException:
+            employee = await service.get_employee(employee_id)
     try:
-        buffer: BytesIO = generate_prejob_training_plan(employee)
+        buffer: BytesIO = generate_prejob_training_plan(employee, factory)
     except FileNotFoundError as e:
-        raise AppException(status_code=400, message=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
     def _iterfile():
         buffer.seek(0)
         yield buffer.read()
 
-    filename = f"prejob_training_plan_{employee.employee_number}.xlsx"
+    ext = "xlsx" if factory == "old" else "docx"
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if factory == "old"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    filename = f"prejob_training_plan_{employee.employee_number}.{ext}"
     return StreamingResponse(
         _iterfile(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -353,41 +384,47 @@ async def export_prejob_training_plan(
 )
 async def export_onboarding_evaluation_by_employee(
     employee_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
     service: EmployeeService = Depends(get_employee_service),
+    session: AsyncSession = Depends(get_db),
 ):
-    """根据员工档案预填基本信息并导出上岗评估表 Excel 文档。"""
-    employee = await service.get_employee(employee_id)
-
-    payload = OnboardingEvaluationInput(
-        employee_name=employee.name or "",
-        employee_number=employee.employee_number or None,
-        gender=employee.gender or None,
-        department_position=f"{employee.department or ''}/{employee.position or ''}",
-        hire_date=employee.hire_date,
-    )
-    buffer: BytesIO = generate_onboarding_evaluation(payload)
+    """根据员工档案预填基本信息并导出上岗评估表文档。"""
+    if factory == "old":
+        employee = await service.get_employee(employee_id)
+    else:
+        try:
+            employee = await _get_new_employee(employee_id, session)
+        except HTTPException:
+            employee = await service.get_employee(employee_id)
+    try:
+        buffer: BytesIO = generate_onboarding_evaluation(employee, factory)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     def _iterfile():
         buffer.seek(0)
         yield buffer.read()
 
     safe_date = str(employee.hire_date).replace("-", "") if employee.hire_date else "nodate"
-    filename = f"onboarding_evaluation_{employee.employee_number}_{safe_date}.xlsx"
+    ext = "xlsx" if factory == "old" else "docx"
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if factory == "old"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    filename = f"onboarding_evaluation_{employee.employee_number}_{safe_date}.{ext}"
     return StreamingResponse(
         _iterfile(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 import zipfile
 
-
 @router.post("/training-sign-in-sheet", summary="生成培训签到表")
 async def export_training_sign_in_sheet(
     payload: TrainingSignInSheetInput,
-    current_user: CurrentUser | None = Depends(get_current_user),
 ):
     """根据填写的培训信息自动生成培训签到表 Excel 文档。
 
@@ -400,7 +437,7 @@ async def export_training_sign_in_sheet(
         try:
             buffer: BytesIO = generate_training_sign_in_sheet(payload)
         except FileNotFoundError as e:
-            raise AppException(status_code=400, message=str(e))
+            raise HTTPException(status_code=400, detail=str(e))
 
         def _iterfile():
             buffer.seek(0)
@@ -421,7 +458,7 @@ async def export_training_sign_in_sheet(
             try:
                 page_buffer = generate_training_sign_in_sheet(payload, page=page)
             except FileNotFoundError as e:
-                raise AppException(status_code=400, message=str(e))
+                raise HTTPException(status_code=400, detail=str(e))
             page_buffer.seek(0)
             zf.writestr(f"training_sign_in_sheet_{safe_date}_page{page + 1}.xlsx", page_buffer.read())
     zip_buffer.seek(0)
@@ -440,7 +477,6 @@ async def export_training_sign_in_sheet(
 @router.post("/training-notifications/send", summary="发送培训通知到飞书")
 async def send_training_notification(
     payload: TrainingNotifyInput,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: EmployeeService = Depends(get_employee_service),
 ):
     """根据填写的培训信息，向受训人员发送飞书单聊消息。"""
@@ -452,7 +488,6 @@ async def send_training_notification(
 @router.post("/training-notification", summary="生成培训通知")
 async def export_training_notification(
     payload: TrainingNotificationInput,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     """根据填写的培训信息自动生成培训通知 Word 文档。
@@ -463,7 +498,7 @@ async def export_training_notification(
     try:
         buffer: BytesIO = generate_training_notification(payload)
     except FileNotFoundError as e:
-        raise AppException(status_code=400, message=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
     # 自动关联创建培训台账记录
     employee_service = EmployeeService(service.repo.session)
@@ -499,7 +534,6 @@ async def export_training_notification(
 @router.post("/training-evaluation", summary="生成培训效果评估表")
 async def export_training_evaluation(
     payload: TrainingEvaluationInput,
-    current_user: CurrentUser | None = Depends(get_current_user),
 ):
     """根据填写的培训信息自动生成培训效果评估表 Excel 文档。"""
     buffer: BytesIO = generate_training_evaluation(payload)
@@ -520,20 +554,26 @@ async def export_training_evaluation(
 @router.post("/onboarding-evaluation", summary="生成员工上岗评估表")
 async def export_onboarding_evaluation(
     payload: OnboardingEvaluationInput,
-    current_user: CurrentUser | None = Depends(get_current_user),
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
 ):
-    """根据填写的评估信息自动生成员工上岗评估表 Excel 文档。"""
-    buffer: BytesIO = generate_onboarding_evaluation(payload)
+    """根据填写的评估信息自动生成员工上岗评估表文档。"""
+    buffer: BytesIO = generate_onboarding_evaluation(payload, factory)
 
     def _iterfile():
         buffer.seek(0)
         yield buffer.read()
 
     safe_date = str(payload.evaluation_date).replace("-", "") if payload.evaluation_date else "nodate"
-    filename = f"onboarding_evaluation_{safe_date}.xlsx"
+    ext = "xlsx" if factory == "old" else "docx"
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if factory == "old"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    filename = f"onboarding_evaluation_{safe_date}.{ext}"
     return StreamingResponse(
         _iterfile(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -542,7 +582,6 @@ async def export_onboarding_evaluation(
 
 @router.get("/departments", summary="部门列表")
 async def list_departments(
-    current_user: CurrentUser | None = Depends(get_current_user),
     keyword: str | None = Query(None, description="部门名称或编码关键词"),
     page_params: PageParams = Depends(),
     service: DepartmentService = Depends(get_department_service),
@@ -567,7 +606,6 @@ async def list_departments(
 @router.post("/departments", summary="创建部门")
 async def create_department(
     payload: DepartmentCreate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartmentService = Depends(get_department_service),
 ):
     department = await service.create_department(payload)
@@ -581,7 +619,6 @@ async def create_department(
 @router.get("/departments/{department_id}", summary="部门详情")
 async def get_department(
     department_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartmentService = Depends(get_department_service),
 ):
     department = await service.get_department(department_id)
@@ -594,7 +631,6 @@ async def get_department(
 async def update_department(
     department_id: UUID,
     payload: DepartmentUpdate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartmentService = Depends(get_department_service),
 ):
     department = await service.update_department(department_id, payload)
@@ -607,7 +643,6 @@ async def update_department(
 @router.delete("/departments/{department_id}", summary="删除部门")
 async def delete_department(
     department_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartmentService = Depends(get_department_service),
 ):
     await service.delete_department(department_id)
@@ -618,7 +653,6 @@ async def delete_department(
 
 @router.get("/teams", summary="班组列表")
 async def list_teams(
-    current_user: CurrentUser | None = Depends(get_current_user),
     department_id: UUID | None = Query(None, description="部门筛选"),
     keyword: str | None = Query(None, description="班组名称或编码关键词"),
     page_params: PageParams = Depends(),
@@ -645,7 +679,6 @@ async def list_teams(
 @router.post("/teams", summary="创建班组")
 async def create_team(
     payload: TeamCreate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TeamService = Depends(get_team_service),
 ):
     team = await service.create_team(payload)
@@ -659,7 +692,6 @@ async def create_team(
 @router.get("/teams/{team_id}", summary="班组详情")
 async def get_team(
     team_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TeamService = Depends(get_team_service),
 ):
     team = await service.get_team(team_id)
@@ -672,7 +704,6 @@ async def get_team(
 async def update_team(
     team_id: UUID,
     payload: TeamUpdate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TeamService = Depends(get_team_service),
 ):
     team = await service.update_team(team_id, payload)
@@ -685,7 +716,6 @@ async def update_team(
 @router.delete("/teams/{team_id}", summary="删除班组")
 async def delete_team(
     team_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TeamService = Depends(get_team_service),
 ):
     await service.delete_team(team_id)
@@ -696,7 +726,6 @@ async def delete_team(
 
 @router.get("/offboarding-records", summary="离职记录列表")
 async def list_offboarding_records(
-    current_user: CurrentUser | None = Depends(get_current_user),
     employee_id: UUID | None = Query(None, description="员工ID筛选"),
     keyword: str | None = Query(None, description="姓名或工号关键词"),
     page_params: PageParams = Depends(),
@@ -723,7 +752,6 @@ async def list_offboarding_records(
 @router.post("/offboarding-records", summary="创建离职记录")
 async def create_offboarding_record(
     payload: OffboardingRecordCreate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: OffboardingRecordService = Depends(get_offboarding_service),
 ):
     record = await service.create_record(payload)
@@ -752,7 +780,6 @@ async def create_offboarding_record(
 @router.get("/offboarding-records/{record_id}", summary="离职记录详情")
 async def get_offboarding_record(
     record_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: OffboardingRecordService = Depends(get_offboarding_service),
 ):
     record = await service.get_record(record_id)
@@ -765,7 +792,6 @@ async def get_offboarding_record(
 async def update_offboarding_record(
     record_id: UUID,
     payload: OffboardingRecordUpdate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: OffboardingRecordService = Depends(get_offboarding_service),
 ):
     record = await service.update_record(record_id, payload)
@@ -778,7 +804,6 @@ async def update_offboarding_record(
 @router.delete("/offboarding-records/{record_id}", summary="删除离职记录")
 async def delete_offboarding_record(
     record_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: OffboardingRecordService = Depends(get_offboarding_service),
 ):
     await service.delete_record(record_id)
@@ -789,7 +814,6 @@ async def delete_offboarding_record(
 
 @router.get("/onboarding-records", summary="老厂入职台账列表")
 async def list_onboarding_records(
-    current_user: CurrentUser | None = Depends(get_current_user),
     department: str | None = Query(None, description="部门筛选"),
     position: str | None = Query(None, description="岗位筛选"),
     is_employed: str | None = Query(None, description="是否在职筛选"),
@@ -823,7 +847,6 @@ async def list_onboarding_records(
 
 @router.post("/onboarding-records/sync-from-feishu", summary="从飞书同步老厂入职台账")
 async def sync_onboarding_from_feishu(
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: OnboardingRecordService = Depends(get_onboarding_service),
 ):
     """手动触发：从飞书多维表格拉取全部老厂入职数据并 upsert 到本地 PG。"""
@@ -840,7 +863,6 @@ async def sync_onboarding_from_feishu(
 
 @router.get("/onboarding-records/sync-status", summary="老厂入职台账同步状态")
 async def get_onboarding_sync_status(
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: OnboardingRecordService = Depends(get_onboarding_service),
 ):
     """查看本地与飞书的数据同步统计。"""
@@ -853,7 +875,6 @@ async def get_onboarding_sync_status(
 @router.get("/onboarding-records/{record_id}", summary="入职记录详情")
 async def get_onboarding_record(
     record_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: OnboardingRecordService = Depends(get_onboarding_service),
 ):
     record = await service.get_record(record_id)
@@ -866,7 +887,6 @@ async def get_onboarding_record(
 
 @router.get("/departure-records", summary="老厂离职台账列表")
 async def list_departure_records(
-    current_user: CurrentUser | None = Depends(get_current_user),
     department: str | None = Query(None, description="部门筛选"),
     offboarding_type: str | None = Query(None, description="离职类型筛选"),
     keyword: str | None = Query(None, description="姓名/部门/职位关键词"),
@@ -899,7 +919,6 @@ async def list_departure_records(
 @router.post("/departure-records", summary="创建离职台账记录")
 async def create_departure_record(
     payload: DepartureRecordCreate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     record = await service.create_record(payload)
@@ -913,7 +932,6 @@ async def create_departure_record(
 @router.get("/departure-records/{record_id}", summary="离职台账记录详情")
 async def get_departure_record(
     record_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     record = await service.get_record(record_id)
@@ -926,7 +944,6 @@ async def get_departure_record(
 async def update_departure_record(
     record_id: UUID,
     payload: DepartureRecordUpdate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     record = await service.update_record(record_id, payload)
@@ -939,7 +956,6 @@ async def update_departure_record(
 @router.delete("/departure-records/{record_id}", summary="删除离职台账记录")
 async def delete_departure_record(
     record_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     await service.delete_record(record_id)
@@ -948,7 +964,6 @@ async def delete_departure_record(
 
 @router.post("/departure-records/sync-from-feishu", summary="从飞书同步老厂离职台账")
 async def sync_departure_from_feishu(
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     """手动触发：从飞书多维表格拉取全部老厂离职数据并 upsert 到本地 PG。"""
@@ -965,7 +980,6 @@ async def sync_departure_from_feishu(
 
 @router.get("/departure-records/sync-status", summary="老厂离职台账同步状态")
 async def get_departure_sync_status(
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     """查看本地与飞书的数据同步统计。"""
@@ -979,7 +993,6 @@ async def get_departure_sync_status(
 
 @router.get("/training-ledgers", summary="培训台账列表")
 async def list_training_ledgers(
-    current_user: CurrentUser | None = Depends(get_current_user),
     employee_number: str | None = Query(None, description="工号筛选"),
     date_from: date | None = Query(None, description="培训日期起"),
     date_to: date | None = Query(None, description="培训日期止"),
@@ -1010,7 +1023,6 @@ async def list_training_ledgers(
 @router.post("/training-ledgers", summary="创建培训台账记录")
 async def create_training_ledger(
     payload: TrainingLedgerCreate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     record = await service.create_record(payload)
@@ -1025,7 +1037,6 @@ async def create_training_ledger(
 
 @router.get("/training-ledgers/pages", summary="已创建的培训台账页面列表")
 async def list_training_ledger_pages(
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TrainingLedgerPageService = Depends(get_training_ledger_page_service),
 ):
     pages_with_dept = await service.list_pages_with_department()
@@ -1046,7 +1057,6 @@ async def list_training_ledger_pages(
 @router.post("/training-ledgers/pages", summary="创建培训台账页面")
 async def create_training_ledger_page(
     payload: TrainingLedgerPageCreate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TrainingLedgerPageService = Depends(get_training_ledger_page_service),
 ):
     page = await service.create_page(payload)
@@ -1206,7 +1216,6 @@ def _generate_training_ledger_excel(employee: dict, records: list[dict]) -> Byte
 
 @router.get("/training-ledgers/export", summary="导出培训台账Excel")
 async def export_training_ledger(
-    current_user: CurrentUser | None = Depends(get_current_user),
     employee_number: str = Query(..., description="员工工号"),
     ledger_service: TrainingLedgerService = Depends(get_training_ledger_service),
     employee_service: EmployeeService = Depends(get_employee_service),
@@ -1214,7 +1223,7 @@ async def export_training_ledger(
     """根据员工数据生成并导出培训台账 Excel 文件。"""
     employee = await employee_service.get_employee_by_number(employee_number)
     if not employee:
-        raise NotFoundException("员工")
+        raise HTTPException(status_code=404, detail="未找到该员工")
 
     records, _ = await ledger_service.list_records(
         employee_number=employee_number,
@@ -1249,7 +1258,6 @@ async def export_training_ledger(
 @router.get("/training-ledgers/{record_id}", summary="培训台账记录详情")
 async def get_training_ledger(
     record_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     record = await service.get_record(record_id)
@@ -1262,7 +1270,6 @@ async def get_training_ledger(
 async def update_training_ledger(
     record_id: UUID,
     payload: TrainingLedgerUpdate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     record = await service.update_record(record_id, payload)
@@ -1275,7 +1282,6 @@ async def update_training_ledger(
 @router.delete("/training-ledgers/{record_id}", summary="删除培训台账记录")
 async def delete_training_ledger(
     record_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     await service.delete_record(record_id)
@@ -1286,7 +1292,6 @@ async def delete_training_ledger(
 
 @router.get("/annual-training-plans", summary="年度培训计划列表")
 async def list_annual_training_plans(
-    current_user: CurrentUser | None = Depends(get_current_user),
     year: int | None = Query(None, description="年度筛选"),
     department: str | None = Query(None, description="部门筛选"),
     page_params: PageParams = Depends(),
@@ -1313,7 +1318,6 @@ async def list_annual_training_plans(
 @router.post("/annual-training-plans", summary="创建年度培训计划")
 async def create_annual_training_plan(
     payload: AnnualTrainingPlanCreate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
 ):
     plan = await service.create_plan(payload)
@@ -1327,7 +1331,6 @@ async def create_annual_training_plan(
 @router.get("/annual-training-plans/{plan_id}", summary="年度培训计划详情")
 async def get_annual_training_plan(
     plan_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
 ):
     plan = await service.get_plan(plan_id)
@@ -1340,7 +1343,6 @@ async def get_annual_training_plan(
 async def update_annual_training_plan(
     plan_id: UUID,
     payload: AnnualTrainingPlanUpdate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
 ):
     plan = await service.update_plan(plan_id, payload)
@@ -1353,7 +1355,6 @@ async def update_annual_training_plan(
 @router.delete("/annual-training-plans/{plan_id}", summary="删除年度培训计划")
 async def delete_annual_training_plan(
     plan_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
 ):
     await service.delete_plan(plan_id)
@@ -1363,7 +1364,6 @@ async def delete_annual_training_plan(
 @router.get("/annual-training-plans/{plan_id}/items", summary="年度计划明细列表")
 async def list_annual_training_plan_items(
     plan_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: AnnualTrainingPlanItemService = Depends(get_annual_training_plan_item_service),
 ):
     items = await service.list_items(plan_id)
@@ -1378,7 +1378,6 @@ async def list_annual_training_plan_items(
 async def batch_update_annual_training_plan_items(
     plan_id: UUID,
     payload: AnnualTrainingPlanItemBatchUpdate,
-    current_user: CurrentUser | None = Depends(get_current_user),
     service: AnnualTrainingPlanItemService = Depends(get_annual_training_plan_item_service),
 ):
     items = await service.batch_update_items(plan_id, payload)
@@ -1503,7 +1502,6 @@ def _generate_annual_plan_excel(plan: dict, items: list[dict]) -> BytesIO:
 @router.get("/annual-training-plans/{plan_id}/export", summary="导出年度培训计划Excel")
 async def export_annual_training_plan(
     plan_id: UUID,
-    current_user: CurrentUser | None = Depends(get_current_user),
     plan_service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
     item_service: AnnualTrainingPlanItemService = Depends(get_annual_training_plan_item_service),
 ):
@@ -1566,7 +1564,6 @@ async def _query_clone_table(
     params: dict,
     page: int,
     page_size: int,
-    current_user: CurrentUser | None = Depends(get_current_user),
     sort_by: str = "created_at",
     sort_order: str = "desc",
 ) -> tuple[list, int]:
@@ -1593,7 +1590,6 @@ async def _query_clone_table(
 
 @router.get("/new/employees", summary="新厂员工列表")
 async def list_new_employees(
-    current_user: CurrentUser | None = Depends(get_current_user),
     department: str | None = Query(None),
     status: str | None = Query(None),
     keyword: str | None = Query(None),
@@ -1601,13 +1597,13 @@ async def list_new_employees(
     session: AsyncSession = Depends(get_db),
 ):
     where, params = _build_where(
-        "hr.employees",
+        "hr.employees_new",
         [("department", department), ("status", status)],
         keyword_fields=["name", "employee_number"],
         keyword=keyword,
     )
     data, total = await _query_clone_table(
-        session, "hr.employees", EmployeeResponse,
+        session, "hr.employees_new", EmployeeResponse,
         where, params, page_params.page, page_params.page_size,
     )
     return paginated_response(
@@ -1618,7 +1614,6 @@ async def list_new_employees(
 
 @router.get("/new/onboarding-records", summary="新厂入职台账列表")
 async def list_new_onboarding_records(
-    current_user: CurrentUser | None = Depends(get_current_user),
     department: str | None = Query(None),
     position: str | None = Query(None),
     keyword: str | None = Query(None),
@@ -1626,13 +1621,13 @@ async def list_new_onboarding_records(
     session: AsyncSession = Depends(get_db),
 ):
     where, params = _build_where(
-        "hr.onboarding_records",
+        "hr.onboarding_records_new",
         [("department", department), ("position", position)],
         keyword_fields=["name", "employee_number"],
         keyword=keyword,
     )
     data, total = await _query_clone_table(
-        session, "hr.onboarding_records", OnboardingRecordResponse,
+        session, "hr.onboarding_records_new", OnboardingRecordResponse,
         where, params, page_params.page, page_params.page_size,
         sort_by="hire_date", sort_order="desc",
     )
@@ -1644,7 +1639,6 @@ async def list_new_onboarding_records(
 
 @router.get("/new/departure-records", summary="新厂离职台账列表")
 async def list_new_departure_records(
-    current_user: CurrentUser | None = Depends(get_current_user),
     department: str | None = Query(None),
     offboarding_type: str | None = Query(None),
     keyword: str | None = Query(None),
@@ -1652,13 +1646,13 @@ async def list_new_departure_records(
     session: AsyncSession = Depends(get_db),
 ):
     where, params = _build_where(
-        "hr.departure_records",
+        "hr.departure_records_new",
         [("department", department), ("offboarding_type", offboarding_type)],
         keyword_fields=["name", "department", "position"],
         keyword=keyword,
     )
     data, total = await _query_clone_table(
-        session, "hr.departure_records", DepartureRecordResponse,
+        session, "hr.departure_records_new", DepartureRecordResponse,
         where, params, page_params.page, page_params.page_size,
         sort_by="offboarding_date", sort_order="desc",
     )
@@ -1670,7 +1664,6 @@ async def list_new_departure_records(
 
 @router.get("/new/offboarding-records", summary="新厂离职管理列表")
 async def list_new_offboarding_records(
-    current_user: CurrentUser | None = Depends(get_current_user),
     department: str | None = Query(None),
     offboarding_type: str | None = Query(None),
     keyword: str | None = Query(None),
@@ -1679,13 +1672,13 @@ async def list_new_offboarding_records(
 ):
     # Reuse departure_records_new as offboarding data for new factory
     where, params = _build_where(
-        "hr.departure_records",
+        "hr.departure_records_new",
         [("department", department), ("offboarding_type", offboarding_type)],
         keyword_fields=["name", "department", "position"],
         keyword=keyword,
     )
     data, total = await _query_clone_table(
-        session, "hr.departure_records", DepartureRecordResponse,
+        session, "hr.departure_records_new", DepartureRecordResponse,
         where, params, page_params.page, page_params.page_size,
         sort_by="offboarding_date", sort_order="desc",
     )
@@ -1697,7 +1690,6 @@ async def list_new_offboarding_records(
 
 @router.get("/new/departments", summary="新厂部门列表")
 async def list_new_departments(
-    current_user: CurrentUser | None = Depends(get_current_user),
     keyword: str | None = Query(None),
     page_params: PageParams = Depends(),
     session: AsyncSession = Depends(get_db),
@@ -1710,7 +1702,7 @@ async def list_new_departments(
         params["keyword"] = f"%{keyword}%"
 
     count_sql = text(f"""
-        SELECT COUNT(DISTINCT department) FROM hr.employees
+        SELECT COUNT(DISTINCT department) FROM hr.employees_new
         WHERE {where}
     """)
     total = (await session.execute(count_sql, params)).scalar()
@@ -1723,7 +1715,7 @@ async def list_new_departments(
             gen_random_uuid() AS id,
             NOW() AS created_at,
             NOW() AS updated_at
-        FROM hr.employees
+        FROM hr.employees_new
         WHERE {where}
         ORDER BY department
         LIMIT :limit OFFSET :offset
@@ -1740,6 +1732,227 @@ async def list_new_departments(
     return paginated_response(
         data=data, page=page_params.page,
         page_size=page_params.page_size, total=total,
+    )
+
+
+# ─── Candidate Routes ───
+
+@router.get("/candidates", summary="候选人列表")
+async def list_candidates(
+    position: str | None = Query(None, description="职位筛选"),
+    education: str | None = Query(None, description="学历筛选"),
+    recommendation_level: str | None = Query(None, description="推荐等级筛选（支持逗号分隔多个值）"),
+    sync_status: str | None = Query(None, description="飞书同步状态筛选: synced/failed/unsynced"),
+    keyword: str | None = Query(None, description="姓名/职位关键词"),
+    page_params: PageParams = Depends(),
+    service: CandidateService = Depends(get_candidate_service),
+):
+    candidates, total = await service.list_candidates(
+        position=position,
+        education=education,
+        recommendation_level=recommendation_level,
+        sync_status=sync_status,
+        keyword=keyword,
+        page=page_params.page,
+        page_size=page_params.page_size,
+    )
+    logger.debug("API recommendation_level=%s, total=%s", recommendation_level, total)
+    data = [
+        CandidateResponse.model_validate(c).model_dump(mode="json")
+        for c in candidates
+    ]
+    return paginated_response(
+        data=data,
+        page=page_params.page,
+        page_size=page_params.page_size,
+        total=total,
+    )
+
+
+@router.post("/candidates/parse-preview", summary="预览简历AI解析结果")
+async def preview_resume_parse(
+    resume: UploadFile = File(..., description="简历 PDF 附件"),
+    position: str = Form(..., max_length=64, description="应聘职位名称"),
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """上传简历 PDF，转为图片后由 AI 视觉识别并返回预览字段（不保存）。"""
+    resume_bytes = await resume.read()
+    result = await service.parse_resume_preview(resume_bytes, position)
+    return success_response(data=result)
+
+
+@router.post("/candidates", summary="新建候选人")
+async def create_candidate(
+    name: str = Form(..., max_length=64, description="候选人姓名"),
+    position: str = Form(..., max_length=64, description="应聘职位名称"),
+    resume: UploadFile = File(..., description="简历 PDF 附件"),
+    gender: str | None = Form(None, max_length=8, description="性别"),
+    school: str | None = Form(None, max_length=128, description="学校名称"),
+    education: str | None = Form(None, max_length=16, description="学历"),
+    major: str | None = Form(None, max_length=64, description="专业"),
+    match_report: str | None = Form(None, description="AI 匹配度报告"),
+    recommendation_level: str | None = Form(
+        None, max_length=16, description="推荐等级"
+    ),
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """手动新建候选人：上传简历 PDF，创建本地记录并同步到飞书。"""
+    resume_bytes = await resume.read()
+    candidate = await service.create_candidate_with_resume(
+        name=name,
+        position=position,
+        resume_bytes=resume_bytes,
+        filename=resume.filename or f"{name}.pdf",
+        gender=gender,
+        school=school,
+        education=education,
+        major=major,
+        match_report=match_report,
+        recommendation_level=recommendation_level,
+    )
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="候选人创建成功",
+    )
+
+
+@router.post("/candidates/sync-from-feishu", summary="从飞书同步候选人数据")
+async def sync_candidates_from_feishu(
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """手动触发：从飞书多维表格拉取全部候选人数据并 upsert 到本地 PG。"""
+    stats = await service.sync_from_feishu()
+    msg = (
+        f"同步完成：新增 {stats['created']} 条，"
+        f"更新 {stats['updated']} 条，失败 {stats['failed']} 条"
+    )
+    return success_response(
+        data=stats,
+        message=msg,
+    )
+
+
+@router.get("/candidates/sync-status", summary="候选人同步状态")
+async def get_candidates_sync_status(
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """查看本地与飞书的候选人数据同步统计。"""
+    status = await service.get_sync_status()
+    return success_response(
+        data=status.model_dump(mode="json"),
+    )
+
+
+@router.post("/candidates/{candidate_id}/sync-to-feishu", summary="同步候选人到飞书")
+async def sync_candidate_to_feishu(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """手动触发：将单个候选人（含简历）同步到飞书多维表格。"""
+    candidate = await service.sync_candidate_to_feishu(candidate_id)
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="候选人与简历已同步到飞书",
+    )
+
+
+@router.get("/candidates/{candidate_id}", summary="候选人详情")
+async def get_candidate(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    candidate = await service.get_candidate(candidate_id)
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+    )
+
+
+@router.put("/candidates/{candidate_id}", summary="更新候选人信息")
+async def update_candidate(
+    candidate_id: UUID,
+    payload: CandidateUpdate,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    candidate = await service.update_candidate(candidate_id, payload)
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="候选人信息更新成功",
+    )
+
+
+@router.delete("/candidates/{candidate_id}", summary="删除候选人")
+async def delete_candidate(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    await service.delete_candidate(candidate_id)
+    return success_response(message="候选人删除成功")
+
+
+@router.put("/candidates/{candidate_id}/recommendation-level", summary="更新候选人推荐等级")
+async def update_candidate_recommendation_level(
+    candidate_id: UUID,
+    payload: CandidateUpdateRecommendationLevel,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    candidate = await service.update_recommendation_level(
+        candidate_id, payload.recommendation_level
+    )
+    return success_response(
+        data=CandidateResponse.model_validate(candidate).model_dump(mode="json"),
+        message="推荐等级更新成功",
+    )
+
+
+@router.get("/candidates/{candidate_id}/resume-preview", summary="简历预览")
+async def preview_candidate_resume(
+    candidate_id: UUID,
+    service: CandidateService = Depends(get_candidate_service),
+):
+    """获取候选人简历 PDF。优先读取本地存储，若不存在则从飞书下载。"""
+    import os
+
+    from app.core.exceptions import NotFoundException
+
+    candidate = await service.get_candidate(candidate_id)
+
+    # 优先读取本地文件
+    if candidate.resume_storage_path and os.path.exists(candidate.resume_storage_path):
+        def iter_file():
+            with open(candidate.resume_storage_path, "rb") as f:
+                while chunk := f.read(64 * 1024):
+                    yield chunk
+
+        return StreamingResponse(
+            content=iter_file(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="resume.pdf"'},
+        )
+
+    # 回退：从飞书实时下载
+    attachments = candidate.resume_attachments or []
+    if not attachments:
+        raise NotFoundException("简历附件", str(candidate_id))
+
+    file_token = attachments[0].get("file_token")
+    if not file_token:
+        raise NotFoundException("简历附件", str(candidate_id))
+
+    try:
+        tmp_download_url = await service.bitable.get_resume_download_url(file_token)
+    except Exception as exc:
+        logger.warning("Failed to get feishu download url for candidate %s: %s", candidate_id, exc)
+        raise NotFoundException("简历附件", str(candidate_id)) from exc
+
+    import httpx
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        response = await client.get(tmp_download_url)
+        response.raise_for_status()
+
+    return StreamingResponse(
+        content=response.iter_bytes(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="resume.pdf"'},
     )
 
 

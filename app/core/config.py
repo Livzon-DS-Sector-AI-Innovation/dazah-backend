@@ -123,6 +123,19 @@ class Settings(BaseSettings):
     FEISHU_BITABLE_ONBOARDING_TABLE_ID: str = ""
     FEISHU_BITABLE_DEPARTURE_TABLE_ID: str = ""
     FEISHU_BITABLE_APPROVAL_TABLE_ID: str = ""
+    FEISHU_BITABLE_CANDIDATE_APP_TOKEN: str = ""
+    FEISHU_BITABLE_CANDIDATE_TABLE_ID: str = ""
+    FEISHU_VEHICLE_APP_ID: str = ""
+    FEISHU_VEHICLE_APP_SECRET: str = ""
+    FEISHU_BITABLE_VEHICLE_REQUEST_APP_TOKEN: str = ""
+    FEISHU_BITABLE_VEHICLE_REQUEST_TABLE_ID: str = ""
+    FEISHU_TRAINING_APP_ID: str = ""
+    FEISHU_TRAINING_APP_SECRET: str = ""
+    FEISHU_BITABLE_MATERIAL_BOM_APP_TOKEN: str = ""
+    FEISHU_BITABLE_MATERIAL_BOM_TABLE_ID: str = ""
+    FEISHU_AI_QUERY_TABLES: str = ""  # JSON: {"别名": {"app_token": "...", "table_id": "...", "filterable_fields": [...]}}
+    FEISHU_AI_QUERY_MAX_ROWS: int = 200
+    AILY_APP_ID: str = ""
 
     # Feishu Bitable — 产品模块
     FEISHU_BITABLE_PRODUCT_APP_TOKEN: str = ""

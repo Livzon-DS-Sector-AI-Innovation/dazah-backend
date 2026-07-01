@@ -1,13 +1,13 @@
 from fastapi import APIRouter
 
 from app.modules.administration import router as administration_router
-from app.modules.dossier_writer import router as dossier_writer_router
 from app.modules.energy import router as energy_router
 from app.modules.environment import router as environment_router
 from app.modules.equipment import router as equipment_router
 from app.modules.hr import router as hr_router
 from app.modules.product import router as product_router
 from app.modules.procurement import router as procurement_router
+from app.modules.product import router as product_router
 from app.modules.production import router as production_router
 from app.modules.production.label_verification_api import (
     router as label_verification_router,
@@ -29,6 +29,8 @@ from app.platform.identity.api import (
     sync_router,
     user_router,
 )
+from app.platform.ai import router as ai_router
+
 from app.platform.system import router as system_router
 
 api_router = APIRouter()
@@ -39,6 +41,8 @@ api_router.include_router(auth_router, prefix="/identity", tags=["认证"])
 api_router.include_router(user_router, prefix="/identity", tags=["用户信息"])
 api_router.include_router(sync_router, prefix="/identity", tags=["飞书同步"])
 api_router.include_router(login_log_router, prefix="/identity", tags=["登录记录"])
+from app.platform.ai import router as ai_router
+
 api_router.include_router(system_router, prefix="/system", tags=["系统"])
 api_router.include_router(production_router, prefix="/production", tags=["生产管理"])
 api_router.include_router(equipment_router, prefix="/equipment", tags=["设备管理"])
@@ -82,3 +86,5 @@ from app.core.llm.api import router as llm_router
 api_router.include_router(llm_router, tags=["LLM配置"])
 from app.core.config_api import router as module_settings_router
 api_router.include_router(module_settings_router, tags=["模块配置"])
+from app.platform.ai import router as ai_router
+
