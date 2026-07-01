@@ -12,6 +12,7 @@ from app.modules.regulatory_tracker import repository as repo
 from app.modules.regulatory_tracker.crawler.cde_crawler import CdeDomesticGuidelineAdapter
 from app.modules.regulatory_tracker.crawler.nmpa_crawler import NmpaRecordAdapter
 from app.modules.regulatory_tracker.models import DataChannel, DataSource
+from app.core.tasks import spawn_task
 from app.modules.regulatory_tracker.services.ai_workflow import get_ai_workflow
 
 logger = logging.getLogger(__name__)
@@ -271,7 +272,7 @@ async def run_sync_job(
             # 注意：这里不 await，让 AI 分析在后台执行
             # 在实际部署中，这应该是一个独立的后台任务或队列
             import asyncio
-            asyncio.create_task(workflow.submit_documents(new_doc_ids))
+            spawn_task(workflow.submit_documents(new_doc_ids), name="submit-documents")
         except Exception as e:
             logger.error(f"提交 AI 工作流失败: {e}", exc_info=True)
 
