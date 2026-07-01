@@ -412,7 +412,6 @@ class FieldFillService:
         from PIL import Image
         import tempfile
 
-logger = logging.getLogger(__name__)
         
         source_path = Path(source_asset_path)
         if not source_path.exists():
