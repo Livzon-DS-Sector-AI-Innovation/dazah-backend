@@ -12,6 +12,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import CurrentUser
 from app.core.response import paginated_response, success_response
 from app.modules.hr.analysis_api import router as analysis_router
 from app.modules.hr.document_generator import generate_onboarding_training_record
@@ -142,6 +143,7 @@ def get_annual_training_plan_item_service(
 
 @router.get("/employees", summary="员工列表")
 async def list_employees(
+    current_user: CurrentUser,
     department: str | None = Query(None, description="部门筛选"),
     status: str | None = Query(None, description="状态筛选"),
     keyword: str | None = Query(None, description="姓名或工号关键词"),
@@ -170,6 +172,7 @@ async def list_employees(
 @router.post("/employees", summary="创建员工")
 async def create_employee(
     payload: EmployeeCreate,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     employee = await service.create_employee(payload)
@@ -183,6 +186,7 @@ async def create_employee(
 @router.post("/employees/upload", summary="上传人员名单")
 async def upload_employees(
     file: UploadFile,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """上传 Excel 人员名单，按工号自动新增或更新。"""
@@ -198,6 +202,7 @@ async def upload_employees(
 
 @router.post("/employees/sync-from-feishu", summary="从飞书多维表格同步员工数据")
 async def sync_employees_from_feishu(
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """手动触发：从飞书多维表格拉取全部员工数据并 upsert 到本地 PG。"""
@@ -214,6 +219,7 @@ async def sync_employees_from_feishu(
 
 @router.get("/employees/sync-status", summary="飞书同步状态")
 async def get_employee_sync_status(
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """查看本地与飞书的数据同步统计。"""
@@ -226,6 +232,7 @@ async def get_employee_sync_status(
 @router.get("/employees/by-number/{employee_number}", summary="根据工号查询员工")
 async def get_employee_by_number(
     employee_number: str,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     employee = await service.get_employee_by_number(employee_number)
@@ -237,6 +244,7 @@ async def get_employee_by_number(
 @router.get("/employees/{employee_id}", summary="员工详情")
 async def get_employee(
     employee_id: UUID,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     employee = await service.get_employee(employee_id)
@@ -249,6 +257,7 @@ async def get_employee(
 async def update_employee(
     employee_id: UUID,
     payload: EmployeeUpdate,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     employee = await service.update_employee(employee_id, payload)
@@ -261,6 +270,7 @@ async def update_employee(
 @router.delete("/employees/{employee_id}", summary="删除员工")
 async def delete_employee(
     employee_id: UUID,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     await service.delete_employee(employee_id)
@@ -270,6 +280,7 @@ async def delete_employee(
 @router.post("/employees/{employee_id}/sync-to-feishu", summary="同步单个员工到飞书")
 async def sync_employee_to_feishu(
     employee_id: UUID,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """将本地单个员工强制同步到飞书多维表格。"""
@@ -306,6 +317,7 @@ async def feishu_approval_webhook(
 )
 async def export_onboarding_training_record(
     employee_number: str,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """根据员工工号自动生成并下载入职培训记录 Word 文档。"""
@@ -346,6 +358,7 @@ class TrainingExportRequest(BaseModel):
 async def export_onboarding_training_record_with_items(
     employee_number: str,
     body: TrainingExportRequest,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """根据员工工号和前端选中的培训项，生成入职培训记录 Word 文档。"""
@@ -374,6 +387,7 @@ async def export_onboarding_training_record_with_items(
 )
 async def export_prejob_training_plan(
     employee_id: UUID,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """根据员工数据自动生成并下载岗前培训计划 Excel 文档。"""
@@ -401,6 +415,7 @@ async def export_prejob_training_plan(
 )
 async def export_onboarding_evaluation_by_employee(
     employee_id: UUID,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """根据员工档案预填基本信息并导出上岗评估表 Excel 文档。"""
@@ -433,6 +448,7 @@ async def export_onboarding_evaluation_by_employee(
 @router.post("/training-sign-in-sheet", summary="生成培训签到表")
 async def export_training_sign_in_sheet(
     payload: TrainingSignInSheetInput,
+    current_user: CurrentUser,
 ):
     """根据填写的培训信息自动生成培训签到表 Word 文档。
 
@@ -463,6 +479,7 @@ async def export_training_sign_in_sheet(
 @router.post("/training-notifications/send", summary="发送培训通知到飞书")
 async def send_training_notification(
     payload: TrainingNotifyInput,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """根据填写的培训信息，向受训人员发送飞书单聊消息。"""
@@ -474,6 +491,7 @@ async def send_training_notification(
 @router.post("/training-notification", summary="生成培训通知")
 async def export_training_notification(
     payload: TrainingNotificationInput,
+    current_user: CurrentUser,
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     """根据填写的培训信息自动生成培训通知 Word 文档，并自动为所有受训人员创建培训台账记录。"""
@@ -517,6 +535,7 @@ async def export_training_notification(
 @router.post("/training-evaluation", summary="生成培训效果评估表")
 async def export_training_evaluation(
     payload: TrainingEvaluationInput,
+    current_user: CurrentUser,
 ):
     """根据填写的培训信息自动生成培训效果评估表 Word 文档。"""
     buffer: BytesIO = generate_training_evaluation(payload)
@@ -540,6 +559,7 @@ async def export_training_evaluation(
 @router.post("/onboarding-evaluation", summary="生成员工上岗评估表")
 async def export_onboarding_evaluation(
     payload: OnboardingEvaluationInput,
+    current_user: CurrentUser,
 ):
     """根据填写的评估信息自动生成员工上岗评估表 Excel 文档。"""
     buffer: BytesIO = generate_onboarding_evaluation(payload)
@@ -561,6 +581,7 @@ async def export_onboarding_evaluation(
 
 @router.get("/departments", summary="部门列表")
 async def list_departments(
+    current_user: CurrentUser,
     keyword: str | None = Query(None, description="部门名称或编码关键词"),
     page_params: PageParams = Depends(),
     service: DepartmentService = Depends(get_department_service),
@@ -585,6 +606,7 @@ async def list_departments(
 @router.post("/departments", summary="创建部门")
 async def create_department(
     payload: DepartmentCreate,
+    current_user: CurrentUser,
     service: DepartmentService = Depends(get_department_service),
 ):
     department = await service.create_department(payload)
@@ -598,6 +620,7 @@ async def create_department(
 @router.get("/departments/{department_id}", summary="部门详情")
 async def get_department(
     department_id: UUID,
+    current_user: CurrentUser,
     service: DepartmentService = Depends(get_department_service),
 ):
     department = await service.get_department(department_id)
@@ -610,6 +633,7 @@ async def get_department(
 async def update_department(
     department_id: UUID,
     payload: DepartmentUpdate,
+    current_user: CurrentUser,
     service: DepartmentService = Depends(get_department_service),
 ):
     department = await service.update_department(department_id, payload)
@@ -622,6 +646,7 @@ async def update_department(
 @router.delete("/departments/{department_id}", summary="删除部门")
 async def delete_department(
     department_id: UUID,
+    current_user: CurrentUser,
     service: DepartmentService = Depends(get_department_service),
 ):
     await service.delete_department(department_id)
@@ -632,6 +657,7 @@ async def delete_department(
 
 @router.get("/teams", summary="班组列表")
 async def list_teams(
+    current_user: CurrentUser,
     department_id: UUID | None = Query(None, description="部门筛选"),
     keyword: str | None = Query(None, description="班组名称或编码关键词"),
     page_params: PageParams = Depends(),
@@ -658,6 +684,7 @@ async def list_teams(
 @router.post("/teams", summary="创建班组")
 async def create_team(
     payload: TeamCreate,
+    current_user: CurrentUser,
     service: TeamService = Depends(get_team_service),
 ):
     team = await service.create_team(payload)
@@ -671,6 +698,7 @@ async def create_team(
 @router.get("/teams/{team_id}", summary="班组详情")
 async def get_team(
     team_id: UUID,
+    current_user: CurrentUser,
     service: TeamService = Depends(get_team_service),
 ):
     team = await service.get_team(team_id)
@@ -683,6 +711,7 @@ async def get_team(
 async def update_team(
     team_id: UUID,
     payload: TeamUpdate,
+    current_user: CurrentUser,
     service: TeamService = Depends(get_team_service),
 ):
     team = await service.update_team(team_id, payload)
@@ -695,6 +724,7 @@ async def update_team(
 @router.delete("/teams/{team_id}", summary="删除班组")
 async def delete_team(
     team_id: UUID,
+    current_user: CurrentUser,
     service: TeamService = Depends(get_team_service),
 ):
     await service.delete_team(team_id)
@@ -705,6 +735,7 @@ async def delete_team(
 
 @router.get("/offboarding-records", summary="离职记录列表")
 async def list_offboarding_records(
+    current_user: CurrentUser,
     employee_id: UUID | None = Query(None, description="员工ID筛选"),
     keyword: str | None = Query(None, description="姓名或工号关键词"),
     page_params: PageParams = Depends(),
@@ -731,6 +762,7 @@ async def list_offboarding_records(
 @router.post("/offboarding-records", summary="创建离职记录")
 async def create_offboarding_record(
     payload: OffboardingRecordCreate,
+    current_user: CurrentUser,
     service: OffboardingRecordService = Depends(get_offboarding_service),
 ):
     record = await service.create_record(payload)
@@ -759,6 +791,7 @@ async def create_offboarding_record(
 @router.get("/offboarding-records/{record_id}", summary="离职记录详情")
 async def get_offboarding_record(
     record_id: UUID,
+    current_user: CurrentUser,
     service: OffboardingRecordService = Depends(get_offboarding_service),
 ):
     record = await service.get_record(record_id)
@@ -771,6 +804,7 @@ async def get_offboarding_record(
 async def update_offboarding_record(
     record_id: UUID,
     payload: OffboardingRecordUpdate,
+    current_user: CurrentUser,
     service: OffboardingRecordService = Depends(get_offboarding_service),
 ):
     record = await service.update_record(record_id, payload)
@@ -783,6 +817,7 @@ async def update_offboarding_record(
 @router.delete("/offboarding-records/{record_id}", summary="删除离职记录")
 async def delete_offboarding_record(
     record_id: UUID,
+    current_user: CurrentUser,
     service: OffboardingRecordService = Depends(get_offboarding_service),
 ):
     await service.delete_record(record_id)
@@ -793,6 +828,7 @@ async def delete_offboarding_record(
 
 @router.get("/onboarding-records", summary="老厂入职台账列表")
 async def list_onboarding_records(
+    current_user: CurrentUser,
     department: str | None = Query(None, description="部门筛选"),
     position: str | None = Query(None, description="岗位筛选"),
     is_employed: str | None = Query(None, description="是否在职筛选"),
@@ -826,6 +862,7 @@ async def list_onboarding_records(
 
 @router.post("/onboarding-records/sync-from-feishu", summary="从飞书同步老厂入职台账")
 async def sync_onboarding_from_feishu(
+    current_user: CurrentUser,
     service: OnboardingRecordService = Depends(get_onboarding_service),
 ):
     """手动触发：从飞书多维表格拉取全部老厂入职数据并 upsert 到本地 PG。"""
@@ -842,6 +879,7 @@ async def sync_onboarding_from_feishu(
 
 @router.get("/onboarding-records/sync-status", summary="老厂入职台账同步状态")
 async def get_onboarding_sync_status(
+    current_user: CurrentUser,
     service: OnboardingRecordService = Depends(get_onboarding_service),
 ):
     """查看本地与飞书的数据同步统计。"""
@@ -854,6 +892,7 @@ async def get_onboarding_sync_status(
 @router.get("/onboarding-records/{record_id}", summary="入职记录详情")
 async def get_onboarding_record(
     record_id: UUID,
+    current_user: CurrentUser,
     service: OnboardingRecordService = Depends(get_onboarding_service),
 ):
     record = await service.get_record(record_id)
@@ -866,6 +905,7 @@ async def get_onboarding_record(
 
 @router.get("/departure-records", summary="老厂离职台账列表")
 async def list_departure_records(
+    current_user: CurrentUser,
     department: str | None = Query(None, description="部门筛选"),
     offboarding_type: str | None = Query(None, description="离职类型筛选"),
     keyword: str | None = Query(None, description="姓名/部门/职位关键词"),
@@ -898,6 +938,7 @@ async def list_departure_records(
 @router.post("/departure-records", summary="创建离职台账记录")
 async def create_departure_record(
     payload: DepartureRecordCreate,
+    current_user: CurrentUser,
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     record = await service.create_record(payload)
@@ -911,6 +952,7 @@ async def create_departure_record(
 @router.get("/departure-records/{record_id}", summary="离职台账记录详情")
 async def get_departure_record(
     record_id: UUID,
+    current_user: CurrentUser,
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     record = await service.get_record(record_id)
@@ -923,6 +965,7 @@ async def get_departure_record(
 async def update_departure_record(
     record_id: UUID,
     payload: DepartureRecordUpdate,
+    current_user: CurrentUser,
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     record = await service.update_record(record_id, payload)
@@ -935,6 +978,7 @@ async def update_departure_record(
 @router.delete("/departure-records/{record_id}", summary="删除离职台账记录")
 async def delete_departure_record(
     record_id: UUID,
+    current_user: CurrentUser,
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     await service.delete_record(record_id)
@@ -943,6 +987,7 @@ async def delete_departure_record(
 
 @router.post("/departure-records/sync-from-feishu", summary="从飞书同步老厂离职台账")
 async def sync_departure_from_feishu(
+    current_user: CurrentUser,
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     """手动触发：从飞书多维表格拉取全部老厂离职数据并 upsert 到本地 PG。"""
@@ -959,6 +1004,7 @@ async def sync_departure_from_feishu(
 
 @router.get("/departure-records/sync-status", summary="老厂离职台账同步状态")
 async def get_departure_sync_status(
+    current_user: CurrentUser,
     service: DepartureRecordService = Depends(get_departure_service),
 ):
     """查看本地与飞书的数据同步统计。"""
@@ -972,6 +1018,7 @@ async def get_departure_sync_status(
 
 @router.get("/training-ledgers", summary="培训台账列表")
 async def list_training_ledgers(
+    current_user: CurrentUser,
     employee_number: str | None = Query(None, description="工号筛选"),
     date_from: date | None = Query(None, description="培训日期起"),
     date_to: date | None = Query(None, description="培训日期止"),
@@ -1002,6 +1049,7 @@ async def list_training_ledgers(
 @router.post("/training-ledgers", summary="创建培训台账记录")
 async def create_training_ledger(
     payload: TrainingLedgerCreate,
+    current_user: CurrentUser,
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     record = await service.create_record(payload)
@@ -1016,6 +1064,7 @@ async def create_training_ledger(
 
 @router.get("/training-ledgers/pages", summary="已创建的培训台账页面列表")
 async def list_training_ledger_pages(
+    current_user: CurrentUser,
     service: TrainingLedgerPageService = Depends(get_training_ledger_page_service),
 ):
     pages_with_dept = await service.list_pages_with_department()
@@ -1036,6 +1085,7 @@ async def list_training_ledger_pages(
 @router.post("/training-ledgers/pages", summary="创建培训台账页面")
 async def create_training_ledger_page(
     payload: TrainingLedgerPageCreate,
+    current_user: CurrentUser,
     service: TrainingLedgerPageService = Depends(get_training_ledger_page_service),
 ):
     page = await service.create_page(payload)
@@ -1195,6 +1245,7 @@ def _generate_training_ledger_excel(employee: dict, records: list[dict]) -> Byte
 
 @router.get("/training-ledgers/export", summary="导出培训台账Excel")
 async def export_training_ledger(
+    current_user: CurrentUser,
     employee_number: str = Query(..., description="员工工号"),
     ledger_service: TrainingLedgerService = Depends(get_training_ledger_service),
     employee_service: EmployeeService = Depends(get_employee_service),
@@ -1237,6 +1288,7 @@ async def export_training_ledger(
 @router.get("/training-ledgers/{record_id}", summary="培训台账记录详情")
 async def get_training_ledger(
     record_id: UUID,
+    current_user: CurrentUser,
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     record = await service.get_record(record_id)
@@ -1249,6 +1301,7 @@ async def get_training_ledger(
 async def update_training_ledger(
     record_id: UUID,
     payload: TrainingLedgerUpdate,
+    current_user: CurrentUser,
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     record = await service.update_record(record_id, payload)
@@ -1261,6 +1314,7 @@ async def update_training_ledger(
 @router.delete("/training-ledgers/{record_id}", summary="删除培训台账记录")
 async def delete_training_ledger(
     record_id: UUID,
+    current_user: CurrentUser,
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
     await service.delete_record(record_id)
@@ -1272,6 +1326,7 @@ async def delete_training_ledger(
 @router.post("/annual-training-plans/upload", summary="上传年度培训计划")
 async def upload_annual_training_plan(
     file: UploadFile,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """上传 Excel 年度培训计划，按年度+部门自动分类为计划项。"""
@@ -1287,6 +1342,7 @@ async def upload_annual_training_plan(
 
 @router.get("/annual-training-plans", summary="年度培训计划列表")
 async def list_annual_training_plans(
+    current_user: CurrentUser,
     year: int | None = Query(None, description="年度筛选"),
     department: str | None = Query(None, description="部门筛选"),
     page_params: PageParams = Depends(),
@@ -1313,6 +1369,7 @@ async def list_annual_training_plans(
 @router.post("/annual-training-plans", summary="创建年度培训计划")
 async def create_annual_training_plan(
     payload: AnnualTrainingPlanCreate,
+    current_user: CurrentUser,
     service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
 ):
     plan = await service.create_plan(payload)
@@ -1326,6 +1383,7 @@ async def create_annual_training_plan(
 @router.get("/annual-training-plans/{plan_id}", summary="年度培训计划详情")
 async def get_annual_training_plan(
     plan_id: UUID,
+    current_user: CurrentUser,
     service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
 ):
     plan = await service.get_plan(plan_id)
@@ -1338,6 +1396,7 @@ async def get_annual_training_plan(
 async def update_annual_training_plan(
     plan_id: UUID,
     payload: AnnualTrainingPlanUpdate,
+    current_user: CurrentUser,
     service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
 ):
     plan = await service.update_plan(plan_id, payload)
@@ -1350,6 +1409,7 @@ async def update_annual_training_plan(
 @router.delete("/annual-training-plans/{plan_id}", summary="删除年度培训计划")
 async def delete_annual_training_plan(
     plan_id: UUID,
+    current_user: CurrentUser,
     service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
 ):
     await service.delete_plan(plan_id)
@@ -1359,6 +1419,7 @@ async def delete_annual_training_plan(
 @router.get("/annual-training-plans/{plan_id}/items", summary="年度计划明细列表")
 async def list_annual_training_plan_items(
     plan_id: UUID,
+    current_user: CurrentUser,
     service: AnnualTrainingPlanItemService = Depends(get_annual_training_plan_item_service),
 ):
     items = await service.list_items(plan_id)
@@ -1373,6 +1434,7 @@ async def list_annual_training_plan_items(
 async def batch_update_annual_training_plan_items(
     plan_id: UUID,
     payload: AnnualTrainingPlanItemBatchUpdate,
+    current_user: CurrentUser,
     service: AnnualTrainingPlanItemService = Depends(get_annual_training_plan_item_service),
 ):
     items = await service.batch_update_items(plan_id, payload)
@@ -1497,6 +1559,7 @@ def _generate_annual_plan_excel(plan: dict, items: list[dict]) -> BytesIO:
 @router.get("/annual-training-plans/{plan_id}/export", summary="导出年度培训计划Excel")
 async def export_annual_training_plan(
     plan_id: UUID,
+    current_user: CurrentUser,
     plan_service: AnnualTrainingPlanService = Depends(get_annual_training_plan_service),
     item_service: AnnualTrainingPlanItemService = Depends(get_annual_training_plan_item_service),
 ):
@@ -1531,6 +1594,7 @@ async def export_annual_training_plan(
 @router.post("/trainers/upload", summary="上传内训师台账")
 async def upload_trainers(
     file: UploadFile,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """上传 Excel 内训师名单，按姓名+部门自动新增或更新。"""
@@ -1546,6 +1610,7 @@ async def upload_trainers(
 
 @router.get("/trainers", summary="内训师台账列表", response_model=TrainerListResponse)
 async def list_trainers(
+    current_user: CurrentUser,
     department: str | None = Query(None),
     keyword: str | None = Query(None),
     page: int = Query(1, ge=1),
@@ -1582,6 +1647,7 @@ async def list_trainers(
 @router.post("/sop-catalog/upload", summary="上传SOP目录")
 async def upload_sop_catalog(
     file: UploadFile,
+    current_user: CurrentUser,
     service: EmployeeService = Depends(get_employee_service),
 ):
     """上传 Excel SOP 目录，按 SOP编号 自动新增或更新。"""
@@ -1597,6 +1663,7 @@ async def upload_sop_catalog(
 
 @router.get("/sop-catalog", summary="SOP目录列表", response_model=SopCatalogListResponse)
 async def list_sop_catalog(
+    current_user: CurrentUser,
     department: str | None = Query(None),
     category: str | None = Query(None),
     keyword: str | None = Query(None),
@@ -1632,6 +1699,7 @@ async def list_sop_catalog(
 
 @router.get("/dept-training-personnel", summary="部门培训人员列表")
 async def list_dept_training_personnel(
+    current_user: CurrentUser,
     department: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -1659,6 +1727,7 @@ async def list_dept_training_personnel(
 @router.post("/training-evaluations", summary="保存培训评估补录数据")
 async def save_training_evaluation(
     payload: TrainingEvaluationInput,
+    current_user: CurrentUser,
     session: AsyncSession = Depends(get_db),
 ):
     """保存评估数据，返回完整 Word 文档（含统计字段）。"""
@@ -1681,6 +1750,7 @@ async def save_training_evaluation(
 
 @router.get("/training-evaluations/list", summary="培训评估列表")
 async def list_training_evaluations(
+    current_user: CurrentUser,
     keyword: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -1702,6 +1772,7 @@ async def list_training_evaluations(
 
 @router.get("/training-evaluations/pending", summary="待评估的培训列表")
 async def list_pending_evaluations(
+    current_user: CurrentUser,
     keyword: str | None = Query(None),
     session: AsyncSession = Depends(get_db),
 ):
