@@ -2,8 +2,8 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -315,3 +315,44 @@ async def delete_equipment(
     """删除设备"""
     await service.delete_equipment(db, equipment_id, ctx)
     return success_response(message="删除成功")
+
+
+# ==================== Excel 导入 ====================
+@router.get("/equipments/import/template", summary="下载设备导入模板")
+async def download_import_template(
+    ctx: EquipmentAccessContext = Depends(
+        require_equipment_access("equipment:asset:import"),
+    ),
+) -> StreamingResponse:
+    """下载设备台账 Excel 导入模板"""
+    buf = service.generate_template_bytes()
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''%E8%AE%BE%E5%A4%87%E5%8F%B0%E8%B4%A6%E5%AF%BC%E5%85%A5%E6%A8%A1%E6%9D%BF.xlsx"
+        },
+    )
+
+
+@router.post("/equipments/import", summary="批量导入设备")
+async def import_equipments(
+    file: UploadFile = File(..., description="Excel 文件（.xlsx）"),
+    db: AsyncSession = Depends(get_db),
+    ctx: EquipmentAccessContext = Depends(
+        require_equipment_access("equipment:asset:import"),
+    ),
+) -> JSONResponse:
+    """从 Excel 文件批量导入设备台账"""
+    if not file.filename or not file.filename.endswith(".xlsx"):
+        return JSONResponse(
+            status_code=400,
+            content={"message": "仅支持 .xlsx 格式的 Excel 文件"},
+        )
+    try:
+        file_bytes = await file.read()
+        result = await service.import_equipments_from_excel(db, file_bytes)
+        await db.commit()
+        return success_response(data=result.model_dump())
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"message": str(e)})

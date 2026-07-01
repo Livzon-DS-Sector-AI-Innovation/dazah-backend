@@ -14,6 +14,9 @@ PERMISSIONS: list[PermissionDef] = [
     PermissionDef(
         "equipment:asset:delete", "删除设备台账", "equipment", "asset", "delete"
     ),
+    PermissionDef(
+        "equipment:asset:import", "导入设备台账", "equipment", "asset", "import"
+    ),
     # ── 巡检 ──
     PermissionDef(
         "equipment:inspection:read", "查看巡检", "equipment", "inspection", "read"
