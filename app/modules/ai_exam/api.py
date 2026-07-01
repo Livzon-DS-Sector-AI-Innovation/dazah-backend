@@ -12,6 +12,7 @@ router = APIRouter(prefix="/exam", tags=["AI 出题"])
 
 @router.post("/generate", summary="生成考试题目")
 async def api_generate_exam(
+    current_user: CurrentUser,
     file: UploadFile,
     choice_count: int = Form(5),
     true_false_count: int = Form(5),

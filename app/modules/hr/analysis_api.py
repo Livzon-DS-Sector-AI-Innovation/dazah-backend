@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.deps import CurrentUser
 from app.core.response import success_response
 from app.modules.hr.ai_service import AiChatService
 from app.modules.hr.analysis_service import TurnoverAnalysisService
@@ -25,6 +26,7 @@ def get_turnover_analysis_service(
 
 @router.get("", summary="人员流动分析")
 async def get_turnover_analysis(
+    current_user: CurrentUser,
     service: TurnoverAnalysisService = Depends(get_turnover_analysis_service),
 ):
     """分析最近6个月老厂人员流动数据并生成AI报告."""
