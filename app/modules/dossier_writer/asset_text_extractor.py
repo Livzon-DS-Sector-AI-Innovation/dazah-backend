@@ -157,9 +157,6 @@ class AssetTextExtractor:
         """将 PDF 指定页转为图片，返回图片路径"""
         try:
             from pdf2image import convert_from_path
-
-logger = logging.getLogger(__name__)
-
             images = convert_from_path(
                 str(file_path),
                 dpi=dpi,
