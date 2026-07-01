@@ -1362,6 +1362,18 @@ class TrainingLedgerService:
         return record
 
     async def create_record(self, data: TrainingLedgerCreate) -> TrainingLedger:
+        # 去重：同员工+同日期+同主题视为重复
+        existing = await self.repo.session.execute(
+            select(TrainingLedger).where(
+                TrainingLedger.employee_number == data.employee_number,
+                TrainingLedger.training_date == data.training_date,
+                TrainingLedger.training_subject == data.training_subject,
+                TrainingLedger.is_deleted == False,
+            )
+        )
+        dup = existing.scalar_one_or_none()
+        if dup:
+            return dup
         record = TrainingLedger(**data.model_dump())
         return await self.repo.create(record)
 

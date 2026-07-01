@@ -476,30 +476,11 @@ async def export_training_notification(
     payload: TrainingNotificationInput,
     service: TrainingLedgerService = Depends(get_training_ledger_service),
 ):
-    """根据填写的培训信息自动生成培训通知 Word 文档，并自动为所有受训人员创建培训台账记录。"""
+    """根据填写的培训信息生成培训通知 Word 文档。培训台账需通过「添加到培训台账」按钮手动录入。"""
     try:
         buffer: BytesIO = generate_training_notification(payload)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    # 自动为所有受训人员创建培训台账记录
-    employee_service = EmployeeService(service.repo.session)
-    created_count = 0
-    for name in payload.trainee_names:
-        emp = await employee_service.repo.list_employees(
-            keyword=name, page=1, page_size=1
-        )
-        if emp[0] and emp[0][0]:
-            employee = emp[0][0]
-            await service.create_from_notification(
-                employee_number=employee.employee_number,
-                training_date=payload.training_date,
-                training_subject=payload.subject,
-                training_method=None,
-                trainer=payload.trainer,
-                source_id=f"notification_{payload.training_date}_{payload.subject}",
-            )
-            created_count += 1
 
     def _iterfile():
         buffer.seek(0)
