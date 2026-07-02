@@ -11,6 +11,7 @@ from urllib.parse import unquote
 import httpx
 from fastapi import HTTPException, status
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -1139,6 +1140,7 @@ class AgentService:
             workflow.status = "enabled" if enabled else "disabled"
             workflow.updated_by = user_id
             await db.flush()
+            workflow = await self._refetch_workflow(db, workflow)
             return {"workflow": self._workflow_out(workflow).model_dump(mode="json")}
         if operation == "agent.run_workflow":
             self._require_local_db(db)
@@ -1159,6 +1161,7 @@ class AgentService:
             run.finished_at = datetime.now(UTC)
             run.updated_by = user_id
             await db.flush()
+            run = await self._refetch_workflow_run(db, run)
             return {"run": self._workflow_run_out(run).model_dump(mode="json")}
         if operation == "agent.get_workflow_run":
             self._require_local_db(db)
@@ -1382,6 +1385,7 @@ class AgentService:
                 run.finished_at = datetime.now(UTC)
                 await self._sync_workflow_last_run(workflow, run)
                 await db.flush()
+                run = await self._refetch_workflow_run(db, run)
                 return {"run": self._workflow_run_out(run).model_dump(mode="json")}
             if spec.write:
                 summary = f"工作流「{workflow.name}」：{step.get('title') or operation}"
@@ -1428,6 +1432,7 @@ class AgentService:
                 ]
                 await self._sync_workflow_last_run(workflow, run)
                 await db.flush()
+                run = await self._refetch_workflow_run(db, run)
                 return {
                     "run": self._workflow_run_out(run).model_dump(mode="json"),
                     "pending_confirmation": self._confirmation_out(
@@ -1460,6 +1465,7 @@ class AgentService:
                 run.finished_at = datetime.now(UTC)
                 await self._sync_workflow_last_run(workflow, run)
                 await db.flush()
+                run = await self._refetch_workflow_run(db, run)
                 return {"run": self._workflow_run_out(run).model_dump(mode="json")}
             run.step_results = [
                 *list(run.step_results or []),
@@ -1477,6 +1483,7 @@ class AgentService:
         run.finished_at = datetime.now(UTC)
         await self._sync_workflow_last_run(workflow, run)
         await db.flush()
+        run = await self._refetch_workflow_run(db, run)
         return {"run": self._workflow_run_out(run).model_dump(mode="json")}
 
     async def _sync_workflow_last_run(
@@ -1485,6 +1492,36 @@ class AgentService:
         workflow.last_run_id = run.id
         workflow.last_run_status = run.status
         workflow.last_run_at = datetime.now(UTC)
+
+    async def _refetch_workflow(
+        self, db: AsyncSession, workflow: AgentWorkflow
+    ) -> AgentWorkflow:
+        if not hasattr(db, "execute"):
+            return workflow
+        result = await db.execute(
+            select(AgentWorkflow)
+            .where(
+                AgentWorkflow.id == workflow.id,
+                AgentWorkflow.is_deleted.is_(False),
+            )
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one()
+
+    async def _refetch_workflow_run(
+        self, db: AsyncSession, run: AgentWorkflowRun
+    ) -> AgentWorkflowRun:
+        if not hasattr(db, "execute"):
+            return run
+        result = await db.execute(
+            select(AgentWorkflowRun)
+            .where(
+                AgentWorkflowRun.id == run.id,
+                AgentWorkflowRun.is_deleted.is_(False),
+            )
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one()
 
     def _contract_template_info(self, category: ContractCategory) -> dict[str, Any]:
         metadata = get_contract_template_metadata(category)

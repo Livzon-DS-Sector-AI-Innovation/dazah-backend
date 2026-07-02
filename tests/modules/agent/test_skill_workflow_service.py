@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.agent.schemas import (
     AgentSkillResolveRequest,
@@ -243,3 +244,38 @@ async def test_workflow_creation_stores_user_scoped_workflow() -> None:
     assert workflows == [workflow]
     assert other_user_workflows == []
     assert workflow.source_skill == BUILTIN_WORKFLOW_SKILL_NAME
+
+
+@pytest.mark.anyio
+async def test_workflow_run_refetches_updated_state_before_response(
+    db_session: AsyncSession,
+) -> None:
+    service = AgentService(settings=SimpleNamespace())
+    workflow = await service._create_workflow_from_request(
+        db_session,
+        request=AgentWorkflowCreate(
+            name="合同模板查询工作流",
+            steps=[
+                {
+                    "order": 1,
+                    "title": "查询合同模板",
+                    "operation": "procurement.list_contract_templates",
+                }
+            ],
+        ),
+        user_id=None,
+        session_id=None,
+    )
+
+    result = await service._start_workflow_run(
+        db_session,
+        workflow=workflow,
+        user_id=None,
+        session_id=None,
+    )
+
+    run = result["run"]
+    assert run["status"] == "succeeded"
+    assert run["current_step"] == 1
+    assert run["updated_at"] is not None
+    assert run["step_results"][0]["operation"] == "procurement.list_contract_templates"

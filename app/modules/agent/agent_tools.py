@@ -123,6 +123,7 @@ async def set_workflow_enabled(
     workflow.status = "enabled" if data.enabled else "disabled"
     workflow.updated_by = context.user_id
     await context.db.flush()
+    workflow = await _service(context)._refetch_workflow(context.db, workflow)
     return {
         "workflow": _service(context)._workflow_out(workflow).model_dump(mode="json")
     }
@@ -177,6 +178,7 @@ async def cancel_workflow_run(
         run.finished_at = datetime.now(UTC)
         run.updated_by = context.user_id
         await context.db.flush()
+        run = await _service(context)._refetch_workflow_run(context.db, run)
     return {"run": _service(context)._workflow_run_out(run).model_dump(mode="json")}
 
 
