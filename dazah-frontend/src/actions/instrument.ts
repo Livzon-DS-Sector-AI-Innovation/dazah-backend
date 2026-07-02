@@ -94,39 +94,6 @@ export async function deleteInstrument(id: string) {
   return response
 }
 
-export async function submitInstrument(id: string) {
-  const response = await fetchApi<Instrument>(`/quality/instrument/${id}/submit`, {
-    method: 'POST',
-  })
-  revalidatePath('/quality/instrument')
-  return response
-}
-
-export async function approveInstrumentByAdmin(id: string) {
-  const response = await fetchApi<Instrument>(`/quality/instrument/${id}/approve?approved=true&approval_type=admin`, {
-    method: 'POST',
-  })
-  revalidatePath('/quality/instrument')
-  return response
-}
-
-export async function approveInstrumentByQA(id: string) {
-  const response = await fetchApi<Instrument>(`/quality/instrument/${id}/approve?approved=true&approval_type=qa`, {
-    method: 'POST',
-  })
-  revalidatePath('/quality/instrument')
-  return response
-}
-
-export async function rejectInstrument(id: string, comments: string) {
-  const response = await fetchApi<Instrument>(
-    `/quality/instrument/${id}/approve?approved=false&comments=${encodeURIComponent(comments)}&approval_type=admin`,
-    { method: 'POST' }
-  )
-  revalidatePath('/quality/instrument')
-  return response
-}
-
 export async function deactivateInstrument(id: string, reason: string) {
   const response = await fetchApi<Instrument>(
     `/quality/instrument/${id}/deactivate?reason=${encodeURIComponent(reason)}`,
@@ -190,6 +157,7 @@ export async function getCalibrationRecords(params: CalibrationRecordFilter = {}
   if (params.page) searchParams.set('page', String(params.page))
   if (params.page_size) searchParams.set('page_size', String(params.page_size))
   if (params.instrument_id) searchParams.set('instrument_id', params.instrument_id)
+  if (params.rule_id) searchParams.set('rule_id', params.rule_id)
   if (params.calibration_no) searchParams.set('calibration_no', params.calibration_no)
   if (params.calibration_result) searchParams.set('calibration_result', params.calibration_result)
   if (params.status) searchParams.set('status', params.status)
@@ -291,4 +259,296 @@ export async function approveCalibrationRecord(id: string, data: ApprovalCreate)
   })
   revalidatePath('/quality/instrument')
   return response
+}
+
+// ============ AI 识别 API ============
+
+export interface AIRecognizedInstrumentInfo {
+  instrument_name: string
+  model: string
+  serial_no: string
+  manufacturer: string
+  last_calibration_date: string
+  next_calibration_date: string
+  calibration_agency: string
+  raw_result?: string
+}
+
+export async function recognizeInstrumentLabel(file: File): Promise<AIRecognizedInstrumentInfo> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(`${API_BASE}/quality/instrument/recognize`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: '识别失败' }))
+    throw new Error(error.detail || '识别失败')
+  }
+
+  const result = await response.json()
+  // 统一处理响应格式
+  if (result && typeof result === 'object' && 'data' in result) {
+    return result.data as AIRecognizedInstrumentInfo
+  }
+  return result as AIRecognizedInstrumentInfo
+}
+
+// ============ 到期提醒 API ============
+
+export interface UpcomingCalibrationRecord {
+  id: string
+  calibration_no: string
+  instrument_id: string | null
+  instrument_no: string | null
+  instrument_name: string | null
+  calibration_date: string | null
+  valid_until: string | null
+  calibration_result: string
+  days_until_expiry: number | null
+}
+
+export interface UpcomingCalibrationResponse {
+  items: UpcomingCalibrationRecord[]
+  total: number
+  days: number
+}
+
+export interface ReminderResponse {
+  sent: boolean
+  count: number
+  chat_id: string
+  receive_id_type: string
+}
+
+export async function getUpcomingCalibrationRecords(days: number = 30): Promise<UpcomingCalibrationResponse> {
+  return fetchApi<UpcomingCalibrationResponse>(`/quality/instrument/record/upcoming?days=${days}`)
+}
+
+export interface RecordsForReminderResponse {
+  overdue: Array<{
+    id: string
+    instrument_id: string | null
+    instrument_name: string | null
+    instrument_no: string | null
+    valid_until: string | null
+    days_until_expiry: number
+  }>
+  upcoming: Array<{
+    id: string
+    instrument_id: string | null
+    instrument_name: string | null
+    instrument_no: string | null
+    valid_until: string | null
+    days_until_expiry: number
+  }>
+  total_overdue: number
+  total_upcoming: number
+}
+
+export async function getRecordsForReminder(days: number = 30): Promise<RecordsForReminderResponse> {
+  return fetchApi<RecordsForReminderResponse>(`/quality/instrument/record/for-reminder?days=${days}`)
+}
+
+export async function sendCalibrationReminder(
+  chatId: string,
+  receiveIdType: 'chat_id' | 'open_id' = 'chat_id',
+  days: number = 30,
+  feishuAppId?: string,
+  feishuAppSecret?: string
+): Promise<ReminderResponse> {
+  const params = new URLSearchParams({
+    chat_id: chatId,
+    receive_id_type: receiveIdType,
+    days: String(days),
+  })
+  if (feishuAppId) params.set('feishu_app_id', feishuAppId)
+  if (feishuAppSecret) params.set('feishu_app_secret', feishuAppSecret)
+
+  const response = await fetch(`${API_BASE}/quality/instrument/record/remind?${params}`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    try {
+      const errData = JSON.parse(text)
+      throw new Error(errData.detail || errData.message || `发送失败 (${response.status})`)
+    } catch {
+      throw new Error(text || `发送失败 (${response.status})`)
+    }
+  }
+  const data = await response.json()
+  // 统一处理响应格式
+  if (data && typeof data === 'object' && 'data' in data) {
+    if (data.code >= 400) {
+      throw new Error(data.message || '发送失败')
+    }
+    return data.data as ReminderResponse
+  }
+  return data as ReminderResponse
+}
+
+// ============ 提醒配置管理 API ============
+
+export interface ReminderConfig {
+  id: string
+  name: string
+  feishu_app_id: string | null
+  feishu_app_secret: string | null
+  chat_id: string | null
+  receive_id_type: string
+  remind_30_days: boolean
+  remind_14_days: boolean
+  remind_7_days: boolean
+  remind_overdue: boolean
+  is_active: boolean
+  last_remind_30_days: string | null
+  last_remind_14_days: string | null
+  last_remind_7_days: string | null
+  last_remind_overdue: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ReminderConfigListResponse {
+  items: ReminderConfig[]
+  total: number
+}
+
+export interface ReminderConfigCreate {
+  name: string
+  feishu_app_id?: string
+  feishu_app_secret?: string
+  chat_id?: string
+  receive_id_type?: string
+  remind_30_days?: boolean
+  remind_14_days?: boolean
+  remind_7_days?: boolean
+  remind_overdue?: boolean
+  is_active?: boolean
+}
+
+export interface ReminderConfigUpdate {
+  name?: string
+  feishu_app_id?: string
+  feishu_app_secret?: string
+  chat_id?: string
+  receive_id_type?: string
+  remind_30_days?: boolean
+  remind_14_days?: boolean
+  remind_7_days?: boolean
+  remind_overdue?: boolean
+  is_active?: boolean
+}
+
+export async function getReminderConfigs(): Promise<ReminderConfigListResponse> {
+  return fetchApi<ReminderConfigListResponse>('/quality/instrument/reminder-config')
+}
+
+export async function createReminderConfig(data: ReminderConfigCreate): Promise<ReminderConfig> {
+  const response = await fetch(`${API_BASE}/quality/instrument/reminder-config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  const result = await response.json()
+  if (result && typeof result === 'object' && 'data' in result) {
+    if (result.code >= 400) throw new Error(result.message || '创建失败')
+    return result.data as ReminderConfig
+  }
+  return result as ReminderConfig
+}
+
+export async function updateReminderConfig(id: string, data: ReminderConfigUpdate): Promise<ReminderConfig> {
+  const response = await fetch(`${API_BASE}/quality/instrument/reminder-config/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  const result = await response.json()
+  if (result && typeof result === 'object' && 'data' in result) {
+    if (result.code >= 400) throw new Error(result.message || '更新失败')
+    return result.data as ReminderConfig
+  }
+  return result as ReminderConfig
+}
+
+export async function deleteReminderConfig(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/quality/instrument/reminder-config/${id}`, {
+    method: 'DELETE',
+  })
+  const result = await response.json()
+  if (result && typeof result === 'object' && 'code' in result && result.code >= 400) {
+    throw new Error(result.message || '删除失败')
+  }
+}
+
+export interface AutoTriggerResponse {
+  results: Array<{
+    config_name: string
+    sent: string[]
+    errors: string[]
+  }>
+}
+
+export async function autoTriggerReminders(): Promise<AutoTriggerResponse> {
+  const response = await fetch(`${API_BASE}/quality/instrument/reminder/auto-trigger`, {
+    method: 'POST',
+  })
+  const result = await response.json()
+  if (result && typeof result === 'object' && 'data' in result) {
+    return result.data as AutoTriggerResponse
+  }
+  return result as AutoTriggerResponse
+}
+
+// ========== 飞书通讯录 API ==========
+
+export interface FeishuUser {
+  open_id: string
+  name: string
+  en_name?: string
+  email?: string
+  mobile?: string
+  avatar?: string
+  department_ids?: string[]
+}
+
+export interface FeishuDepartment {
+  open_department_id: string
+  name: string
+  parent_department_id: string
+}
+
+export async function resolveFeishuUser(mobile?: string, email?: string): Promise<string | null> {
+  const response = await fetch(`${API_BASE}/quality/instrument/feishu-contacts/resolve-user`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mobile, email }),
+  })
+  const result = await response.json()
+  if (result && typeof result === 'object' && 'data' in result) {
+    return result.data.open_id as string | null
+  }
+  return null
+}
+
+export async function getFeishuContactUsers(departmentId: string = '0'): Promise<FeishuUser[]> {
+  const response = await fetch(`${API_BASE}/quality/instrument/feishu-contacts/users?department_id=${encodeURIComponent(departmentId)}`)
+  const result = await response.json()
+  if (result && typeof result === 'object' && 'data' in result) {
+    return result.data.users as FeishuUser[]
+  }
+  return []
+}
+
+export async function getFeishuContactDepartments(parentDepartmentId: string = '0'): Promise<FeishuDepartment[]> {
+  const response = await fetch(`${API_BASE}/quality/instrument/feishu-contacts/departments?parent_department_id=${encodeURIComponent(parentDepartmentId)}`)
+  const result = await response.json()
+  if (result && typeof result === 'object' && 'data' in result) {
+    return result.data.departments as FeishuDepartment[]
+  }
+  return []
 }

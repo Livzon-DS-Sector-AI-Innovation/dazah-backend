@@ -25,7 +25,11 @@ function buildMenuItems(children: SubMenuItem[]): MenuItem[] {
   })
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  onNavigate?: () => void
+}
+
+export function Sidebar({ onNavigate }: SidebarProps = {}) {
   const pathname = usePathname()
   const router = useRouter()
   const moduleKey = pathname.split("/")[1] || "production"
@@ -35,28 +39,42 @@ export function Sidebar() {
 
   const menuItems = buildMenuItems(currentModule.children)
 
-  // 查找当前选中的菜单项
+  // 查找当前选中的菜单项（按路径长度排序，优先精确匹配）
   const findSelectedKey = (items: SubMenuItem[], path: string): string | null => {
-    for (const item of items) {
-      if (item.path && (path === item.path || path.startsWith(item.path + "/"))) {
-        return item.path
-      }
-      if (item.children) {
-        const found = findSelectedKey(item.children, path)
-        if (found) return found
+    // 收集所有匹配的菜单项
+    const matchedItems: { path: string; key: string }[] = []
+    
+    const collectMatches = (items: SubMenuItem[]) => {
+      for (const item of items) {
+        if (item.path) {
+          // 精确匹配或前缀匹配
+          if (path === item.path || path.startsWith(item.path + "/")) {
+            matchedItems.push({ path: item.path, key: item.path })
+          }
+        }
+        if (item.children) {
+          collectMatches(item.children)
+        }
       }
     }
-    return null
+    
+    collectMatches(items)
+    
+    // 按路径长度降序排序，优先匹配更长的路径（更精确）
+    matchedItems.sort((a, b) => b.path.length - a.path.length)
+    
+    return matchedItems.length > 0 ? matchedItems[0].key : null
   }
 
   const selectedKey = findSelectedKey(currentModule.children, pathname) || currentModule.children[0]?.path
 
   const handleClick: MenuProps['onClick'] = ({ key }) => {
     router.push(key)
+    onNavigate?.()
   }
 
   return (
-    <aside className="w-56 bg-[var(--color-canvas)] border-r border-[var(--color-hairline)] flex flex-col shrink-0 overflow-y-auto">
+    <aside className="w-56 bg-[var(--color-canvas)] border-r border-[var(--color-hairline)] flex flex-col shrink-0 overflow-y-auto h-full">
       <div className="px-4 pt-5 pb-3">
         <h2 className="text-[18px] font-semibold text-[var(--color-charcoal)]">
           {currentModule.label}

@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
   experimental: {
     // 优化静态资源打包
     optimizePackageImports: ['antd', '@ant-design/icons'],
+
   },
 
   // 确保包含必要的静态资源

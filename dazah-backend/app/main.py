@@ -37,6 +37,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning(f"Failed to load AI config from database: {e}")
 
+    # 启动试剂提醒调度器
+    try:
+        from app.modules.quality.reagent_reminder_scheduler import start_reagent_reminder_scheduler
+        start_reagent_reminder_scheduler()
+        logger.info("Reagent reminder scheduler started")
+    except Exception as e:
+        logger.warning(f"Failed to start reagent reminder scheduler: {e}")
+
+    # 启动偏差填报人提醒调度器
+    try:
+        from app.modules.quality.deviation_reporter_reminder_scheduler import start_deviation_reporter_reminder_scheduler
+        start_deviation_reporter_reminder_scheduler()
+        logger.info("Deviation reporter reminder scheduler started")
+    except Exception as e:
+        logger.warning(f"Failed to start deviation reporter reminder scheduler: {e}")
+
     yield
     logger.info("Shutting down %s", settings.APP_NAME)
 
@@ -119,6 +135,17 @@ async def validation_exception_handler(
         message="请求参数校验失败",
         detail=detail,
         status_code=422,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return error_response(
+        message=f"服务器内部错误: {str(exc)}",
+        status_code=500,
     )
 
 

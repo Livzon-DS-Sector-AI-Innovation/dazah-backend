@@ -21,11 +21,17 @@ from app.modules.quality.deviation_automation_api import router as deviation_aut
 from app.modules.quality.reagent_api import router as quality_reagent_router
 from app.modules.quality.material_report_api import router as material_report_router
 from app.modules.quality.inspection_table_api import router as inspection_table_router
+from app.modules.quality.doc_check.api import router as doc_check_router
+from app.modules.quality.static_data.api import router as static_data_router
+from app.modules.quality.reagent_reminder_api import router as reagent_reminder_router
+from app.modules.quality.deviation_flow_api import router as deviation_flow_router
+from app.modules.quality.deviation_settings_api import router as deviation_settings_router
 from app.modules.registration import router as registration_router
 from app.modules.research import router as research_router
 from app.modules.safety import router as safety_router
 from app.modules.warehouse import router as warehouse_router
 from app.modules.warehouse.reagent_api import router as reagent_router
+from app.modules.sop_ai import router as sop_ai_router
 from app.platform.system import router as system_router
 from app.api.v1.ai_log_api import router as ai_log_router
 from app.api.v1.ai_config_api import router as ai_config_router
@@ -68,3 +74,9 @@ api_router.include_router(deviation_automation_router, prefix="/quality", tags=[
 api_router.include_router(quality_reagent_router, prefix="/quality", tags=["质量检验-试剂管理"])
 api_router.include_router(material_report_router, prefix="/quality", tags=["原料报告单"])
 api_router.include_router(inspection_table_router, prefix="/quality", tags=["原料检验数据"])
+api_router.include_router(doc_check_router, prefix="/doc-check", tags=["文件合规校验"])
+api_router.include_router(static_data_router, prefix="/quality", tags=["业务静态数据"])
+api_router.include_router(reagent_reminder_router, prefix="/quality", tags=["试剂提醒管理"])
+api_router.include_router(deviation_flow_router, prefix="/quality", tags=["偏差流程管理"])
+api_router.include_router(deviation_settings_router, prefix="/quality", tags=["偏差提醒设置"])
+api_router.include_router(sop_ai_router, prefix="/sop-ai", tags=["文件合规校验(SOP-AI)"])

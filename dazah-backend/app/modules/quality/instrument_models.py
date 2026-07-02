@@ -244,3 +244,30 @@ class InstrumentCalibrationApproval(BaseModel):
     # 审批人
     approver_id: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), nullable=True, comment='审批人ID')
     approver_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment='审批人')
+
+
+# ========== 校准到期提醒配置表 ==========
+class CalibrationReminderConfig(BaseModel):
+    """校准到期提醒配置"""
+    __tablename__ = 'calibration_reminder_config'
+    __table_args__ = (
+        Index('idx_reminder_config_is_active', 'is_active'),
+        {'schema': 'quality'}
+    )
+
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment='配置名称')
+    feishu_app_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment='飞书应用AppID')
+    feishu_app_secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment='飞书应用AppSecret')
+    chat_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment='飞书群ID或用户ID')
+    receive_id_type: Mapped[str] = mapped_column(String(20), server_default='chat_id', nullable=False, comment='接收类型: chat_id/user_id')
+    # 提醒开关
+    remind_30_days: Mapped[bool] = mapped_column(Boolean, server_default='true', nullable=False, comment='是否在30天前提醒')
+    remind_14_days: Mapped[bool] = mapped_column(Boolean, server_default='true', nullable=False, comment='是否在14天前提醒')
+    remind_7_days: Mapped[bool] = mapped_column(Boolean, server_default='true', nullable=False, comment='是否在7天前提醒')
+    remind_overdue: Mapped[bool] = mapped_column(Boolean, server_default='true', nullable=False, comment='是否在超期后提醒')
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default='true', nullable=False, comment='是否启用')
+    # 上次提醒时间
+    last_remind_30_days: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment='上次30天提醒时间')
+    last_remind_14_days: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment='上次14天提醒时间')
+    last_remind_7_days: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment='上次7天提醒时间')
+    last_remind_overdue: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment='上次超期提醒时间')

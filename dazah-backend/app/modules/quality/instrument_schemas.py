@@ -66,6 +66,7 @@ class CalibrationResult(str, enum.Enum):
 
 class RecordStatus(str, enum.Enum):
     """校准记录状态"""
+    ACTIVE = "active"           # 已启用/有效
     DRAFT = "draft"             # 草稿
     SUBMITTED = "submitted"     # 已提交
     ADMIN_APPROVED = "admin_approved"  # 设备管理员已审核
@@ -354,3 +355,60 @@ class CalibrationRecordListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ========== 校准到期提醒配置 Schema ==========
+class ReminderConfigCreate(BaseModel):
+    """创建提醒配置"""
+    name: str = Field(..., description='配置名称')
+    feishu_app_id: Optional[str] = Field(None, description='飞书应用AppID')
+    feishu_app_secret: Optional[str] = Field(None, description='飞书应用AppSecret')
+    chat_id: Optional[str] = Field(None, description='飞书群ID或用户ID')
+    receive_id_type: str = Field('chat_id', description='接收类型: chat_id/user_id')
+    remind_30_days: bool = Field(True, description='是否在30天前提醒')
+    remind_14_days: bool = Field(True, description='是否在14天前提醒')
+    remind_7_days: bool = Field(True, description='是否在7天前提醒')
+    remind_overdue: bool = Field(True, description='是否在超期后提醒')
+    is_active: bool = Field(True, description='是否启用')
+
+
+class ReminderConfigUpdate(BaseModel):
+    """更新提醒配置"""
+    name: Optional[str] = None
+    feishu_app_id: Optional[str] = None
+    feishu_app_secret: Optional[str] = None
+    chat_id: Optional[str] = None
+    receive_id_type: Optional[str] = None
+    remind_30_days: Optional[bool] = None
+    remind_14_days: Optional[bool] = None
+    remind_7_days: Optional[bool] = None
+    remind_overdue: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class ReminderConfigResponse(BaseModel):
+    """提醒配置响应"""
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    name: str
+    feishu_app_id: Optional[str] = None
+    feishu_app_secret: Optional[str] = None
+    chat_id: Optional[str] = None
+    receive_id_type: str
+    remind_30_days: bool
+    remind_14_days: bool
+    remind_7_days: bool
+    remind_overdue: bool
+    is_active: bool
+    last_remind_30_days: Optional[datetime] = None
+    last_remind_14_days: Optional[datetime] = None
+    last_remind_7_days: Optional[datetime] = None
+    last_remind_overdue: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReminderConfigListResponse(BaseModel):
+    """提醒配置列表响应"""
+    items: list[ReminderConfigResponse]
+    total: int

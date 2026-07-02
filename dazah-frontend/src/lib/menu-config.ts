@@ -90,15 +90,48 @@ export const moduleMenus: ModuleMenu[] = [
     icon: "check-circle",
     path: "/quality",
     children: [
-      { key: "reagent-quality", label: "试剂/标准品管理", path: "/quality/reagent" },
+      { key: "quality-dashboard", label: "仪表盘", path: "/quality" },
       {
-        key: "deviation",
-        label: "偏差管理",
+        key: "reagent-management",
+        label: "试剂管理",
         children: [
-          { key: "deviation-list", label: "偏差列表", path: "/quality/deviation" },
-          { key: "deviation-report", label: "偏差报告", path: "/quality/deviation/report" },
+          { key: "reagent-list", label: "试剂", path: "/quality/reagent" },
+          { key: "reagent-reminder-settings", label: "试剂提醒设置", path: "/quality/reagent/reminder" },
         ],
       },
+      {
+        key: "static-data",
+        label: "业务静态数据",
+        children: [
+          { key: "storage-condition", label: "贮存条件", path: "/quality/static-data/storage-condition" },
+          { key: "hplc-reference", label: "液相对照品", path: "/quality/static-data/hplc-reference" },
+          { key: "chrom-column", label: "色谱柱", path: "/quality/static-data/chrom-column" },
+          { key: "medium", label: "培养基", path: "/quality/static-data/medium" },
+          { key: "standard", label: "标准品", path: "/quality/static-data/standard" },
+          { key: "static-data-all", label: "全部数据", path: "/quality/static-data" },
+        ],
+      },
+      {
+        key: "instrument",
+        label: "仪器校准管理",
+        children: [
+          { key: "instrument-dashboard", label: "仪表盘", path: "/quality/instrument" },
+          { key: "instrument-list", label: "仪器台账", path: "/quality/instrument/list" },
+          { key: "instrument-settings", label: "提醒设置", path: "/quality/instrument/settings" },
+        ],
+      },
+
+      {
+        key: "stability",
+        label: "稳定性实验管理",
+        children: [
+          { key: "stability-plan", label: "方案录入", path: "/quality/stability/plan" },
+          { key: "stability-result", label: "检测结果", path: "/quality/stability/result" },
+          { key: "stability-report", label: "总结报告", path: "/quality/stability/report" },
+          { key: "stability-settings", label: "提醒设置", path: "/quality/stability/settings" },
+        ],
+      },
+
       {
         key: "deviation-automation",
         label: "偏差报告自动化",
@@ -109,9 +142,28 @@ export const moduleMenus: ModuleMenu[] = [
           { key: "deviation-automation-templates", label: "报告模板管理", path: "/quality/deviation-automation/templates" },
         ],
       },
-      { key: "inspection-table", label: "原料检验数据", path: "/quality/inspection-table" },
+
+      {
+        key: "deviation-flow",
+        label: "偏差流程提醒",
+        children: [
+          { key: "deviation-flow-create", label: "新建偏差任务", path: "/quality/deviation-flow/create" },
+          { key: "deviation-flow-query", label: "偏差任务查询", path: "/quality/deviation-flow/query" },
+          { key: "deviation-flow-settings", label: "偏差提醒设置", path: "/quality/deviation-flow/settings" },
+        ],
+      },
+
       { key: "ai-log", label: "AI交互日志", path: "/quality/ai-log" },
       { key: "ai-config", label: "AI配置设置", path: "/quality/ai-config" },
+      {
+        key: "sop-ai",
+        label: "文件合规校验",
+        children: [
+          { key: "sop-ai-preview", label: "单文件预审", path: "/quality/sop-ai/preview" },
+          { key: "sop-ai-batch", label: "批量巡检", path: "/quality/sop-ai/batch" },
+          { key: "sop-ai-records", label: "记录台账", path: "/quality/sop-ai/records" },
+        ],
+      },
     ],
   },
   {

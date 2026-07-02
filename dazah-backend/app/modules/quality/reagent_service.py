@@ -221,7 +221,7 @@ confidence 表示识别置信度（0-1之间）。
             "reagent_no": data.get("reagent_no"),
             "content": data.get("content"),
             "manufacturer": data.get("manufacturer"),
-            "quantity": data["quantity"],
+            "quantity": data.get("quantity", 0),
             "unit": data["unit"],
             "status": data.get("status", "available"),
             "created_by": operator,

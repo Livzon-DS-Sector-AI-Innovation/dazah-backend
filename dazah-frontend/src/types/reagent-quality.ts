@@ -47,7 +47,6 @@ export interface CreateReagentRequest {
   reagent_no?: string
   content?: string
   manufacturer?: string
-  quantity: number
   unit: string
 }
 
@@ -65,7 +64,6 @@ export interface UpdateReagentRequest {
   reagent_no?: string
   content?: string
   manufacturer?: string
-  quantity?: number
   unit?: string
   status?: string
 }
@@ -86,6 +84,7 @@ export interface AiRecognizeResponse {
 /** 试剂状态选项 */
 export const REAGENT_STATUS_OPTIONS = [
   { value: 'available', label: '可用' },
+  { value: 'used_up', label: '已用完' },
   { value: 'low_stock', label: '库存不足' },
   { value: 'expired', label: '已过期' },
   { value: 'quarantine', label: '待验' },

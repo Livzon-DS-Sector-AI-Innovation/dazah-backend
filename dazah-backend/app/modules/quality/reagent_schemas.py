@@ -24,7 +24,6 @@ class CreateReagentRequest(BaseModel):
     reagent_no: Optional[str] = Field(None, description="编号")
     content: Optional[str] = Field(None, description="含量")
     manufacturer: Optional[str] = Field(None, description="生产厂家")
-    quantity: float = Field(..., description="数量")
     unit: str = Field(..., description="单位")
 
 
@@ -42,7 +41,6 @@ class UpdateReagentRequest(BaseModel):
     reagent_no: Optional[str] = Field(None, description="编号")
     content: Optional[str] = Field(None, description="含量")
     manufacturer: Optional[str] = Field(None, description="生产厂家")
-    quantity: Optional[float] = Field(None, description="数量")
     unit: Optional[str] = Field(None, description="单位")
     status: Optional[str] = Field(None, description="状态")
 

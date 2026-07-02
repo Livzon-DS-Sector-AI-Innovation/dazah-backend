@@ -1,29 +1,17 @@
 // ========== 仪器校准管理类型定义 ==========
 
-// 仪器状态
+// 仪器状态（简化版：只有启用/未启用）
 export enum InstrumentStatus {
-  DRAFT = "draft",
-  SUBMITTED = "submitted",
-  ADMIN_APPROVED = "admin_approved",
-  QA_APPROVED = "qa_approved",
   ACTIVE = "active",
   INACTIVE = "inactive",
 }
 
 export const InstrumentStatusLabels: Record<InstrumentStatus, string> = {
-  [InstrumentStatus.DRAFT]: "草稿",
-  [InstrumentStatus.SUBMITTED]: "已提交",
-  [InstrumentStatus.ADMIN_APPROVED]: "设备管理员已审核",
-  [InstrumentStatus.QA_APPROVED]: "QA已审核",
   [InstrumentStatus.ACTIVE]: "已启用",
   [InstrumentStatus.INACTIVE]: "已停用",
 };
 
 export const InstrumentStatusColors: Record<InstrumentStatus, string> = {
-  [InstrumentStatus.DRAFT]: "default",
-  [InstrumentStatus.SUBMITTED]: "processing",
-  [InstrumentStatus.ADMIN_APPROVED]: "processing",
-  [InstrumentStatus.QA_APPROVED]: "success",
   [InstrumentStatus.ACTIVE]: "success",
   [InstrumentStatus.INACTIVE]: "default",
 };
@@ -126,29 +114,20 @@ export const CalibrationResultColors: Record<CalibrationResult, string> = {
   [CalibrationResult.LIMITED]: "warning",
 };
 
-// 校准记录状态
+// 校准记录状态（启用/停用）
 export enum RecordStatus {
-  DRAFT = "draft",
-  SUBMITTED = "submitted",
-  ADMIN_APPROVED = "admin_approved",
-  QA_APPROVED = "qa_approved",
-  COMPLETED = "completed",
+  ACTIVE = "active",
+  INACTIVE = "inactive",
 }
 
 export const RecordStatusLabels: Record<RecordStatus, string> = {
-  [RecordStatus.DRAFT]: "草稿",
-  [RecordStatus.SUBMITTED]: "已提交",
-  [RecordStatus.ADMIN_APPROVED]: "设备管理员已审核",
-  [RecordStatus.QA_APPROVED]: "QA已审核",
-  [RecordStatus.COMPLETED]: "已完成",
+  [RecordStatus.ACTIVE]: "已启用",
+  [RecordStatus.INACTIVE]: "已停用",
 };
 
 export const RecordStatusColors: Record<RecordStatus, string> = {
-  [RecordStatus.DRAFT]: "default",
-  [RecordStatus.SUBMITTED]: "processing",
-  [RecordStatus.ADMIN_APPROVED]: "processing",
-  [RecordStatus.QA_APPROVED]: "success",
-  [RecordStatus.COMPLETED]: "success",
+  [RecordStatus.ACTIVE]: "success",
+  [RecordStatus.INACTIVE]: "default",
 };
 
 // 审批类型
@@ -189,10 +168,6 @@ export interface Instrument {
   location?: string;
   category?: InstrumentCategory;
   manufacture_date?: string;
-  iq_status?: IQStatus;
-  oq_status?: OQStatus;
-  iq_confirm_date?: string;
-  oq_confirm_date?: string;
   responsible_id?: string;
   responsible_name?: string;
   is_active: boolean;
@@ -225,6 +200,8 @@ export interface InstrumentListItem {
   next_calibration_date?: string;
   is_overdue: boolean;
   created_at: string;
+  // 校准记录的到期信息
+  valid_until?: string | null;
 }
 
 // 仪器列表响应
@@ -245,10 +222,6 @@ export interface InstrumentCreate {
   location?: string;
   category?: InstrumentCategory;
   manufacture_date?: string;
-  iq_status?: IQStatus;
-  oq_status?: OQStatus;
-  iq_confirm_date?: string;
-  oq_confirm_date?: string;
   responsible_id?: string;
   responsible_name?: string;
   is_active?: boolean;
@@ -266,10 +239,6 @@ export interface InstrumentUpdate {
   location?: string;
   category?: InstrumentCategory;
   manufacture_date?: string;
-  iq_status?: IQStatus;
-  oq_status?: OQStatus;
-  iq_confirm_date?: string;
-  oq_confirm_date?: string;
   responsible_id?: string;
   responsible_name?: string;
   is_active?: boolean;
@@ -366,9 +335,11 @@ export interface CalibrationRecordListItem {
   id: string;
   calibration_no: string;
   instrument_id: string;
+  rule_id?: string | null;
   instrument_no: string;
   instrument_name: string;
   calibration_date: string;
+  valid_until?: string;
   calibration_method: string;
   calibration_result: CalibrationResult;
   status: RecordStatus;
@@ -389,6 +360,7 @@ export interface CalibrationRecordListResponse {
 export interface CalibrationRecordCreate {
   instrument_id: string;
   rule_id?: string;
+  calibration_no?: string;
   calibration_date: string;
   calibration_end_date?: string;
   calibration_method: CalibrationMethod;
@@ -423,6 +395,7 @@ export interface CalibrationRecordUpdate {
   is_scheduled?: boolean;
   scheduled_date?: string;
   remark?: string;
+  is_active?: boolean;
 }
 
 // 审批记录
@@ -461,6 +434,7 @@ export interface InstrumentFilter {
 
 export interface CalibrationRecordFilter {
   instrument_id?: string;
+  rule_id?: string;
   calibration_no?: string;
   calibration_result?: CalibrationResult;
   status?: RecordStatus;

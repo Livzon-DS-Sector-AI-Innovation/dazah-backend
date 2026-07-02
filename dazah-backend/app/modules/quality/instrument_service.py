@@ -15,12 +15,14 @@ from app.modules.quality.instrument_models import (
     InstrumentCalibrationRule,
     InstrumentCalibrationRecord,
     InstrumentCalibrationApproval,
+    CalibrationReminderConfig,
 )
 from app.modules.quality.instrument_repository import (
     InstrumentRepository,
     CalibrationRuleRepository,
     CalibrationRecordRepository,
     CalibrationApprovalRepository,
+    ReminderConfigRepository,
 )
 from app.modules.quality.instrument_schemas import (
     InstrumentCreate,
@@ -35,6 +37,8 @@ from app.modules.quality.instrument_schemas import (
     RecordStatus,
     ApprovalStatus,
     ApprovalType,
+    ReminderConfigCreate,
+    ReminderConfigUpdate,
 )
 
 
@@ -45,9 +49,13 @@ def generate_instrument_no() -> str:
 
 
 def generate_calibration_no() -> str:
-    """生成校准单据编号"""
+    """生成校准单据编号（保证唯一性）"""
+    import random
+    import string
     now = datetime.now()
-    return f"CAL{now.strftime('%Y%m%d%H%M')}"
+    # 添加随机后缀确保唯一性
+    random_suffix = ''.join(random.choices(string.digits, k=4))
+    return f"CAL{now.strftime('%Y%m%d%H%M')}{random_suffix}"
 
 
 def calculate_next_calibration_date(
@@ -70,6 +78,7 @@ class InstrumentService:
         self.session = session
         self.repository = InstrumentRepository(session)
         self.rule_repository = CalibrationRuleRepository(session)
+        self.record_repository = CalibrationRecordRepository(session)
 
     async def create_instrument(
         self,
@@ -140,7 +149,7 @@ class InstrumentService:
         is_overdue: Optional[bool] = None,
         page: int = 1,
         page_size: int = 20
-    ) -> Tuple[List[InstrumentCalibration], int]:
+    ) -> Tuple[List[dict], int]:
         """获取仪器列表"""
         instruments, total = await self.repository.list_with_filter(
             instrument_no=instrument_no,
@@ -153,18 +162,43 @@ class InstrumentService:
             page_size=page_size
         )
 
-        # 如果需要过滤超期仪器
-        if is_overdue:
-            now = datetime.now()
-            filtered = []
-            for inst in instruments:
-                rule = await self.rule_repository.get_by_instrument_id(inst.id)
-                if rule and rule.next_calibration_date and rule.next_calibration_date < now:
-                    filtered.append(inst)
-            instruments = filtered
-            total = len(filtered)
+        now = datetime.now()
+        # 将仪器对象转换为字典，并添加 valid_until 和 is_overdue 字段
+        result = []
+        for inst in instruments:
+            inst_dict = {
+                "id": str(inst.id),
+                "instrument_no": inst.instrument_no,
+                "instrument_name": inst.instrument_name,
+                "model": inst.model,
+                "manufacturer": inst.manufacturer,
+                "category": inst.category,
+                "serial_no": inst.serial_no,
+                "location": inst.location,
+                "is_active": inst.is_active,
+                "status": inst.status,
+                "created_at": inst.created_at.isoformat() if inst.created_at else None,
+                "updated_at": inst.updated_at.isoformat() if inst.updated_at else None,
+            }
+            
+            # 获取最新校准记录的 valid_until
+            latest_record = await self.record_repository.get_latest_by_instrument(inst.id)
+            if latest_record and latest_record.valid_until:
+                inst_dict["valid_until"] = latest_record.valid_until.isoformat() if latest_record.valid_until else None
+                # 统一时区后比较
+                record_time = latest_record.valid_until
+                if record_time.tzinfo is not None:
+                    now_compare = datetime.now().replace(tzinfo=record_time.tzinfo)
+                else:
+                    now_compare = datetime.now()
+                inst_dict["is_overdue"] = record_time < now_compare
+            else:
+                inst_dict["valid_until"] = None
+                inst_dict["is_overdue"] = False
+            
+            result.append(inst_dict)
 
-        return instruments, total
+        return result, total
 
     async def submit_instrument(
         self,
@@ -350,6 +384,10 @@ class CalibrationRuleService:
 
         return await self.repository.delete(rule_id)
 
+    async def list_rules(self, instrument_id: Optional[str | UUID] = None) -> List[InstrumentCalibrationRule]:
+        """获取校准规则列表"""
+        return await self.repository.list_by_instrument(instrument_id)
+
     async def get_upcoming_calibrations(self, days: int = 30) -> List[InstrumentCalibrationRule]:
         """获取即将到期的校准计划"""
         return await self.repository.get_upcoming_calibrations(days)
@@ -381,9 +419,20 @@ class CalibrationRecordService:
         # 构建创建数据
         record_data = data.model_dump()
         record_data['calibration_no'] = calibration_no
-        record_data['status'] = RecordStatus.DRAFT.value
+        # 根据决策，校准记录状态简化为启用/停用，新创建的记录默认启用
+        record_data['status'] = 'active'
         record_data['created_by'] = user_id
         record_data['updated_by'] = user_id
+
+        # 如果没有指定 valid_until 但有关联规则，自动计算
+        if not record_data.get('valid_until') and data.rule_id:
+            rule = await self.rule_repository.get_by_id(data.rule_id)
+            if rule and rule.calibration_cycle and rule.calibration_unit:
+                record_data['valid_until'] = calculate_next_calibration_date(
+                    data.calibration_date,
+                    rule.calibration_cycle,
+                    rule.calibration_unit
+                )
 
         record = await self.repository.create(record_data)
 
@@ -461,6 +510,7 @@ class CalibrationRecordService:
     async def list_records(
         self,
         instrument_id: Optional[str | UUID] = None,
+        rule_id: Optional[str | UUID] = None,
         calibration_no: Optional[str] = None,
         calibration_result: Optional[str] = None,
         status: Optional[str] = None,
@@ -473,6 +523,7 @@ class CalibrationRecordService:
         """获取校准记录列表"""
         return await self.repository.list_with_filter(
             instrument_id=instrument_id,
+            rule_id=rule_id,
             calibration_no=calibration_no,
             calibration_result=calibration_result,
             status=status,
@@ -535,3 +586,107 @@ class CalibrationRecordService:
             record_id,
             {'status': new_status, 'updated_by': user_id}
         )
+
+    async def get_upcoming_records(self, days: int = 30) -> List[InstrumentCalibrationRecord]:
+        """获取即将到期的校准记录"""
+        return await self.repository.get_upcoming_records(days)
+
+    async def get_overdue_records(self) -> List[InstrumentCalibrationRecord]:
+        """获取已超期的校准记录"""
+        return await self.repository.get_overdue_records()
+
+    async def get_records_for_reminder(self, days: int = 30) -> dict:
+        """获取需要提醒的记录（超期 + 即将到期）"""
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+
+        overdue = await self.repository.get_overdue_records()
+        upcoming = await self.repository.get_upcoming_records(days)
+
+        # 计算剩余天数
+        overdue_with_days = []
+        for record in overdue:
+            days_overdue = (now - record.valid_until).days
+            overdue_with_days.append({
+                'id': str(record.id),
+                'instrument_id': str(record.instrument_id) if record.instrument_id else None,
+                'instrument_name': record.instrument.instrument_name if record.instrument else None,
+                'instrument_no': record.instrument.instrument_no if record.instrument else None,
+                'valid_until': record.valid_until.isoformat() if record.valid_until else None,
+                'days_until_expiry': -days_overdue,  # 负数表示超期
+            })
+
+        upcoming_with_days = []
+        for record in upcoming:
+            days_until = (record.valid_until - now).days
+            upcoming_with_days.append({
+                'id': str(record.id),
+                'instrument_id': str(record.instrument_id) if record.instrument_id else None,
+                'instrument_name': record.instrument.instrument_name if record.instrument else None,
+                'instrument_no': record.instrument.instrument_no if record.instrument else None,
+                'valid_until': record.valid_until.isoformat() if record.valid_until else None,
+                'days_until_expiry': days_until,
+            })
+
+        return {
+            'overdue': overdue_with_days,
+            'upcoming': upcoming_with_days,
+            'total_overdue': len(overdue_with_days),
+            'total_upcoming': len(upcoming_with_days),
+        }
+
+
+class ReminderConfigService:
+    """提醒配置Service"""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.repository = ReminderConfigRepository(session)
+
+    async def create_config(
+        self,
+        data: ReminderConfigCreate,
+        user_id: Optional[UUID] = None
+    ) -> CalibrationReminderConfig:
+        """创建提醒配置"""
+        config_data = data.model_dump()
+        config_data['created_by'] = user_id
+        config_data['updated_by'] = user_id
+        return await self.repository.create(config_data)
+
+    async def get_config(self, config_id: UUID) -> CalibrationReminderConfig:
+        """获取配置"""
+        config = await self.repository.get_by_id(config_id)
+        if not config:
+            raise ValueError("配置不存在")
+        return config
+
+    async def list_configs(self) -> List[CalibrationReminderConfig]:
+        """获取所有配置"""
+        return await self.repository.list_all()
+
+    async def list_active_configs(self) -> List[CalibrationReminderConfig]:
+        """获取所有启用的配置"""
+        return await self.repository.list_active()
+
+    async def update_config(
+        self,
+        config_id: UUID,
+        data: ReminderConfigUpdate,
+        user_id: Optional[UUID] = None
+    ) -> CalibrationReminderConfig:
+        """更新配置"""
+        config = await self.repository.get_by_id(config_id)
+        if not config:
+            raise ValueError("配置不存在")
+
+        update_data = data.model_dump(exclude_unset=True)
+        update_data['updated_by'] = user_id
+        return await self.repository.update(config_id, update_data)
+
+    async def delete_config(self, config_id: UUID) -> bool:
+        """删除配置"""
+        config = await self.repository.get_by_id(config_id)
+        if not config:
+            raise ValueError("配置不存在")
+        return await self.repository.delete(config_id)

@@ -24,12 +24,17 @@ from app.shared.base_model import BaseModel
 
 class DeviationType(str, Enum):
     """偏差类型"""
-    PRODUCTION = "production"       # 生产偏差
-    INSPECTION = "inspection"       # 检验偏差
-    EQUIPMENT = "equipment"         # 设备偏差
-    ENVIRONMENT = "environment"    # 环境偏差
-    WAREHOUSE = "warehouse"        # 仓储偏差
-    PERSONNEL = "personnel"        # 人员偏差
+    IPC_DEFECT = "ipc_defect"                       # 过程控制（IPC）缺陷
+    FOREIGN_OBJECT = "foreign_object"               # 外来异物（有形）
+    CALIBRATION_MAINTENANCE = "calibration_maintenance"  # 校验/预防维修
+    MIXUP = "mixup"                                 # 混淆
+    MATERIAL_QUALITY_DEFECT = "material_quality_defect"  # 物料质量缺陷
+    PERSONNEL_ERROR = "personnel_error"             # 人员失误
+    OOS_RESULT = "oos_result"                       # 超标检验结果
+    DOCUMENTATION_DEFECT = "documentation_defect"   # 文件记录缺陷
+    EQUIPMENT_FAILURE = "equipment_failure"         # 设备故障/过程中断
+    ENVIRONMENT = "environment"                     # 环境
+    OTHER = "other"                                 # 其它
 
 
 class DeviationLevel(str, Enum):

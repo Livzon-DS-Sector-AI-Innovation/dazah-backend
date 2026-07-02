@@ -16,6 +16,7 @@ from app.modules.quality.instrument_models import (
     InstrumentCalibrationRule,
     InstrumentCalibrationRecord,
     InstrumentCalibrationApproval,
+    CalibrationReminderConfig,
 )
 
 
@@ -224,6 +225,25 @@ class CalibrationRuleRepository:
         )
         return list(result.scalars().all())
 
+    async def list_by_instrument(self, instrument_id: Optional[str | UUID] = None) -> list[InstrumentCalibrationRule]:
+        """根据仪器ID获取校准规则列表"""
+        query = select(InstrumentCalibrationRule).where(
+            InstrumentCalibrationRule.is_active == True
+        )
+
+        if instrument_id:
+            if isinstance(instrument_id, str):
+                try:
+                    instrument_id = UUID(instrument_id)
+                except ValueError:
+                    pass
+            if isinstance(instrument_id, UUID):
+                query = query.where(InstrumentCalibrationRule.instrument_id == instrument_id)
+
+        query = query.order_by(InstrumentCalibrationRule.created_at.desc())
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
 
 class CalibrationRecordRepository:
     """校准记录Repository"""
@@ -287,6 +307,7 @@ class CalibrationRecordRepository:
     async def list_with_filter(
         self,
         instrument_id: Optional[str | UUID] = None,
+        rule_id: Optional[str | UUID] = None,
         calibration_no: Optional[str] = None,
         calibration_result: Optional[str] = None,
         status: Optional[str] = None,
@@ -312,6 +333,15 @@ class CalibrationRecordRepository:
                     pass  # 无效UUID，跳过此条件
             if isinstance(instrument_id, UUID):
                 query = query.where(InstrumentCalibrationRecord.instrument_id == instrument_id)
+        if rule_id:
+            # 支持字符串或UUID格式的rule_id
+            if isinstance(rule_id, str):
+                try:
+                    rule_id = UUID(rule_id)
+                except ValueError:
+                    pass  # 无效UUID，跳过此条件
+            if isinstance(rule_id, UUID):
+                query = query.where(InstrumentCalibrationRecord.rule_id == rule_id)
         if calibration_no:
             query = query.where(InstrumentCalibrationRecord.calibration_no.ilike(f"%{calibration_no}%"))
         if calibration_result:
@@ -341,20 +371,111 @@ class CalibrationRecordRepository:
         return list(records), total
 
     async def get_latest_by_instrument(self, instrument_id: UUID) -> Optional[InstrumentCalibrationRecord]:
-        """获取仪器最新校准记录"""
+        """获取仪器最新校准记录（按calibration_date降序取最新的）"""
         result = await self.session.execute(
             select(InstrumentCalibrationRecord)
             .where(
                 and_(
                     InstrumentCalibrationRecord.instrument_id == instrument_id,
                     InstrumentCalibrationRecord.is_deleted == False,
-                    InstrumentCalibrationRecord.status == 'completed'
+                    InstrumentCalibrationRecord.calibration_result == 'qualified',  # 只查询合格记录
                 )
             )
             .order_by(InstrumentCalibrationRecord.calibration_date.desc())
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def get_upcoming_records(self, days: int = 30) -> list[InstrumentCalibrationRecord]:
+        """获取即将到期的校准记录（只返回每个仪器的最新校准记录）"""
+        from datetime import timedelta, timezone
+        # 使用 UTC 时间以匹配数据库存储格式
+        now = datetime.now(timezone.utc)
+        future_date = now + timedelta(days=days)
+
+        # 首先获取所有仪器的最新合格校准记录
+        subquery = (
+            select(
+                InstrumentCalibrationRecord.instrument_id,
+                func.max(InstrumentCalibrationRecord.calibration_date).label('max_date')
+            )
+            .where(
+                and_(
+                    InstrumentCalibrationRecord.is_deleted == False,
+                    InstrumentCalibrationRecord.calibration_result == 'qualified'
+                )
+            )
+            .group_by(InstrumentCalibrationRecord.instrument_id)
+            .subquery()
+        )
+
+        # 查询每个仪器的最新校准记录中即将到期的
+        result = await self.session.execute(
+            select(InstrumentCalibrationRecord)
+            .options(selectinload(InstrumentCalibrationRecord.instrument))
+            .join(
+                subquery,
+                and_(
+                    InstrumentCalibrationRecord.instrument_id == subquery.c.instrument_id,
+                    InstrumentCalibrationRecord.calibration_date == subquery.c.max_date
+                )
+            )
+            .where(
+                and_(
+                    InstrumentCalibrationRecord.is_deleted == False,
+                    InstrumentCalibrationRecord.calibration_result == 'qualified',
+                    InstrumentCalibrationRecord.valid_until.isnot(None),
+                    InstrumentCalibrationRecord.valid_until >= now,
+                    InstrumentCalibrationRecord.valid_until <= future_date
+                )
+            )
+            .order_by(InstrumentCalibrationRecord.valid_until)
+        )
+        return list(result.scalars().all())
+
+    async def get_overdue_records(self) -> list[InstrumentCalibrationRecord]:
+        """获取已超期的校准记录（只返回每个仪器的最新校准记录）"""
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+
+        # 首先获取所有仪器的最新合格校准记录
+        subquery = (
+            select(
+                InstrumentCalibrationRecord.instrument_id,
+                func.max(InstrumentCalibrationRecord.calibration_date).label('max_date')
+            )
+            .where(
+                and_(
+                    InstrumentCalibrationRecord.is_deleted == False,
+                    InstrumentCalibrationRecord.calibration_result == 'qualified'
+                )
+            )
+            .group_by(InstrumentCalibrationRecord.instrument_id)
+            .subquery()
+        )
+
+        # 查询每个仪器的最新校准记录中已超期的
+        result = await self.session.execute(
+            select(InstrumentCalibrationRecord)
+            .options(selectinload(InstrumentCalibrationRecord.instrument))
+            .join(
+                subquery,
+                and_(
+                    InstrumentCalibrationRecord.instrument_id == subquery.c.instrument_id,
+                    InstrumentCalibrationRecord.calibration_date == subquery.c.max_date
+                )
+            )
+            .where(
+                and_(
+                    InstrumentCalibrationRecord.is_deleted == False,
+                    InstrumentCalibrationRecord.calibration_result == 'qualified',
+                    InstrumentCalibrationRecord.valid_until.isnot(None),
+                    InstrumentCalibrationRecord.valid_until < now
+                )
+            )
+            .order_by(InstrumentCalibrationRecord.valid_until)
+        )
+        return list(result.scalars().all())
 
 
 class CalibrationApprovalRepository:
@@ -405,3 +526,65 @@ class CalibrationApprovalRepository:
         )
         await self.session.flush()
         return await self.get_by_id(approval_id)
+
+
+class ReminderConfigRepository:
+    """提醒配置Repository"""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, config_data: dict) -> CalibrationReminderConfig:
+        """创建提醒配置"""
+        config = CalibrationReminderConfig(**config_data)
+        self.session.add(config)
+        await self.session.flush()
+        await self.session.refresh(config)
+        return config
+
+    async def get_by_id(self, config_id: UUID) -> Optional[CalibrationReminderConfig]:
+        """根据ID获取配置"""
+        result = await self.session.execute(
+            select(CalibrationReminderConfig).where(
+                CalibrationReminderConfig.id == config_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_all(self) -> list[CalibrationReminderConfig]:
+        """获取所有配置"""
+        result = await self.session.execute(
+            select(CalibrationReminderConfig)
+            .order_by(CalibrationReminderConfig.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def list_active(self) -> list[CalibrationReminderConfig]:
+        """获取所有启用的配置"""
+        result = await self.session.execute(
+            select(CalibrationReminderConfig)
+            .where(CalibrationReminderConfig.is_active == True)
+            .order_by(CalibrationReminderConfig.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def update(self, config_id: UUID, update_data: dict) -> Optional[CalibrationReminderConfig]:
+        """更新配置"""
+        update_data['updated_at'] = datetime.now()
+        await self.session.execute(
+            update(CalibrationReminderConfig).where(
+                CalibrationReminderConfig.id == config_id
+            ).values(**update_data)
+        )
+        await self.session.flush()
+        return await self.get_by_id(config_id)
+
+    async def delete(self, config_id: UUID) -> bool:
+        """删除配置"""
+        await self.session.execute(
+            update(CalibrationReminderConfig).where(
+                CalibrationReminderConfig.id == config_id
+            ).values(is_active=False, updated_at=datetime.now())
+        )
+        await self.session.flush()
+        return True

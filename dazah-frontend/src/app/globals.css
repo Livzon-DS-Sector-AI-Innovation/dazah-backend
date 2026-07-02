@@ -102,3 +102,179 @@ body {
 .sidebar-menu.ant-menu .ant-menu-item-selected::after {
   display: none;
 }
+
+/* ===== Mobile Responsive Adaptation ===== */
+/* primary-light 变量补丁（用于模块选择器激活态背景） */
+:root {
+  --color-primary-light: rgba(86, 69, 212, 0.08);
+}
+
+/* 隐藏滚动条（用于 TopNav 横向滚动） */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* 移动端 Drawer 内 Sidebar 适配 */
+.mobile-sidebar-drawer .ant-drawer-body {
+  padding: 0 !important;
+}
+
+/* ===== 全局移动端适配（<768px） ===== */
+@media (max-width: 767px) {
+  /* 防止横向滚动 */
+  html, body {
+    overflow-x: hidden;
+    width: 100%;
+  }
+
+  /* 全局容器宽度限制 */
+  #__next,
+  .ant-layout,
+  .ant-layout-content {
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* 全局字号略减 */
+  body {
+    font-size: 14px;
+  }
+
+  /* antd Table 在窄屏默认横向滚动 */
+  .ant-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+  }
+  .ant-table {
+    min-width: 600px;
+  }
+  /* 展开行内嵌套的小表格 - 设置合理最小宽度，支持横向滚动 */
+  .instrument-expand-section {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ant-table-expanded-row .ant-table,
+  .instrument-expand-section .ant-table {
+    min-width: 320px !important;
+    width: auto !important;
+  }
+  .ant-table-expanded-row .ant-table-thead > tr > th,
+  .ant-table-expanded-row .ant-table-tbody > tr > td,
+  .instrument-expand-section .ant-table-thead > tr > th,
+  .instrument-expand-section .ant-table-tbody > tr > td {
+    white-space: nowrap;
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+
+  /* antd Modal/Drawer 全屏化 */
+  .ant-modal {
+    max-width: calc(100vw - 16px) !important;
+    margin: 8px auto !important;
+  }
+  .ant-modal .ant-modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  /* antd Form 垂直布局优化 */
+  .ant-form-item-label {
+    padding-bottom: 4px !important;
+  }
+
+  /* antd Pagination 紧凑显示 */
+  .ant-pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+  }
+  .ant-pagination-options {
+    display: none !important;
+  }
+
+  /* antd Card 紧凑 */
+  .ant-card-body {
+    padding: 12px !important;
+  }
+
+  /* 卡片网格在移动端强制单列 */
+  .hplc-card-grid,
+  .medium-card-grid,
+  .chrom-column-card-grid,
+  .standard-card-grid,
+  .storage-condition-card-grid,
+  .reagent-card-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  /* 统计卡片在移动端 2 列 */
+  .hplc-stats,
+  .medium-stats,
+  .chrom-column-stats,
+  .standard-stats,
+  .storage-condition-stats,
+  .reagent-stats {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  .stat-card {
+    padding: 12px !important;
+  }
+  .stat-num {
+    font-size: 22px !important;
+  }
+
+  /* 工具栏垂直堆叠 */
+  .hplc-toolbar,
+  .medium-toolbar,
+  .chrom-column-toolbar,
+  .standard-toolbar,
+  .storage-condition-toolbar,
+  .reagent-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .hplc-search-wrap,
+  .medium-search-wrap,
+  .chrom-column-search-wrap,
+  .standard-search-wrap,
+  .storage-condition-search-wrap,
+  .reagent-search-area {
+    max-width: none !important;
+  }
+
+  /* 页面标题区缩小 */
+  .hplc-title h1,
+  .medium-title h1,
+  .chrom-column-title h1,
+  .standard-title h1,
+  .storage-condition-title h1 {
+    font-size: 20px !important;
+  }
+  .hplc-page,
+  .medium-page,
+  .chrom-column-page,
+  .standard-page,
+  .storage-condition-page,
+  .reagent-page {
+    padding: 12px !important;
+  }
+
+  /* 状态 chips 横向滚动 */
+  .hplc-status-chips {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    padding-bottom: 4px;
+  }
+
+  /* 移除所有元素的固定宽度 */
+  * {
+    max-width: 100%;
+  }
+}
+

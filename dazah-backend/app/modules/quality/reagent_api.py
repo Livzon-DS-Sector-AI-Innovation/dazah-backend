@@ -348,7 +348,6 @@ async def create_reagent(
                 "reagent_no": request.reagent_no,
                 "content": request.content,
                 "manufacturer": request.manufacturer,
-                "quantity": request.quantity,
                 "unit": request.unit,
             },
             operator="system",

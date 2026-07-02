@@ -3,12 +3,17 @@
 // ============ 枚举定义 ============
 
 export enum DeviationType {
-  PRODUCTION = 'production',       // 生产偏差
-  INSPECTION = 'inspection',       // 检验偏差
-  EQUIPMENT = 'equipment',         // 设备偏差
-  ENVIRONMENT = 'environment',    // 环境偏差
-  WAREHOUSE = 'warehouse',        // 仓储偏差
-  PERSONNEL = 'personnel',        // 人员偏差
+  IPC_DEFECT = 'ipc_defect',                       // 过程控制（IPC）缺陷
+  FOREIGN_OBJECT = 'foreign_object',               // 外来异物（有形）
+  CALIBRATION_MAINTENANCE = 'calibration_maintenance',  // 校验/预防维修
+  MIXUP = 'mixup',                                 // 混淆
+  MATERIAL_QUALITY_DEFECT = 'material_quality_defect',  // 物料质量缺陷
+  PERSONNEL_ERROR = 'personnel_error',             // 人员失误
+  OOS_RESULT = 'oos_result',                       // 超标检验结果
+  DOCUMENTATION_DEFECT = 'documentation_defect',   // 文件记录缺陷
+  EQUIPMENT_FAILURE = 'equipment_failure',         // 设备故障/过程中断
+  ENVIRONMENT = 'environment',                     // 环境
+  OTHER = 'other',                                 // 其它
 }
 
 export enum DeviationLevel {
@@ -356,12 +361,17 @@ export interface DeviationFilter {
 // ============ 枚举标签映射 ============
 
 export const DeviationTypeLabels: Record<DeviationType, string> = {
-  [DeviationType.PRODUCTION]: '生产偏差',
-  [DeviationType.INSPECTION]: '检验偏差',
-  [DeviationType.EQUIPMENT]: '设备偏差',
-  [DeviationType.ENVIRONMENT]: '环境偏差',
-  [DeviationType.WAREHOUSE]: '仓储偏差',
-  [DeviationType.PERSONNEL]: '人员偏差',
+  [DeviationType.IPC_DEFECT]: '过程控制（IPC）缺陷',
+  [DeviationType.FOREIGN_OBJECT]: '外来异物（有形）',
+  [DeviationType.CALIBRATION_MAINTENANCE]: '校验/预防维修',
+  [DeviationType.MIXUP]: '混淆',
+  [DeviationType.MATERIAL_QUALITY_DEFECT]: '物料质量缺陷',
+  [DeviationType.PERSONNEL_ERROR]: '人员失误',
+  [DeviationType.OOS_RESULT]: '超标检验结果',
+  [DeviationType.DOCUMENTATION_DEFECT]: '文件记录缺陷',
+  [DeviationType.EQUIPMENT_FAILURE]: '设备故障/过程中断',
+  [DeviationType.ENVIRONMENT]: '环境',
+  [DeviationType.OTHER]: '其它',
 };
 
 export const DeviationLevelLabels: Record<DeviationLevel, string> = {
@@ -461,12 +471,17 @@ export const getStatusColor = (status: string): string => {
 
 // ============ 简化的标签映射（用于 Select options） ============
 export const deviationTypeLabels: Record<string, string> = {
-  production: '生产偏差',
-  inspection: '检验偏差',
-  equipment: '设备偏差',
-  environment: '环境偏差',
-  warehouse: '仓储偏差',
-  personnel: '人员偏差',
+  ipc_defect: '过程控制（IPC）缺陷',
+  foreign_object: '外来异物（有形）',
+  calibration_maintenance: '校验/预防维修',
+  mixup: '混淆',
+  material_quality_defect: '物料质量缺陷',
+  personnel_error: '人员失误',
+  oos_result: '超标检验结果',
+  documentation_defect: '文件记录缺陷',
+  equipment_failure: '设备故障/过程中断',
+  environment: '环境',
+  other: '其它',
 };
 
 export const deviationLevelLabels: Record<string, string> = {
