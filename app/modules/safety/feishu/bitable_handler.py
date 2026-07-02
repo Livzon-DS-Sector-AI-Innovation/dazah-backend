@@ -673,8 +673,14 @@ async def _download_and_save_attachments(
         logger.info("API 未返回附件，回退到事件数据: record_id=%s", record_id)
         for field_cn in _att_fields:
             raw = bitable_fields.get(field_cn)
-            if isinstance(raw, (list, str)):
-                attachments = _extract_attachments(raw if not isinstance(raw, str) else json.loads(raw))
+            if isinstance(raw, list):
+                attachments = _extract_attachments(raw)
+            elif isinstance(raw, str) and raw.strip():
+                try:
+                    attachments = _extract_attachments(json.loads(raw))
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning("附件字段 JSON 解析失败: field=%s raw=%s", field_cn, str(raw)[:100])
+                    attachments = []
                 if attachments:
                     logger.info(
                         "从事件数据发现附件: field=%s count=%d", field_cn, len(attachments),
@@ -2256,9 +2262,12 @@ async def _auto_skip_level2_for_general_hazard(hazard: Any, record_id: str) -> N
         return
 
     # 2. 回写 Bitable「分管领导复核」字段为「无需复核」
+    # 注意：不设置 sync_ignore，因为重入 webhook 是安全的：
+    #   - _compute_rectification_status 会计算出相同的 "level2_approved"
+    #   - computed_status == old_rectification_status → 跳过更新，不会触发额外的 Bitable 写回
+    # 设置 sync_ignore 反而会阻塞用户在 Bitable 的后续 V3 操作 webhook（TTL=30s 竞态）。
     try:
         _bt = SafetyBitableClient()
-        await _set_sync_ignore(record_id, ttl=30)
         ok = await _bt.update_record(record_id, {"分管领导复核": "无需复核"})
         if ok:
             logger.info(

@@ -38,9 +38,10 @@ class ComplianceLevel(StrEnum):
 
 
 class ReviewConclusion(StrEnum):
-    """综合评审判定"""
-    PASS = "通过"   # AI 初审通过，进入人工复核
-    FAIL = "不通过"  # AI 初审不通过，返回责任人重新整改
+    """综合评审判定（v2：新增无需整改）"""
+    PASS = "通过"             # AI 初审通过，进入人工复核
+    FAIL = "不通过"            # AI 初审不通过，返回责任人重新整改
+    NO_NEED = "无需整改"       # AI 判断缺陷非实质，跳过 L1/L2，直接通知 L3 检查人员闭环
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -95,6 +96,14 @@ class RectificationReviewInput(BaseModel):
         None, description="责任部门"
     )
 
+    # ── AI 隐患识别阶段的缺陷实质评估（v2：供整改初审参考）──
+    defect_substance: str | None = Field(
+        None, description="AI隐患识别阶段的缺陷实质评估: substantive / procedural / uncertain"
+    )
+    defect_substance_reasoning: str | None = Field(
+        None, description="AI隐患识别阶段的缺陷实质评估理由"
+    )
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 输出模型
@@ -102,7 +111,16 @@ class RectificationReviewInput(BaseModel):
 
 
 class RectificationReviewOutput(BaseModel):
-    """AI 整改初审完整输出 — 3 个审核维度 + 综合结论"""
+    """AI 整改初审完整输出 — 3 个审核维度 + 综合结论（v2：新增缺陷重评估）"""
+
+    # ── 缺陷重评估（v2：基于整改回复反推缺陷实质）──
+    defect_reassessment: str = Field(
+        default="", min_length=0,
+        description="基于整改回复的缺陷实质重评估：回复是否表明缺陷为非实质/过度识别？"
+    )
+    defect_reassessment_level: str = Field(
+        default="", description="重评估结论: substantive / procedural / over_identified"
+    )
 
     # ── 图片比对 ──
     photo_match_analysis: str = Field(

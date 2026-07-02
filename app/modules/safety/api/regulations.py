@@ -12,11 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import CurrentUser, get_current_user
 from app.core.response import ApiResponse
-from app.core.storage import is_enabled as minio_enabled, upload_object
+from app.core.storage import is_enabled as minio_enabled
+from app.core.storage import upload_object
 from app.modules.safety.schemas import (
     OperationRegulationCreate,
     OperationRegulationResponse,
     OperationRegulationUpdate,
+    RegulationReviseRequest,
     RegulationRevisionCreate,
     RegulationRevisionResponse,
     RegulationRevisionUpdate,
@@ -451,6 +453,37 @@ async def update_sop_content(
 
 
 @regulations_router.post(
+    "/regulations/{regulation_id}/revise",
+    response_model=ApiResponse,
+    summary="在线修订操规",
+)
+async def revise_regulation(
+    regulation_id: uuid.UUID,
+    data: "RegulationReviseRequest",
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+):
+    """保存修订后的操规内容，并自动生成一条修订记录。
+
+    与 /content 端点不同，本端点会额外：
+    - 自动生成修订编号 (REV-{操规编号}-{时间戳})
+    - 创建 RegulationRevision 记录（revision_type=manual, review_opinion=approved）
+    - 记录审计日志
+    """
+    service = RegulationService(db)
+    result = await service.revise_regulation(
+        regulation_id,
+        content=data.content,
+        revision_opinion=data.revision_opinion,
+        reviser_name=data.reviser_name,
+    )
+    if not result:
+        return ApiResponse(code=404, message="操规不存在")
+    await db.commit()
+    return ApiResponse(data=result, message="修订保存成功")
+
+
+@regulations_router.post(
     "/regulations/{regulation_id}/export",
     summary="导出标准化操规 PDF",
 )
@@ -460,9 +493,12 @@ async def export_sop_pdf(
     current_user: CurrentUser | None = Depends(get_current_user),
 ):
     """将存储的标准化 Markdown 渲染为 PDF，返回文件下载。"""
-    from app.core.storage import get_object as minio_get, is_enabled as _minio_enabled
-    from fastapi.responses import StreamingResponse
     from io import BytesIO
+
+    from fastapi.responses import StreamingResponse
+
+    from app.core.storage import get_object as minio_get
+    from app.core.storage import is_enabled as _minio_enabled
 
     service = SopGeneratorService(db)
     pdf_path = await service.export_pdf(regulation_id)

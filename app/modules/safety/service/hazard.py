@@ -43,6 +43,7 @@ _STATUS_TO_BITABLE_LABEL: dict[str, str] = {
     "pending": "整改中",               # Bitable 无「待整改」，待整改=整改进行中
     "in_progress": "整改中",
     "verifying": "复核中",             # 复核中 Bitable 选项
+    "no_rectification_needed": "无需整改",
 }
 
 
@@ -71,6 +72,19 @@ def _build_ai_review_summary(result: dict) -> str:
             f"标准合规：{level_labels.get(compliance_level, compliance_level)}",
         ]
         summary = "AI初审通过。" + "，".join(parts) + "。"
+        review_comments = (result.get("review_comments") or "").strip()
+        if review_comments:
+            summary += f"\n审核意见：{review_comments}"
+        return summary
+
+    if conclusion == "无需整改":
+        # AI 判定缺陷非实质性安全风险，跳过 L1/L2，直接通知 L3 检查人员现场闭环确认
+        parts = [
+            "AI判定该隐患为非实质性缺陷，无需执行整改流程。",
+            "已跳过部门负责人复核（L1）和分管领导复核（L2）。",
+            "请检查人员（L3）到现场确认后闭环。",
+        ]
+        summary = "AI初审结论：无需整改。\n" + "\n".join(parts)
         review_comments = (result.get("review_comments") or "").strip()
         if review_comments:
             summary += f"\n审核意见：{review_comments}"
@@ -121,7 +135,12 @@ async def _sync_ai_review_to_bitable(hazard: HazardReport, result: dict) -> None
         from app.modules.safety.feishu.bitable_handler import _set_sync_ignore
 
         conclusion = (result.get("review_conclusion") or "").strip()
-        bitable_conclusion = "已通过" if conclusion == "通过" else "已驳回"
+        if conclusion == "通过":
+            bitable_conclusion = "已通过"
+        elif conclusion == "无需整改":
+            bitable_conclusion = "无需整改"
+        else:
+            bitable_conclusion = "已驳回"
         summary = _build_ai_review_summary(result)
 
         bitable = SafetyBitableClient()
@@ -162,6 +181,30 @@ async def _sync_rectification_status_to_bitable(hazard: HazardReport, status: st
         )
     except Exception:
         logger.exception("整改状态回写 Bitable 失败: hazard_no=%s", hazard.hazard_no)
+
+
+async def _sync_verify_status_to_bitable(hazard: HazardReport, field_name: str, value: str) -> None:
+    """将单个复核状态字段（部门负责人复核/分管领导复核/检查人员复核）回写到 Bitable。"""
+    try:
+        record_id = hazard.feishu_record_id
+        if not record_id:
+            return
+
+        from app.modules.safety.feishu.bitable_client import SafetyBitableClient
+        from app.modules.safety.feishu.bitable_handler import _set_sync_ignore
+
+        bitable = SafetyBitableClient()
+        await _set_sync_ignore(record_id, ttl=30)
+        await bitable.update_record(record_id, {field_name: value})
+        logger.info(
+            "复核状态已回写 Bitable: hazard_no=%s field=%s value=%s",
+            hazard.hazard_no, field_name, value,
+        )
+    except Exception:
+        logger.exception(
+            "复核状态回写 Bitable 失败: hazard_no=%s field=%s",
+            hazard.hazard_no, field_name,
+        )
 
 
 class HazardService:
@@ -461,7 +504,10 @@ class HazardService:
             # 防御性关卡：AI 审核必须已完成，防止 AI 异常/失败时流程被错误放行
             if hazard.ai_review_status != "completed":
                 return None
-        if level == 2 and hazard.verify_level_1_status != "approved":
+        if level == 2 and (
+            hazard.verify_level_1_status != "approved"
+            or hazard.verify_level_2_status in ("approved", "no_review_needed")
+        ):
             return None
         if level == 3 and hazard.verify_level_2_status not in ("approved", "no_review_needed"):
             return None
@@ -661,6 +707,8 @@ class HazardService:
                 "hazard_category": output.hazard_category.value,
                 "hazard_level": output.hazard_level.value,
                 "major_hazard_basis": output.major_hazard_basis,
+                "defect_substance": output.defect_substance.value,
+                "defect_substance_reasoning": output.defect_substance_reasoning,
                 # 整改建议也返回，供后续 script 2 或人工参考
                 "rectification_suggestion": {
                     "corrective": output.rectification_suggestion.corrective,
@@ -801,6 +849,8 @@ class HazardService:
             rectification_reply=item.rectification_reply or "",
             rectification_photos=rectification_image_urls,
             department=item.department or "",
+            defect_substance=item.defect_substance or "",
+            defect_substance_reasoning=item.defect_substance_reasoning or "",
         )
 
         # 根据是否有整改后图片选择 AI 服务（在知识加载前创建，供智能卡片选择使用）
@@ -845,6 +895,8 @@ class HazardService:
 
             # 转换为 dict（3 审核维度：图片比对 / 措施有效性 / 标准合规）
             return {
+                "defect_reassessment": output.defect_reassessment,
+                "defect_reassessment_level": output.defect_reassessment_level,
                 "photo_match_analysis": output.photo_match_analysis,
                 "photo_match_level": output.photo_match_level.value,
                 "measure_quality_assessment": output.measure_quality_assessment,
@@ -955,6 +1007,50 @@ class HazardService:
                         )
                     logger.info(
                         "AI 初审不通过 → 自动驳回，通知责任人: hazard_id=%s",
+                        hazard_id,
+                    )
+                elif conclusion == "无需整改":
+                    # AI 判定无需整改 → 跳过 L1/L2，直接通知 L3 检查人员闭环确认
+                    # 缺陷非实质性安全风险，但仍需检查人员现场确认后关闭
+                    await bg_service.repo.update_hazard(
+                        hazard_id,
+                        {
+                            "rectification_status": "no_rectification_needed",
+                            "verify_level_1_status": "no_review_needed",
+                            "verify_level_2_status": "no_review_needed",
+                            "verify_level_3_status": "pending",
+                        },
+                    )
+                    await bg_session.commit()
+                    no_need = await bg_service.repo.get_hazard_by_id(hazard_id)
+                    if no_need:
+                        # 通知 L3 检查人员闭环确认，卡片中标注「AI 判定：无需整改」
+                        asyncio.create_task(
+                            _send_verify_notification(no_need, 3)
+                        )
+                        # 同步 AI 初审结果到 Bitable
+                        asyncio.create_task(
+                            _sync_ai_review_to_bitable(no_need, result)
+                        )
+                        # 同步整改状态「无需整改」到 Bitable
+                        asyncio.create_task(
+                            _sync_rectification_status_to_bitable(
+                                no_need, "no_rectification_needed",
+                            )
+                        )
+                        # 同步 V1/V2「无需复核」到 Bitable（与多維表格保持一致）
+                        asyncio.create_task(
+                            _sync_verify_status_to_bitable(
+                                no_need, "部门负责人复核", "无需复核",
+                            )
+                        )
+                        asyncio.create_task(
+                            _sync_verify_status_to_bitable(
+                                no_need, "分管领导复核", "无需复核",
+                            )
+                        )
+                    logger.info(
+                        "AI 初审无需整改 → 跳过 L1/L2，通知 L3 检查人员闭环: hazard_id=%s",
                         hazard_id,
                     )
                 else:
@@ -1068,6 +1164,8 @@ class HazardService:
                 ("hazard_category", "hazard_category"),
                 ("key_defect", "key_defect"),
                 ("major_hazard_basis", "major_hazard_basis"),
+                ("defect_substance", "defect_substance"),
+                ("defect_substance_reasoning", "defect_substance_reasoning"),
             ]:
                 if json_key in output and output[json_key]:
                     val = output[json_key]

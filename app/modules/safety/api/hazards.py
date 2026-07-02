@@ -414,8 +414,8 @@ async def notify_reviewer(
     v1 = hazard.verify_level_1_status
     v2 = hazard.verify_level_2_status
     v3 = hazard.verify_level_3_status
-    v1_done = v1 in ("approved", "rejected")
-    v2_done = v2 in ("approved", "rejected")
+    v1_done = v1 in ("approved", "rejected", "no_review_needed")
+    v2_done = v2 in ("approved", "rejected", "no_review_needed")
     v3_done = v3 in ("approved", "rejected")
 
     current_level = None

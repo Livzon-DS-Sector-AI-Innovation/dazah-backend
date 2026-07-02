@@ -272,6 +272,7 @@ class AIHazardIdentifier:
         try:
             # 解析枚举
             from app.modules.safety.ai_hazard_identification.schemas import (
+                DefectSubstanceEnum,
                 HazardCategoryEnum,
                 HazardLevelEnum,
                 HazardTypeEnum,
@@ -296,6 +297,8 @@ class AIHazardIdentifier:
                     preventive=rs.get("preventive", ""),
                 ),
                 major_hazard_basis=raw.get("major_hazard_basis", ""),
+                defect_substance=DefectSubstanceEnum(raw.get("defect_substance", "uncertain")),
+                defect_substance_reasoning=raw.get("defect_substance_reasoning", ""),
                 confidence=raw.get("confidence") if self.config.enable_reasoning else None,
                 reasoning=raw.get("reasoning") if self.config.enable_reasoning else None,
             )

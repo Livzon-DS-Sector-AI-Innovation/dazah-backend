@@ -156,3 +156,19 @@ class SopContentUpdate(BaseModel):
     status: str | None = Field(None, max_length=20, description="新状态（可选）")
 
 
+class RegulationReviseRequest(BaseModel):
+    """修订操规请求 — 保存内容并自动生成修订记录"""
+    content: str = Field(..., description="修订后的标准化 Markdown 内容")
+    revision_opinion: str | None = Field(None, description="修订意见/说明")
+    reviser_name: str | None = Field(None, max_length=100, description="修订人姓名")
+
+
+class RegulationReviseResponse(BaseModel):
+    """修订操规响应"""
+    regulation_id: uuid.UUID
+    revision_id: uuid.UUID
+    revision_no: str
+    regulation_name: str
+    status: str
+
+

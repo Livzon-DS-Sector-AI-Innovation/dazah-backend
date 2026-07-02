@@ -491,6 +491,77 @@ class RegulationService:
             },
         )
 
+    # ==================== 在线修订流程 ====================
+
+    async def revise_regulation(
+        self,
+        regulation_id: uuid.UUID,
+        content: str,
+        revision_opinion: str | None = None,
+        reviser_name: str | None = None,
+    ) -> dict | None:
+        """在线修订操规：保存内容并自动生成修订记录。
+
+        1. 获取当前操规，保存旧文档路径
+        2. 更新操规内容 + 状态为 reviewed
+        3. 自动生成修订编号并创建修订记录
+        4. 返回 regulation_id + revision_id + revision_no
+        """
+        regulation = await self.repo.get_regulation_by_id(regulation_id)
+        if not regulation:
+            return None
+
+        # 保存旧文档路径（用于修订记录）
+        old_doc_path = regulation.document_path
+
+        # 更新操规内容和状态
+        await self.repo.update_regulation(
+            regulation_id,
+            {
+                "content": content,
+                "status": "reviewed",
+            },
+        )
+
+        # 自动生成修订编号：REV-{操规编号}-{时间戳}
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        revision_no = f"REV-{regulation.regulation_no}-{ts}"
+
+        # 创建修订记录
+        revision_data = {
+            "revision_no": revision_no,
+            "regulation_id": regulation_id,
+            "regulation_name": regulation.regulation_name,
+            "old_document_path": old_doc_path,
+            "revision_type": "manual",
+            "revision_opinion": revision_opinion,
+            "reviser_name": reviser_name,
+            "revision_time": datetime.now(),
+            "review_opinion": "approved",  # 直接编辑即审核通过
+        }
+        revision = await self.repo.create_revision(revision_data)
+
+        await self._audit(
+            "revise",
+            "regulation",
+            resource_id=regulation_id,
+            extra={
+                "revision_id": str(revision.id),
+                "revision_no": revision_no,
+                "reviser_name": reviser_name,
+            },
+        )
+
+        await self.session.flush()
+
+        return {
+            "regulation_id": regulation_id,
+            "revision_id": revision.id,
+            "revision_no": revision_no,
+            "regulation_name": regulation.regulation_name,
+            "status": "reviewed",
+        }
+
 
 # ==================== AI 配置 Service ====================
 
