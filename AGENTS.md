@@ -98,6 +98,102 @@ DELETE /api/v1/{module}/{resource}/{id}
 - **生产环境**：浏览器 → nginx → Next.js (3000) 或 后端 (8000)
 - **前端服务器端**：直接通过 `API_BASE_URL` 环境变量访问后端（Docker 内部网络，地址为 `http://dazah-backend-app-1:8000`）
 
+## Livzon Agent 工具开发规范
+
+Livzon Agent 不能直接操作数据库，也不能自由调用任意后端 API。所有暴露给 Agent 的业务能力必须通过 `app.modules.agent.tools.@agent_tool` 注册，并由 `ToolRegistry` 和 `ToolExecutor` 统一执行。
+
+### 核心边界
+
+- Agent 只能调用已注册到 `ToolRegistry` 的工具，未注册 operation 一律拒绝。
+- Hermes-Lite 只能通过 `/api/v1/agent/tools/execute` 调用后端工具网关，不得绕过后端访问业务接口。
+- 工具 handler 只能调用本模块 Service 或明确公开的 `public_api.py`，禁止直接操作 ORM model、repository 私有实现或拼 SQL。
+- 禁止业务模块工具直接复用另一个业务模块的内部 service、handler、repository 或配置来源；跨模块协作优先通过目标模块 `public_api.py`。
+- 权限、参数校验、确认流程和审计由 `ToolExecutor` 统一处理，业务工具不要自行另造一套 Agent 权限/确认/审计链路。
+
+### 新增工具标准流程
+
+1. 在所属业务模块 Service 中实现业务逻辑，保持业务规则仍在模块内。
+2. 在 `app/modules/<module>/agent_tools.py` 中定义 Pydantic v2 InputSchema。
+3. 使用 `@agent_tool(...)` 注册工具，声明 `name`、`summary`、`input_model`、`write`、`risk_level`、`workflow_allowed`、`human_decision_required` 等元数据。
+4. handler 接收 `ToolContext` 和已校验的 InputSchema，只做薄封装和结果序列化。
+5. 在 `app/modules/agent/tool_registration.py` 导入该模块 `agent_tools.py`，确保 FastAPI 启动时触发注册。
+6. 为注册、参数校验、权限、确认、高风险拒绝和核心业务调用补测试。
+7. 若新增或修改 Agent API，运行 `uv run python scripts/export_openapi.py` 更新 `openapi.json`。
+8. 前端同步运行 `pnpm generate:api` 更新生成类型。
+9. 如果 Hermes-Lite 仍使用静态工具 schema，同步更新 `Hermes-Lite/tools/dazah_platform.py` 的 `ALLOWED_OPERATIONS` 和相关 README/提示词。
+
+示例：
+
+```python
+from pydantic import BaseModel, Field
+
+from app.modules.agent.tools import ToolContext, agent_tool
+
+
+class QualityInspectionListInput(BaseModel):
+    status: str | None = None
+    keyword: str | None = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
+
+
+@agent_tool(
+    name="quality.list_inspections",
+    summary="查询质量检查记录",
+    input_model=QualityInspectionListInput,
+    write=False,
+    risk_level="medium",
+    workflow_allowed=True,
+    method="GET",
+    path="/quality/inspections",
+)
+async def list_quality_inspections(
+    context: ToolContext,
+    data: QualityInspectionListInput,
+) -> dict:
+    service = QualityService(context.db)
+    result = await service.list_inspections(
+        status=data.status,
+        keyword=data.keyword,
+        page=data.page,
+        page_size=data.page_size,
+    )
+    return result.model_dump(mode="json")
+```
+
+### 工具命名与元数据
+
+- 工具名使用 `<module>.<verb>_<resource>`，例如 `warehouse.list_raw_materials`、`procurement.create_purchase_request`。
+- 查询类工具优先使用 `list_*`、`get_*`。
+- 写入类工具优先使用 `create_*`、`update_*`、`set_*`、`submit_*`、`sync_*`、`run_*`。
+- `summary` 使用清晰中文，便于 Agent 选择工具。
+- `input_model` 必须是 Pydantic v2 模型，不要让工具 handler 自己解析松散 dict。
+- `method` / `path` 仅作为兼容和展示元数据，不代表 Agent 可以直接调用该 HTTP API。
+
+### 风险与确认规则
+
+- `write=False` 的查询工具可直接执行。
+- `write=True` 的工具默认只生成 `agent_confirmations` 确认项，用户确认后才执行。
+- `risk_level` 可选 `low`、`medium`、`high`。
+- 审批、驳回、批准、重启关键连接等需要人工责任判断的操作，必须设置 `human_decision_required=True`，不得由 Agent 代执行。
+- `human_decision_required=True` 的工具必须同时设置 `workflow_allowed=False`。
+- 工作流只允许包含 `workflow_allowed=True` 且 `human_decision_required=False` 的业务工具。
+
+### 审计与可追踪性
+
+- 每次工具调用必须经过 `ToolExecutor`，并写入 `core.agent_tool_calls`。
+- 工具执行、确认执行和策略拒绝必须写入 `audit.logs`。
+- 审计中不得记录明文 secret、token、password、key 等敏感字段。
+- 工具返回大对象时应返回业务摘要或分页结果，避免把过大响应写入审计。
+
+### 禁止事项
+
+- 禁止在 Hermes-Lite 中新增绕过 Dazah 后端的业务 HTTP 调用。
+- 禁止 Agent 工具直接连接 PostgreSQL、Redis、飞书业务表或第三方业务系统。
+- 禁止工具 handler 直接 `db.execute()` 拼业务 SQL，除非这是本模块 Service 已定义并审查过的底层实现。
+- 禁止把审批、驳回、批准等责任判断伪装成普通写操作。
+- 禁止新增工具后不补 `tool_registration.py`、测试和 OpenAPI 同步。
+
 ## 数据库与迁移
 
 数据库使用 PostgreSQL schema 做边界隔离：

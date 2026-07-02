@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+import secrets
+from datetime import UTC, datetime, timedelta
+from hashlib import pbkdf2_hmac
+from hmac import compare_digest
 
 import jwt
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.database import async_session_factory
 from app.platform.identity.models import User
 from app.platform.identity.repository import UserRepository
 from app.platform.integrations.feishu.oauth import FeishuOAuthClient
@@ -16,6 +21,57 @@ from app.platform.integrations.feishu.oauth import FeishuOAuthClient
 logger = logging.getLogger(__name__)
 
 _repo = UserRepository()
+_PASSWORD_ITERATIONS = 260_000
+
+
+def hash_password(password: str) -> str:
+    """Hash a local-account password using PBKDF2-SHA256."""
+    salt = secrets.token_bytes(16)
+    digest = pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt, _PASSWORD_ITERATIONS
+    )
+    return (
+        f"pbkdf2_sha256${_PASSWORD_ITERATIONS}$"
+        f"{salt.hex()}${digest.hex()}"
+    )
+
+
+def verify_password(password: str, stored_hash: str | None) -> bool:
+    if not stored_hash:
+        return False
+    try:
+        algorithm, iterations, salt_hex, digest_hex = stored_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        expected = pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            bytes.fromhex(salt_hex),
+            int(iterations),
+        ).hex()
+    except (ValueError, TypeError):
+        return False
+    return compare_digest(expected, digest_hex)
+
+
+def _split_identifiers(raw: str) -> set[str]:
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+
+def _matches_admin_whitelist(user: User, raw_identifiers: str) -> bool:
+    identifiers = _split_identifiers(raw_identifiers)
+    if not identifiers:
+        return False
+    candidates = {
+        user.username,
+        user.feishu_open_id,
+        user.feishu_user_id,
+        user.email,
+        user.enterprise_email,
+        user.mobile,
+        user.employee_no,
+    }
+    return any(value and value.lower() in identifiers for value in candidates)
 
 
 async def handle_oauth_callback(
@@ -77,6 +133,21 @@ async def handle_oauth_callback(
             avatar_middle=avatar_middle,
             avatar_big=avatar_big,
             tenant_key=tenant_key,
+            role="admin"
+            if _matches_admin_whitelist(
+                User(
+                    name=name,
+                    feishu_user_id=user_id,
+                    feishu_open_id=open_id,
+                    email=email,
+                    enterprise_email=enterprise_email,
+                    mobile=mobile,
+                ),
+                get_settings().SSO_ADMIN_IDENTIFIERS,
+            )
+            else "user",
+            status="active",
+            auth_source="feishu",
         )
         logger.info("Created new user: %s (open_id=%s)", name, open_id)
     else:
@@ -93,8 +164,14 @@ async def handle_oauth_callback(
         user.avatar_middle = avatar_middle or user.avatar_middle
         user.avatar_big = avatar_big or user.avatar_big
         user.tenant_key = tenant_key or user.tenant_key
+        user.auth_source = user.auth_source or "feishu"
+        if _matches_admin_whitelist(user, get_settings().SSO_ADMIN_IDENTIFIERS):
+            user.role = "admin"
         logger.info("Updated user: %s (open_id=%s)", user.name, open_id)
 
+    if user.status == "disabled":
+        raise PermissionError("User account is disabled")
+    user.last_login_at = datetime.now(UTC)
     await db.commit()
 
     # 4. Generate JWT
@@ -105,15 +182,82 @@ async def handle_oauth_callback(
 def generate_jwt(user: User) -> str:
     """Generate a JWT token for the given user."""
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user.id),
         "open_id": user.feishu_open_id,
         "name": user.name,
+        "role": user.role,
+        "auth_source": user.auth_source,
         "iat": now,
         "exp": now + timedelta(seconds=settings.JWT_EXPIRE_SECONDS),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+
+async def authenticate_local_user(
+    db: AsyncSession, *, username: str, password: str
+) -> tuple[User, str]:
+    user = await _repo.get_by_login_identifier(db, username)
+    if user is None or not verify_password(password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户名或密码错误")
+    if user.status == "disabled":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "账号已禁用")
+    user.last_login_at = datetime.now(UTC)
+    await db.flush()
+    return user, generate_jwt(user)
+
+
+async def bootstrap_local_users() -> None:
+    settings = get_settings()
+    entries = [
+        (
+            settings.BOOTSTRAP_ADMIN_USERNAME,
+            settings.BOOTSTRAP_ADMIN_PASSWORD,
+            settings.BOOTSTRAP_ADMIN_NAME,
+            settings.BOOTSTRAP_ADMIN_EMAIL,
+            "admin",
+        ),
+        (
+            settings.BOOTSTRAP_USER_USERNAME,
+            settings.BOOTSTRAP_USER_PASSWORD,
+            settings.BOOTSTRAP_USER_NAME,
+            settings.BOOTSTRAP_USER_EMAIL,
+            "user",
+        ),
+    ]
+
+    async with async_session_factory() as session:
+        changed = False
+        for username, password, name, email, role in entries:
+            if not username or not password:
+                continue
+            existing = await _repo.get_by_username(session, username)
+            if existing is None:
+                await _repo.create(
+                    session,
+                    username=username,
+                    password_hash=hash_password(password),
+                    name=name or username,
+                    email=email or None,
+                    role=role,
+                    status="active",
+                    auth_source="local",
+                )
+                changed = True
+                logger.info("Bootstrapped %s local user: %s", role, username)
+                continue
+
+            existing.password_hash = hash_password(password)
+            existing.name = name or existing.name
+            existing.email = email or existing.email
+            existing.role = role
+            existing.status = "active"
+            existing.auth_source = existing.auth_source or "local"
+            changed = True
+
+        if changed:
+            await session.commit()
 
 
 def generate_state_token() -> str:
@@ -121,7 +265,7 @@ def generate_state_token() -> str:
     import secrets
     settings = get_settings()
     nonce = secrets.token_urlsafe(32)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "nonce": nonce,
         "iat": now,

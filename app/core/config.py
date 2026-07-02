@@ -1,7 +1,6 @@
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -65,7 +64,7 @@ class Settings(BaseSettings):
     # Audit
     AUDIT_RETENTION_DAYS: int = 7
 
-    # Feishu / Lark — platform app shared by SSO, org sync, IM and common Bitable access.
+    # Feishu / Lark — platform app shared by SSO, org sync, IM and common Bitable.
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
     FEISHU_REDIRECT_URI: str = ""
@@ -116,6 +115,17 @@ class Settings(BaseSettings):
     # JWT
     JWT_EXPIRE_SECONDS: int = 86400  # 24 hours
 
+    # Local auth bootstrap (development-stage admin/user accounts)
+    BOOTSTRAP_ADMIN_USERNAME: str = ""
+    BOOTSTRAP_ADMIN_PASSWORD: str = ""
+    BOOTSTRAP_ADMIN_NAME: str = "系统管理员"
+    BOOTSTRAP_ADMIN_EMAIL: str = ""
+    BOOTSTRAP_USER_USERNAME: str = ""
+    BOOTSTRAP_USER_PASSWORD: str = ""
+    BOOTSTRAP_USER_NAME: str = "普通用户"
+    BOOTSTRAP_USER_EMAIL: str = ""
+    SSO_ADMIN_IDENTIFIERS: str = ""
+
     # Feishu Bitable — HR 模块多维表格同步
     FEISHU_BOT_NAME: str = ""
     FEISHU_BITABLE_APP_TOKEN: str = ""
@@ -154,12 +164,21 @@ class Settings(BaseSettings):
     STORAGE_ROOT: str = "./storage"
 
     # LLM (AI 解析配置)
-    LLM_API_KEY: Optional[str] = None
-    LLM_BASE_URL: Optional[str] = "https://api.deepseek.com"
-    LLM_MODEL: Optional[str] = "deepseek-chat"
+    LLM_API_KEY: str | None = None
+    LLM_BASE_URL: str | None = "https://api.deepseek.com"
+    LLM_MODEL: str | None = "deepseek-chat"
 
     # MCP — AI Agent 认证
     MCP_AGENT_API_KEYS: str = ""
+
+    # Hermes 中枢 Agent
+    HERMES_AGENT_URL: str = ""
+    HERMES_AGENT_TOKEN: str = ""
+    AGENT_TOOL_TOKEN: str = ""
+    AGENT_LLM_PROXY_TOKEN: str = ""
+    AGENT_INTERNAL_API_BASE_URL: str = "http://127.0.0.1:8000/api/v1"
+    AGENT_INTERNAL_API_TOKEN: str = ""
+    AGENT_WRITE_CONFIRM_TTL_SECONDS: int = 300
 
     # API
     API_V1_PREFIX: str = "/api/v1"
@@ -173,12 +192,6 @@ class Settings(BaseSettings):
         missing: list[str] = []
         if not self.SECRET_KEY:
             missing.append("SECRET_KEY")
-        if not self.FEISHU_APP_ID:
-            missing.append("FEISHU_APP_ID")
-        if not self.FEISHU_APP_SECRET:
-            missing.append("FEISHU_APP_SECRET")
-        if not self.FEISHU_REDIRECT_URI:
-            missing.append("FEISHU_REDIRECT_URI")
         if not self.FRONTEND_URL:
             missing.append("FRONTEND_URL")
         if missing:

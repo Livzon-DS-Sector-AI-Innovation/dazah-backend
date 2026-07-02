@@ -1,18 +1,17 @@
 """LLM configuration API endpoints."""
 
 import uuid
-from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.platform.identity.deps import get_current_user
-from app.shared.base_model import BaseModel as DBBaseModel
+from app.platform.identity.deps import AdminUser
+
 from .config import LLMConfigModel
 from .encryption import encrypt_api_key, mask_api_key
-
 
 router = APIRouter(prefix="/llm/configs", tags=["LLM Configuration"])
 
@@ -27,20 +26,20 @@ class LLMConfigCreate(BaseModel):
     temperature: float = Field(default=0.1, ge=0, le=2)
     timeout_seconds: int = Field(default=120, ge=10, le=600)
     is_active: bool = False
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class LLMConfigUpdate(BaseModel):
     """Request body for updating LLM config."""
-    config_name: Optional[str] = Field(None, max_length=128)
-    config_type: Optional[str] = Field(None, pattern="^(text|vision)$")
-    api_base_url: Optional[str] = Field(None, max_length=500)
-    api_key: Optional[str] = Field(None, max_length=500)
-    model_name: Optional[str] = Field(None, max_length=128)
-    temperature: Optional[float] = Field(None, ge=0, le=2)
-    timeout_seconds: Optional[int] = Field(None, ge=10, le=600)
-    is_active: Optional[bool] = None
-    notes: Optional[str] = None
+    config_name: str | None = Field(None, max_length=128)
+    config_type: str | None = Field(None, pattern="^(text|vision)$")
+    api_base_url: str | None = Field(None, max_length=500)
+    api_key: str | None = Field(None, max_length=500)
+    model_name: str | None = Field(None, max_length=128)
+    temperature: float | None = Field(None, ge=0, le=2)
+    timeout_seconds: int | None = Field(None, ge=10, le=600)
+    is_active: bool | None = None
+    notes: str | None = None
 
 
 class LLMConfigResponse(BaseModel):
@@ -54,52 +53,53 @@ class LLMConfigResponse(BaseModel):
     temperature: float
     timeout_seconds: int
     is_active: bool
-    notes: Optional[str]
+    notes: str | None
     created_at: str
     updated_at: str
 
 
+def _to_response(config: LLMConfigModel) -> LLMConfigResponse:
+    return LLMConfigResponse(
+        id=str(config.id),
+        config_name=config.config_name,
+        config_type=config.config_type,
+        api_base_url=config.api_base_url,
+        api_key_masked=mask_api_key(config.encrypted_api_key),
+        model_name=config.model_name,
+        temperature=config.temperature,
+        timeout_seconds=config.timeout_seconds,
+        is_active=config.is_active,
+        notes=config.notes,
+        created_at=config.created_at.isoformat(),
+        updated_at=config.updated_at.isoformat(),
+    )
+
+
 @router.get("", response_model=list[LLMConfigResponse])
 async def list_configs(
-    config_type: Optional[str] = Query(None, pattern="^(text|vision)$"),
+    config_type: str | None = Query(None, pattern="^(text|vision)$"),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: AdminUser = None,
 ):
     """List all LLM configurations."""
-    query = select(LLMConfigModel).where(LLMConfigModel.is_deleted == False)
-    
+    query = select(LLMConfigModel).where(LLMConfigModel.is_deleted.is_(False))
+
     if config_type:
         query = query.where(LLMConfigModel.config_type == config_type)
-    
+
     query = query.order_by(LLMConfigModel.created_at.desc())
-    
+
     result = await db.execute(query)
     configs = result.scalars().all()
-    
-    return [
-        LLMConfigResponse(
-            id=str(config.id),
-            config_name=config.config_name,
-            config_type=config.config_type,
-            api_base_url=config.api_base_url,
-            api_key_masked=mask_api_key(config.encrypted_api_key),
-            model_name=config.model_name,
-            temperature=config.temperature,
-            timeout_seconds=config.timeout_seconds,
-            is_active=config.is_active,
-            notes=config.notes,
-            created_at=config.created_at.isoformat(),
-            updated_at=config.updated_at.isoformat(),
-        )
-        for config in configs
-    ]
+
+    return [_to_response(config) for config in configs]
 
 
 @router.post("", response_model=LLMConfigResponse, status_code=201)
 async def create_config(
     data: LLMConfigCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: AdminUser = None,
 ):
     """Create a new LLM configuration (admin only)."""
     # If this config is marked as active, deactivate others of same type
@@ -108,11 +108,11 @@ async def create_config(
             update(LLMConfigModel)
             .where(
                 LLMConfigModel.config_type == data.config_type,
-                LLMConfigModel.is_deleted == False,
+                LLMConfigModel.is_deleted.is_(False),
             )
             .values(is_active=False)
         )
-    
+
     config = LLMConfigModel(
         config_name=data.config_name,
         config_type=data.config_type,
@@ -126,59 +126,31 @@ async def create_config(
         created_by=current_user.id if current_user else None,
         updated_by=current_user.id if current_user else None,
     )
-    
+
     db.add(config)
-    await db.commit()
-    await db.refresh(config)
-    
-    return LLMConfigResponse(
-        id=str(config.id),
-        config_name=config.config_name,
-        config_type=config.config_type,
-        api_base_url=config.api_base_url,
-        api_key_masked=mask_api_key(config.encrypted_api_key),
-        model_name=config.model_name,
-        temperature=config.temperature,
-        timeout_seconds=config.timeout_seconds,
-        is_active=config.is_active,
-        notes=config.notes,
-        created_at=config.created_at.isoformat(),
-        updated_at=config.updated_at.isoformat(),
-    )
+    await db.flush()
+    return _to_response(config)
 
 
 @router.get("/{config_id}", response_model=LLMConfigResponse)
 async def get_config(
     config_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: AdminUser = None,
 ):
     """Get a specific LLM configuration."""
     result = await db.execute(
         select(LLMConfigModel).where(
             LLMConfigModel.id == uuid.UUID(config_id),
-            LLMConfigModel.is_deleted == False,
+            LLMConfigModel.is_deleted.is_(False),
         )
     )
     config = result.scalar_one_or_none()
-    
+
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
-    
-    return LLMConfigResponse(
-        id=str(config.id),
-        config_name=config.config_name,
-        config_type=config.config_type,
-        api_base_url=config.api_base_url,
-        api_key_masked=mask_api_key(config.encrypted_api_key),
-        model_name=config.model_name,
-        temperature=config.temperature,
-        timeout_seconds=config.timeout_seconds,
-        is_active=config.is_active,
-        notes=config.notes,
-        created_at=config.created_at.isoformat(),
-        updated_at=config.updated_at.isoformat(),
-    )
+
+    return _to_response(config)
 
 
 @router.put("/{config_id}", response_model=LLMConfigResponse)
@@ -186,20 +158,20 @@ async def update_config(
     config_id: str,
     data: LLMConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: AdminUser = None,
 ):
     """Update an LLM configuration (admin only)."""
     result = await db.execute(
         select(LLMConfigModel).where(
             LLMConfigModel.id == uuid.UUID(config_id),
-            LLMConfigModel.is_deleted == False,
+            LLMConfigModel.is_deleted.is_(False),
         )
     )
     config = result.scalar_one_or_none()
-    
+
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
-    
+
     # If activating this config, deactivate others of same type
     if data.is_active and not config.is_active:
         await db.execute(
@@ -207,69 +179,53 @@ async def update_config(
             .where(
                 LLMConfigModel.config_type == config.config_type,
                 LLMConfigModel.id != config.id,
-                LLMConfigModel.is_deleted == False,
+                LLMConfigModel.is_deleted.is_(False),
             )
             .values(is_active=False)
         )
-    
+
     # Update fields
     update_data = data.model_dump(exclude_unset=True)
-    
+
     # Encrypt API key if provided
     if "api_key" in update_data:
         update_data["encrypted_api_key"] = encrypt_api_key(update_data.pop("api_key"))
-    
+
     for field, value in update_data.items():
         setattr(config, field, value)
-    
+
     config.updated_by = current_user.id if current_user else None
-    
-    await db.commit()
-    await db.refresh(config)
-    
-    return LLMConfigResponse(
-        id=str(config.id),
-        config_name=config.config_name,
-        config_type=config.config_type,
-        api_base_url=config.api_base_url,
-        api_key_masked=mask_api_key(config.encrypted_api_key),
-        model_name=config.model_name,
-        temperature=config.temperature,
-        timeout_seconds=config.timeout_seconds,
-        is_active=config.is_active,
-        notes=config.notes,
-        created_at=config.created_at.isoformat(),
-        updated_at=config.updated_at.isoformat(),
-    )
+
+    await db.flush()
+    return _to_response(config)
 
 
 @router.delete("/{config_id}", status_code=204)
 async def delete_config(
     config_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: AdminUser = None,
 ):
     """Soft delete an LLM configuration (admin only)."""
     result = await db.execute(
         select(LLMConfigModel).where(
             LLMConfigModel.id == uuid.UUID(config_id),
-            LLMConfigModel.is_deleted == False,
+            LLMConfigModel.is_deleted.is_(False),
         )
     )
     config = result.scalar_one_or_none()
-    
+
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
-    
+
     config.is_deleted = True
     config.updated_by = current_user.id if current_user else None
-    
-    await db.commit()
+    await db.flush()
 
 
 @router.post("/test", summary="Test LLM connection")
 async def test_connection(
-    current_user=Depends(get_current_user),
+    current_user: AdminUser = None,
 ):
     """Test LLM connectivity using active config."""
     from .client import llm_client

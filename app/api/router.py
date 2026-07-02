@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.modules.agent import router as agent_router
 from app.modules.administration import router as administration_router
 from app.modules.dossier_writer import router as dossier_writer_router
 from app.modules.energy import router as energy_router
@@ -63,3 +64,4 @@ api_router.include_router(
 )
 from app.core.llm.api import router as llm_router
 api_router.include_router(llm_router, tags=["LLM配置"])
+api_router.include_router(agent_router, prefix="/agent", tags=["中枢 Agent"])

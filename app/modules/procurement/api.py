@@ -32,6 +32,8 @@ from app.modules.procurement.schemas import (
     PurchaseRequestListResponse,
     PurchaseRequestStatus,
     PurchaseRequestUpdate,
+    SupplierImportResponse,
+    SupplierListResponse,
 )
 from app.modules.procurement.service import (
     PURCHASE_CATEGORY_LABELS,
@@ -42,9 +44,11 @@ from app.modules.procurement.service import (
     delete_invoice_recognition_record,
     export_purchase_order_lines_xlsx,
     get_purchase_request,
+    import_supplier_table_file,
     list_invoice_recognition_records,
     list_purchase_order_lines,
     list_purchase_requests,
+    list_suppliers,
     recognize_and_store_invoice_pdf,
     reject_purchase_request,
     submit_purchase_request,
@@ -104,7 +108,11 @@ async def recognize_invoice(
     )
 
 
-async def _read_upload_file_with_limit(file: UploadFile) -> bytes:
+async def _read_upload_file_with_limit(
+    file: UploadFile,
+    *,
+    file_label: str = "PDF 文件",
+) -> bytes:
     chunks: list[bytes] = []
     total_size = 0
     while True:
@@ -115,11 +123,84 @@ async def _read_upload_file_with_limit(file: UploadFile) -> bytes:
         if total_size > MAX_INVOICE_PDF_UPLOAD_BYTES:
             raise HTTPException(
                 status_code=413,
-                detail=f"PDF 文件不能超过 {settings.MAX_UPLOAD_SIZE_MB}MB",
+                detail=f"{file_label}不能超过 {settings.MAX_UPLOAD_SIZE_MB}MB",
             )
         chunks.append(chunk)
 
     return b"".join(chunks)
+
+
+@router.get(
+    "/suppliers",
+    summary="查询供应商清单",
+    description="查询导入的供应商清单，支持按供应商、物料、厂家、品类和原始字段关键词检索。",
+    response_model=SupplierListResponse,
+)
+async def list_supplier_records(
+    keyword: str | None = Query(None, description="跨字段关键词"),
+    supplier_name: str | None = Query(None, description="供应商名称"),
+    material_name: str | None = Query(None, description="物料名称"),
+    purchase_category: str | None = Query(None, description="采购品类名称"),
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=100, description="每页条数"),
+    db: AsyncSession = Depends(get_db),
+):
+    suppliers, total, columns = await list_suppliers(
+        db,
+        keyword=keyword,
+        supplier_name=supplier_name,
+        material_name=material_name,
+        purchase_category=purchase_category,
+        page=page,
+        page_size=page_size,
+    )
+    data = [supplier.model_dump(mode="json") for supplier in suppliers]
+    return success_response(
+        data=data,
+        meta={
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "columns": columns,
+        },
+    )
+
+
+@router.post(
+    "/suppliers/import",
+    summary="导入供应商清单表格",
+    description=(
+        "上传 xlsx、xlsm、csv 或 tsv 表格文件，"
+        "按文件表头读取字段并替换当前供应商清单。"
+    ),
+    response_model=SupplierImportResponse,
+)
+async def import_supplier_records(
+    file: UploadFile = File(..., description="供应商清单表格文件"),
+    db: AsyncSession = Depends(get_db),
+):
+    filename = file.filename or ""
+    allowed_extensions = (".xlsx", ".xlsm", ".csv", ".tsv")
+    if not filename.lower().endswith(allowed_extensions):
+        raise HTTPException(
+            status_code=400,
+            detail="请上传 xlsx、xlsm、csv 或 tsv 文件",
+        )
+
+    file_bytes = await _read_upload_file_with_limit(file, file_label="表格文件")
+    try:
+        result = await import_supplier_table_file(
+            db,
+            file_bytes,
+            file_name=filename,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="供应商清单导入成功",
+    )
 
 
 @router.get(

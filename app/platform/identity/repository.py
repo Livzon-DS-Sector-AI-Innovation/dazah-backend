@@ -1,10 +1,56 @@
-from sqlalchemy import select
+from uuid import UUID
+
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.identity.models import Department, User
 
 
 class UserRepository:
+    async def get_by_id(
+        self, session: AsyncSession, user_id: UUID | str
+    ) -> User | None:
+        if isinstance(user_id, str):
+            try:
+                user_id = UUID(user_id)
+            except ValueError:
+                return None
+        result = await session.execute(
+            select(User).where(
+                User.id == user_id,
+                User.is_deleted == False,  # noqa: E712
+            ),
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_username(
+        self, session: AsyncSession, username: str,
+    ) -> User | None:
+        result = await session.execute(
+            select(User).where(
+                func.lower(User.username) == username.lower(),
+                User.is_deleted == False,  # noqa: E712
+            ),
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_login_identifier(
+        self, session: AsyncSession, identifier: str,
+    ) -> User | None:
+        normalized = identifier.strip().lower()
+        result = await session.execute(
+            select(User).where(
+                User.is_deleted == False,  # noqa: E712
+                or_(
+                    func.lower(User.username) == normalized,
+                    func.lower(User.email) == normalized,
+                    User.mobile == identifier,
+                    User.employee_no == identifier,
+                ),
+            ),
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_feishu_open_id(
         self, session: AsyncSession, open_id: str,
     ) -> User | None:
@@ -32,8 +78,8 @@ class UserRepository:
         session: AsyncSession,
         *,
         name: str,
-        feishu_user_id: str | None,
-        feishu_open_id: str,
+        feishu_user_id: str | None = None,
+        feishu_open_id: str | None = None,
         feishu_union_id: str | None = None,
         en_name: str | None = None,
         employee_no: str | None = None,
@@ -48,9 +94,19 @@ class UserRepository:
         department: str | None = None,
         position: str | None = None,
         feishu_department_ids: str | None = None,
+        username: str | None = None,
+        password_hash: str | None = None,
+        role: str = "user",
+        status: str = "active",
+        auth_source: str = "feishu",
     ) -> User:
         user = User(
             name=name,
+            username=username,
+            password_hash=password_hash,
+            role=role,
+            status=status,
+            auth_source=auth_source,
             feishu_user_id=feishu_user_id,
             feishu_open_id=feishu_open_id,
             feishu_union_id=feishu_union_id,
@@ -71,6 +127,45 @@ class UserRepository:
         session.add(user)
         await session.flush()
         return user
+
+    async def list_users(
+        self,
+        session: AsyncSession,
+        *,
+        keyword: str | None = None,
+        role: str | None = None,
+        status: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[User], int]:
+        base = select(User).where(User.is_deleted == False)  # noqa: E712
+        count_stmt = select(func.count()).select_from(User).where(
+            User.is_deleted == False  # noqa: E712
+        )
+
+        if keyword:
+            pattern = f"%{keyword}%"
+            filter_expr = or_(
+                User.name.ilike(pattern),
+                User.username.ilike(pattern),
+                User.email.ilike(pattern),
+                User.mobile.ilike(pattern),
+                User.employee_no.ilike(pattern),
+            )
+            base = base.where(filter_expr)
+            count_stmt = count_stmt.where(filter_expr)
+        if role:
+            base = base.where(User.role == role)
+            count_stmt = count_stmt.where(User.role == role)
+        if status:
+            base = base.where(User.status == status)
+            count_stmt = count_stmt.where(User.status == status)
+
+        total = int((await session.execute(count_stmt)).scalar_one())
+        result = await session.execute(
+            base.order_by(User.created_at.desc()).offset(offset).limit(limit)
+        )
+        return list(result.scalars().all()), total
 
     async def list_all(
         self,

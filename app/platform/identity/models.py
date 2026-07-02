@@ -1,4 +1,6 @@
-from sqlalchemy import Integer, String, Text, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.base_model import BaseModel
@@ -7,12 +9,25 @@ from app.shared.base_model import BaseModel
 class User(BaseModel):
     __tablename__ = "users"
     __table_args__ = (
+        UniqueConstraint("username", name="uq_identity_users_username"),
         UniqueConstraint("employee_no", name="uq_identity_users_employee_no"),
         UniqueConstraint("feishu_user_id", name="uq_identity_users_feishu_user_id"),
         {"schema": "identity"},
     )
 
     name: Mapped[str] = mapped_column(String(100))
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role: Mapped[str] = mapped_column(String(20), default="user", server_default="user")
+    status: Mapped[str] = mapped_column(
+        String(20), default="active", server_default="active"
+    )
+    auth_source: Mapped[str] = mapped_column(
+        String(20), default="feishu", server_default="feishu"
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     employee_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
     department: Mapped[str | None] = mapped_column(String(200), nullable=True)
     position: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -21,12 +36,24 @@ class User(BaseModel):
     feishu_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     feishu_open_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     feishu_union_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    en_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="英文名")
-    avatar_thumb: Mapped[str | None] = mapped_column(String(512), nullable=True, comment="小头像URL")
-    avatar_middle: Mapped[str | None] = mapped_column(String(512), nullable=True, comment="中头像URL")
-    avatar_big: Mapped[str | None] = mapped_column(String(512), nullable=True, comment="大头像URL")
-    enterprise_email: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="企业邮箱")
-    tenant_key: Mapped[str | None] = mapped_column(String(128), nullable=True, comment="租户标识")
+    en_name: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="英文名"
+    )
+    avatar_thumb: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, comment="小头像URL"
+    )
+    avatar_middle: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, comment="中头像URL"
+    )
+    avatar_big: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, comment="大头像URL"
+    )
+    enterprise_email: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="企业邮箱"
+    )
+    tenant_key: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, comment="租户标识"
+    )
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     feishu_department_ids: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="飞书部门ID列表，JSON数组"

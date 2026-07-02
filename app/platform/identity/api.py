@@ -1,20 +1,28 @@
 import asyncio
 import logging
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.response import success_response
-from app.platform.identity.deps import CurrentUser
+from app.platform.identity.deps import AdminUser, CurrentUser
 from app.platform.identity.repository import DepartmentRepository, UserRepository
 from app.platform.identity.schemas import (
     DepartmentResponse,
     DepartmentTreeNode,
+    LocalLoginRequest,
+    LocalUserCreate,
+    PasswordResetRequest,
     PersonnelItem,
     PersonnelListResponse,
+    TokenResponse,
+    UserManagementItem,
+    UserManagementListResponse,
+    UserManagementUpdate,
     UserResponse,
 )
 
@@ -44,6 +52,26 @@ async def login(
     return RedirectResponse(url=authorize_url, status_code=302)
 
 
+@auth_router.post(
+    "/local/login", summary="本地账号登录", response_model=TokenResponse
+)
+async def local_login(
+    payload: LocalLoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Login with local username/password and return the same JWT used by SSO."""
+    from app.platform.identity.service import authenticate_local_user
+
+    user, token = await authenticate_local_user(
+        db, username=payload.username, password=payload.password
+    )
+    response = TokenResponse(
+        access_token=token,
+        user=UserResponse.model_validate(user),
+    )
+    return success_response(data=response.model_dump(mode="json"))
+
+
 @auth_router.get("/callback", summary="飞书 SSO 回调")
 async def auth_callback(
     code: str = Query(...),
@@ -70,7 +98,7 @@ async def auth_callback(
 
     try:
         user, token = await handle_oauth_callback(db, code)
-    except Exception as exc:
+    except Exception:
         logger.exception("OAuth callback failed")
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/login?error=callback_failed",
@@ -107,9 +135,123 @@ async def get_me(
     Authentication via Bearer header or auth_token cookie.
     """
     if current_user is None:
-        from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="未登录或登录已过期")
     return success_response(data=UserResponse.model_validate(current_user).model_dump())
+
+
+# ── User Management ────────────────────────────────────────────────
+
+
+@user_router.get(
+    "/users", summary="管理员查询用户列表", response_model=UserManagementListResponse
+)
+async def list_users(
+    keyword: str | None = Query(None, description="按姓名/账号/邮箱/手机号/工号搜索"),
+    role: str | None = Query(None, pattern="^(admin|user)$"),
+    status_filter: str | None = Query(
+        None, alias="status", pattern="^(active|disabled)$"
+    ),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: AdminUser = None,
+) -> JSONResponse:
+    repo = UserRepository()
+    users, total = await repo.list_users(
+        db,
+        keyword=keyword,
+        role=role,
+        status=status_filter,
+        offset=offset,
+        limit=limit,
+    )
+    response = UserManagementListResponse(
+        items=[UserManagementItem.model_validate(user) for user in users],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+    return success_response(data=response.model_dump(mode="json"))
+
+
+@user_router.post(
+    "/users", summary="管理员创建本地用户", response_model=UserManagementItem
+)
+async def create_local_user(
+    payload: LocalUserCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: AdminUser = None,
+) -> JSONResponse:
+    from app.platform.identity.service import hash_password
+
+    repo = UserRepository()
+    existing = await repo.get_by_username(db, payload.username)
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "用户名已存在")
+
+    user = await repo.create(
+        db,
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        name=payload.name,
+        email=payload.email,
+        mobile=payload.mobile,
+        employee_no=payload.employee_no,
+        department=payload.department,
+        position=payload.position,
+        role=payload.role,
+        status=payload.status,
+        auth_source="local",
+    )
+    user.created_by = current_user.id
+    user.updated_by = current_user.id
+    await db.flush()
+    return success_response(
+        data=UserManagementItem.model_validate(user).model_dump(mode="json")
+    )
+
+
+@user_router.put(
+    "/users/{user_id}", summary="管理员更新用户", response_model=UserManagementItem
+)
+async def update_user(
+    user_id: UUID,
+    payload: UserManagementUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: AdminUser = None,
+) -> JSONResponse:
+    repo = UserRepository()
+    user = await repo.get_by_id(db, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(user, field, value)
+    user.updated_by = current_user.id
+    await db.flush()
+    return success_response(
+        data=UserManagementItem.model_validate(user).model_dump(mode="json")
+    )
+
+
+@user_router.post("/users/{user_id}/reset-password", summary="管理员重置用户密码")
+async def reset_user_password(
+    user_id: UUID,
+    payload: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: AdminUser = None,
+) -> JSONResponse:
+    from app.platform.identity.service import hash_password
+
+    repo = UserRepository()
+    user = await repo.get_by_id(db, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
+    user.password_hash = hash_password(payload.password)
+    user.auth_source = user.auth_source or "local"
+    user.updated_by = current_user.id
+    await db.flush()
+    return success_response(data={"message": "密码已重置"})
 
 
 # ── Departments ─────────────────────────────────────────────────────

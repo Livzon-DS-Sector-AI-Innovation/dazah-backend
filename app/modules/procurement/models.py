@@ -104,6 +104,116 @@ class InvoiceRecognitionRecord(BaseModel):
     )
 
 
+class Supplier(BaseModel):
+    """采购供应商清单。"""
+
+    __tablename__ = "suppliers"
+    __table_args__ = (
+        Index("ix_procurement_supplier_code", "supplier_code"),
+        Index("ix_procurement_supplier_name", "supplier_name"),
+        Index("ix_procurement_supplier_material_code", "material_code"),
+        Index("ix_procurement_supplier_material_name", "material_name"),
+        Index("ix_procurement_supplier_category", "purchase_category"),
+        Index("ix_procurement_supplier_updated_date", "last_updated_date"),
+        {"schema": "procurement"},
+    )
+
+    supplier_code: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="供应商代码",
+    )
+    supplier_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="供应商名称",
+    )
+    material_code: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="物料编码",
+    )
+    material_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="物料名称",
+    )
+    manufacturer_code: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="生产厂家编码",
+    )
+    manufacturer_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="生产厂家名称",
+    )
+    purchase_category: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="采购品类名称",
+    )
+    last_updated_by: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="最后更新人",
+    )
+    last_updated_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+        comment="最后更新日期",
+    )
+    import_file_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="导入文件名",
+    )
+    import_sheet_name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="",
+        server_default="",
+        comment="导入工作表",
+    )
+    import_row_number: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="导入文件行号",
+    )
+    import_columns: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default="[]",
+        comment="导入文件字段顺序",
+    )
+    raw_data: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+        comment="导入原始行数据",
+    )
+
+
 class PurchaseRequest(BaseModel):
     """采购申请单主表。"""
 

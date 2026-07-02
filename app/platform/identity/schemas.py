@@ -1,12 +1,23 @@
 import json
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+UserRole = Literal["admin", "user"]
+UserStatus = Literal["active", "disabled"]
+AuthSource = Literal["local", "feishu"]
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "Bearer"
+    user: "UserResponse | None" = None
+
+
+class LocalLoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=1, max_length=255)
 
 
 class SSOCallbackResult(BaseModel):
@@ -17,6 +28,10 @@ class SSOCallbackResult(BaseModel):
 class UserResponse(BaseModel):
     id: UUID
     name: str
+    username: str | None = None
+    role: UserRole = "user"
+    status: UserStatus = "active"
+    auth_source: AuthSource = "feishu"
     en_name: str | None = None
     email: str | None = None
     enterprise_email: str | None = None
@@ -34,6 +49,54 @@ class UserResponse(BaseModel):
     tenant_key: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class UserManagementItem(UserResponse):
+    last_login_at: str | None = None
+
+    @field_validator("last_login_at", mode="before")
+    @classmethod
+    def datetime_to_str(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return str(v)
+
+
+class UserManagementListResponse(BaseModel):
+    items: list[UserManagementItem]
+    total: int
+    offset: int
+    limit: int
+
+
+class LocalUserCreate(BaseModel):
+    username: str = Field(..., min_length=2, max_length=64)
+    password: str = Field(..., min_length=6, max_length=255)
+    name: str = Field(..., min_length=1, max_length=100)
+    email: str | None = Field(None, max_length=255)
+    mobile: str | None = Field(None, max_length=32)
+    employee_no: str | None = Field(None, max_length=64)
+    department: str | None = Field(None, max_length=200)
+    position: str | None = Field(None, max_length=200)
+    role: UserRole = "user"
+    status: UserStatus = "active"
+
+
+class UserManagementUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100)
+    email: str | None = Field(None, max_length=255)
+    mobile: str | None = Field(None, max_length=32)
+    employee_no: str | None = Field(None, max_length=64)
+    department: str | None = Field(None, max_length=200)
+    position: str | None = Field(None, max_length=200)
+    role: UserRole | None = None
+    status: UserStatus | None = None
+
+
+class PasswordResetRequest(BaseModel):
+    password: str = Field(..., min_length=6, max_length=255)
 
 
 # ── Department ──────────────────────────────────────────────────────

@@ -70,6 +70,49 @@ class InvoiceRecognitionRecordDeleteResponse(BaseModel):
     meta: dict[str, Any] | None = None
 
 
+class SupplierResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(..., description="供应商清单记录 ID")
+    supplier_code: str = Field("", description="供应商代码")
+    supplier_name: str = Field("", description="供应商名称")
+    material_code: str = Field("", description="物料编码")
+    material_name: str = Field("", description="物料名称")
+    manufacturer_code: str = Field("", description="生产厂家编码")
+    manufacturer_name: str = Field("", description="生产厂家名称")
+    purchase_category: str = Field("", description="采购品类名称")
+    last_updated_by: str = Field("", description="最后更新人")
+    last_updated_date: date | None = Field(None, description="最后更新日期")
+    import_file_name: str = Field("", description="导入文件名")
+    import_sheet_name: str = Field("", description="导入工作表")
+    import_row_number: int = Field(..., description="导入文件行号")
+    import_columns: list[str] = Field(default_factory=list, description="导入字段")
+    raw_data: dict[str, Any] = Field(default_factory=dict, description="原始行数据")
+    created_at: datetime | None = Field(None, description="导入时间")
+    updated_at: datetime | None = Field(None, description="更新时间")
+
+
+class SupplierListResponse(BaseModel):
+    code: int = Field(200, description="响应状态码")
+    message: str = Field("success", description="响应消息")
+    data: list[SupplierResponse]
+    meta: dict[str, Any] | None = None
+
+
+class SupplierImportResult(BaseModel):
+    imported_count: int = Field(0, description="导入记录数")
+    columns: list[str] = Field(default_factory=list, description="导入字段")
+    file_name: str = Field("", description="导入文件名")
+    sheet_name: str = Field("", description="导入工作表")
+
+
+class SupplierImportResponse(BaseModel):
+    code: int = Field(200, description="响应状态码")
+    message: str = Field("success", description="响应消息")
+    data: SupplierImportResult
+    meta: dict[str, Any] | None = None
+
+
 class PurchaseRequestCategory(StrEnum):
     hardware = "hardware"
     computer = "computer"
