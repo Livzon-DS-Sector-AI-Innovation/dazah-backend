@@ -59,6 +59,24 @@ class OperationSpec:
 
 
 OPERATION_WHITELIST: dict[str, OperationSpec] = {
+    "analytics.aggregate": OperationSpec(
+        "TOOL",
+        "/agent/analytics/aggregate",
+        summary="通用业务数据聚合统计",
+        input_schema={
+            "body": {
+                "dataset": "数据集名称，例如 procurement.suppliers",
+                "metrics": "聚合指标列表，支持 count/count_distinct/sum/avg/min/max",
+                "group_by": "分组字段列表，例如 manufacturer_name",
+                "filters": (
+                    "过滤条件列表，支持 eq/ne/contains/not_empty/is_empty/gte/lte"
+                ),
+                "order_by": "按 metric 或 group_by 字段排序",
+                "limit": "返回分组数量，默认 20，最大 200",
+            }
+        },
+        output_hint="用于全量计数、去重计数、TopN、分布统计等场景，避免逐页读取全量明细。",
+    ),
     "warehouse.list_raw_materials": OperationSpec(
         "GET", "/warehouse/raw-materials", summary="查询原辅料库存"
     ),

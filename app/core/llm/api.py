@@ -197,7 +197,14 @@ async def update_config(
     config.updated_by = current_user.id if current_user else None
 
     await db.flush()
-    return _to_response(config)
+    result = await db.execute(
+        select(LLMConfigModel).where(
+            LLMConfigModel.id == config.id,
+            LLMConfigModel.is_deleted.is_(False),
+        ).execution_options(populate_existing=True)
+    )
+    refreshed_config = result.scalar_one()
+    return _to_response(refreshed_config)
 
 
 @router.delete("/{config_id}", status_code=204)

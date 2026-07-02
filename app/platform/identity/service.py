@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 _repo = UserRepository()
 _PASSWORD_ITERATIONS = 260_000
+SYSTEM_ADMIN_USERNAME = "system_admin"
+SYSTEM_ADMIN_NAME = "系统管理员"
 
 
 def hash_password(password: str) -> str:
@@ -228,7 +230,6 @@ async def bootstrap_local_users() -> None:
     ]
 
     async with async_session_factory() as session:
-        changed = False
         for username, password, name, email, role in entries:
             if not username or not password:
                 continue
@@ -244,7 +245,6 @@ async def bootstrap_local_users() -> None:
                     status="active",
                     auth_source="local",
                 )
-                changed = True
                 logger.info("Bootstrapped %s local user: %s", role, username)
                 continue
 
@@ -254,10 +254,46 @@ async def bootstrap_local_users() -> None:
             existing.role = role
             existing.status = "active"
             existing.auth_source = existing.auth_source or "local"
-            changed = True
 
-        if changed:
-            await session.commit()
+        await get_or_create_system_admin(session)
+        await session.commit()
+
+
+async def get_or_create_system_admin(db: AsyncSession) -> User:
+    """Return the platform default administrator used when login is disabled."""
+    user = await _repo.get_by_username_including_deleted(db, SYSTEM_ADMIN_USERNAME)
+    if user is None:
+        user = await _repo.create(
+            db,
+            username=SYSTEM_ADMIN_USERNAME,
+            name=SYSTEM_ADMIN_NAME,
+            role="admin",
+            status="active",
+            auth_source="local",
+        )
+        logger.info("Created default platform administrator: %s", SYSTEM_ADMIN_USERNAME)
+        return user
+
+    changed = False
+    if user.name != SYSTEM_ADMIN_NAME:
+        user.name = SYSTEM_ADMIN_NAME
+        changed = True
+    if user.role != "admin":
+        user.role = "admin"
+        changed = True
+    if user.status != "active":
+        user.status = "active"
+        changed = True
+    if user.auth_source != "local":
+        user.auth_source = "local"
+        changed = True
+    if user.is_deleted:
+        user.is_deleted = False
+        changed = True
+
+    if changed:
+        await db.flush()
+    return user
 
 
 def generate_state_token() -> str:

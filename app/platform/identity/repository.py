@@ -34,6 +34,16 @@ class UserRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_username_including_deleted(
+        self, session: AsyncSession, username: str,
+    ) -> User | None:
+        result = await session.execute(
+            select(User).where(
+                func.lower(User.username) == username.lower(),
+            ),
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_login_identifier(
         self, session: AsyncSession, identifier: str,
     ) -> User | None:

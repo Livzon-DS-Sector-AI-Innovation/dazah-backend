@@ -191,8 +191,8 @@
           "\u8ba4\u8bc1",
           "\u8ba4\u8bc1"
         ],
-        "summary": "\u53d1\u8d77\u98de\u4e66 SSO \u767b\u5f55",
-        "description": "Generate state token and redirect user to Feishu authorization page.",
+        "summary": "\u517c\u5bb9\u767b\u5f55\u5165\u53e3\uff08\u9ed8\u8ba4\u8fdb\u5165\u5de5\u4f5c\u53f0\uff09",
+        "description": "Compatibility entrypoint: login is disabled, so enter the workspace.",
         "operationId": "login_api_v1_identity_auth_login_get",
         "responses": {
           "200": {
@@ -307,8 +307,8 @@
           "\u8ba4\u8bc1",
           "\u8ba4\u8bc1"
         ],
-        "summary": "\u767b\u51fa",
-        "description": "Redirect to frontend login page (frontend handles cookie clearing).",
+        "summary": "\u517c\u5bb9\u767b\u51fa\u5165\u53e3\uff08\u9ed8\u8ba4\u8fd4\u56de\u5de5\u4f5c\u53f0\uff09",
+        "description": "Compatibility entrypoint: logout clears client state and returns home.",
         "operationId": "logout_api_v1_identity_auth_logout_get",
         "responses": {
           "200": {
@@ -328,8 +328,8 @@
           "\u7528\u6237\u4fe1\u606f",
           "\u7528\u6237\u4fe1\u606f"
         ],
-        "summary": "\u83b7\u53d6\u5f53\u524d\u767b\u5f55\u7528\u6237\u4fe1\u606f",
-        "description": "Return the currently authenticated user's profile.\n\nAuthentication via Bearer header or auth_token cookie.",
+        "summary": "\u83b7\u53d6\u5f53\u524d\u5e73\u53f0\u7528\u6237\u4fe1\u606f",
+        "description": "Return the current platform user, defaulting to the system administrator.",
         "operationId": "get_me_api_v1_identity_me_get",
         "parameters": [
           {

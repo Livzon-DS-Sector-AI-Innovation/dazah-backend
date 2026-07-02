@@ -38,18 +38,15 @@ sync_router = APIRouter(prefix="/sync", tags=["飞书同步"])
 # ── Auth (SSO) ──────────────────────────────────────────────────────
 
 
-@auth_router.get("/login", summary="发起飞书 SSO 登录")
+@auth_router.get("/login", summary="兼容登录入口（默认进入工作台）")
 async def login(
     settings: Settings = Depends(get_settings),
 ) -> RedirectResponse:
-    """Generate state token and redirect user to Feishu authorization page."""
-    from app.platform.identity.service import generate_state_token
-    from app.platform.integrations.feishu.oauth import FeishuOAuthClient
-
-    state = generate_state_token()
-    oauth = FeishuOAuthClient.from_settings()
-    authorize_url = oauth.build_authorize_url(state)
-    return RedirectResponse(url=authorize_url, status_code=302)
+    """Compatibility entrypoint: login is disabled, so enter the workspace."""
+    return RedirectResponse(
+        url=f"{settings.FRONTEND_URL}/production",
+        status_code=302,
+    )
 
 
 @auth_router.post(
@@ -112,13 +109,13 @@ async def auth_callback(
     )
 
 
-@auth_router.get("/logout", summary="登出")
+@auth_router.get("/logout", summary="兼容登出入口（默认返回工作台）")
 async def logout(
     settings: Settings = Depends(get_settings),
 ) -> RedirectResponse:
-    """Redirect to frontend login page (frontend handles cookie clearing)."""
+    """Compatibility entrypoint: logout clears client state and returns home."""
     return RedirectResponse(
-        url=f"{settings.FRONTEND_URL}/login",
+        url=f"{settings.FRONTEND_URL}/production",
         status_code=302,
     )
 
@@ -126,16 +123,12 @@ async def logout(
 # ── Current User ────────────────────────────────────────────────────
 
 
-@user_router.get("/me", summary="获取当前登录用户信息")
+@user_router.get("/me", summary="获取当前平台用户信息")
 async def get_me(
     current_user: CurrentUser,
 ) -> JSONResponse:
-    """Return the currently authenticated user's profile.
-
-    Authentication via Bearer header or auth_token cookie.
-    """
-    if current_user is None:
-        raise HTTPException(status_code=401, detail="未登录或登录已过期")
+    """Return the current platform user, defaulting to the system administrator."""
+    assert current_user is not None
     return success_response(data=UserResponse.model_validate(current_user).model_dump())
 
 
