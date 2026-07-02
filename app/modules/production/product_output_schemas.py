@@ -38,7 +38,7 @@ class ProductOutputResponse(BaseModel):
     """产量记录响应"""
 
     id: uuid.UUID
-    product_id: uuid.UUID
+    product_id: uuid.UUID | None = None
     workshop: str
     product_name: str
     batch_no: str

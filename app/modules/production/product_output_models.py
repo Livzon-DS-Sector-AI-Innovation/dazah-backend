@@ -29,9 +29,9 @@ class ProductOutput(BaseModel):
     __tablename__ = "product_outputs"
     __table_args__ = {"schema": "production"}
 
-    product_id: Mapped[uuid.UUID] = mapped_column(
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("production.products.id"),
-        nullable=False,
+        nullable=True,
         index=True,
         comment="关联产品ID",
     )

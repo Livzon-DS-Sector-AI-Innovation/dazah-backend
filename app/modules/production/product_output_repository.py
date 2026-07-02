@@ -140,6 +140,8 @@ class ProductOutputRepository:
         year: int | None = None,
         workshop: str | None = None,
         product_id: uuid.UUID | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> list[dict[str, Any]]:
         """获取汇总统计 - 按结束日期计算产量"""
         # 使用 end_date，如果 end_date 为 null 则用 production_date
@@ -177,6 +179,10 @@ class ProductOutputRepository:
             base_query = base_query.where(
                 ProductOutput.product_id == product_id
             )
+        if start_date:
+            base_query = base_query.where(output_date >= start_date)
+        if end_date:
+            base_query = base_query.where(output_date <= end_date)
 
         result = await self.session.execute(base_query)
         rows = result.all()
@@ -184,6 +190,59 @@ class ProductOutputRepository:
             {
                 "workshop": row.workshop,
                 "total_weight": float(row.total_weight),
+            }
+            for row in rows
+        ]
+
+    async def get_batch_count(
+        self,
+        target_date: date | None = None,
+        month: str | None = None,
+        year: int | None = None,
+        product_id: uuid.UUID | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[dict[str, Any]]:
+        """获取批次统计 - 按产品分组统计批次数"""
+        output_date = case(
+            (ProductOutput.end_date.isnot(None), ProductOutput.end_date),
+            else_=ProductOutput.production_date,
+        )
+
+        base_query = (
+            select(
+                ProductOutput.product_id,
+                func.count(func.distinct(ProductOutput.batch_no)).label("batch_count"),
+            )
+            .where(ProductOutput.is_deleted == False)  # noqa: E712
+            .group_by(ProductOutput.product_id)
+        )
+
+        if target_date:
+            base_query = base_query.where(output_date == target_date)
+        if month:
+            base_query = base_query.where(
+                func.to_char(output_date, "YYYY-MM") == month
+            )
+        if year:
+            base_query = base_query.where(
+                func.extract("year", output_date) == year
+            )
+        if product_id:
+            base_query = base_query.where(
+                ProductOutput.product_id == product_id
+            )
+        if start_date:
+            base_query = base_query.where(output_date >= start_date)
+        if end_date:
+            base_query = base_query.where(output_date <= end_date)
+
+        result = await self.session.execute(base_query)
+        rows = result.all()
+        return [
+            {
+                "product_id": row.product_id,
+                "batch_count": int(row.batch_count),
             }
             for row in rows
         ]
