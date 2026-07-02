@@ -2,8 +2,10 @@ from datetime import date, datetime
 from io import BytesIO
 from uuid import UUID
 import logging
+import os
+import re
 
-from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -61,6 +63,12 @@ from app.modules.hr.schemas import (
     TrainingSpecialistCreate,
     TrainingSpecialistUpdate,
     TrainingSpecialistResponse,
+    TrainingTeamCreate,
+    TrainingTeamUpdate,
+    TrainingTeamResponse,
+    PrejobTemplateCreate,
+    PrejobTemplateItem,
+    PrejobTemplateResponse,
 )
 try:
     from app.modules.hr.attendance_schemas import DepartmentProductionSettings
@@ -79,7 +87,7 @@ try:
     from app.modules.hr.attendance_api import router as attendance_router
 except ImportError:
     attendance_router = None  # type: ignore
-from app.modules.hr.repository import TrainingSpecialistRepository
+from app.modules.hr.repository import PrejobTemplateRepository, TrainingSpecialistRepository, TrainingTeamRepository
 from app.modules.hr.service import (
     AnnualTrainingPlanItemService,
     AnnualTrainingPlanService,
@@ -374,6 +382,49 @@ async def export_prejob_training_plan(
     employee = await service.get_employee(employee_id) if factory == "old" else await _get_new_employee(employee_id, session)
     try:
         buffer: BytesIO = generate_prejob_training_plan(employee, factory)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    def _iterfile():
+        buffer.seek(0)
+        yield buffer.read()
+
+    ext = "xlsx" if factory == "old" else "docx"
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if factory == "old"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    filename = f"prejob_training_plan_{employee.employee_number}.{ext}"
+    return StreamingResponse(
+        _iterfile(),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post(
+    "/employees/{employee_id}/prejob-training-plan",
+    summary="导出员工岗前培训计划（含编辑后内容）",
+)
+async def export_prejob_training_plan_with_items(
+    employee_id: UUID,
+    factory: str = Query("old", description="厂别：old=旧厂, new=新厂"),
+    items: list[PrejobTemplateItem] | None = Body(
+        None, description="编辑后的培训计划内容（10行），不传则使用部门默认内容"
+    ),
+    service: EmployeeService = Depends(get_employee_service),
+    session: AsyncSession = Depends(get_db),
+):
+    """根据员工数据自动生成并下载岗前培训计划文档，支持传入编辑后的培训计划条目。"""
+    employee = (
+        await service.get_employee(employee_id)
+        if factory == "old"
+        else await _get_new_employee(employee_id, session)
+    )
+    items_dict = [it.model_dump() for it in items] if items else None
+    try:
+        buffer: BytesIO = generate_prejob_training_plan(employee, factory, items_dict)
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -706,7 +757,7 @@ async def export_training_notification(
 ):
     """根据填写的培训信息自动生成培训通知 Word 文档。
 
-    旧厂使用模板「培训通知.docx」，新厂使用模板「SOP-GN-2002 Q 培训通知.docx」。
+    旧厂使用模板「旧厂员工培训教育管理规程/培训通知.docx」，新厂使用模板「新厂人员培训管理规程/SOP-GN-2002 Q 培训通知.docx」。
     若应出席受训人员包含李健文(110000673)或黄丽耘(110001372)，
     自动为其创建培训台账记录。
     """
@@ -2508,6 +2559,7 @@ async def list_training_specialists(
             "employee_number": s.employee_number,
             "employee_name": s.employee_name,
             "factory": s.factory,
+            "feishu_open_id": s.feishu_open_id or "",
         }
         for s in specialists
     ]
@@ -2533,3 +2585,253 @@ async def delete_training_specialist(
 ):
     await repo.delete(specialist_id)
     return success_response(message="培训专员已删除")
+
+
+@router.post("/training-specialists/sync-feishu-openids", summary="同步培训专员飞书 open_id")
+async def sync_specialist_feishu_openids(
+    repo: TrainingSpecialistRepository = Depends(get_specialist_repo),
+    employee_service: EmployeeService = Depends(get_employee_service),
+):
+    """从员工表或飞书 API 批量获取培训专员的 open_id 并持久化。"""
+    specialists = await repo.list_all()
+    results: list[dict] = []
+
+    for s in specialists:
+        if s.feishu_open_id:
+            continue  # already has open_id
+
+        open_id = None
+        source = ""
+
+        # 1) Try employees table (old factory)
+        if s.factory == "old":
+            emp = await employee_service.repo.get_by_employee_number(s.employee_number)
+            if emp and emp.feishu_open_id:
+                open_id = emp.feishu_open_id
+                source = "employees"
+        else:
+            # 2) Try employees_new table
+            emp = await employee_service.repo.get_new_employee_by_number(s.employee_number)
+            if emp and emp.feishu_open_id:
+                open_id = emp.feishu_open_id
+                source = "employees_new"
+
+        # 3) Try Feishu API via phone
+        if not open_id:
+            try:
+                from app.platform.integrations.feishu_im import FeishuIM
+                # Get phone from employees tables
+                phone = None
+                emp = await employee_service.repo.get_by_employee_number(s.employee_number)
+                if emp and emp.phone:
+                    phone = emp.phone
+                if not phone:
+                    emp = await employee_service.repo.get_new_employee_by_number(s.employee_number)
+                    if emp and emp.phone:
+                        phone = emp.phone
+                if phone:
+                    im = FeishuIM()
+                    mapping = await im.batch_get_open_ids_by_mobile([phone])
+                    open_id = mapping.get(phone)
+                    if open_id:
+                        source = "feishu_api"
+            except Exception as e:
+                logger.warning("Feishu API lookup failed for %s: %s", s.employee_name, e)
+
+        if open_id:
+            s.feishu_open_id = open_id
+            await repo.session.flush()
+            results.append({"employee_number": s.employee_number, "employee_name": s.employee_name, "open_id": open_id, "source": source, "status": "updated"})
+        else:
+            results.append({"employee_number": s.employee_number, "employee_name": s.employee_name, "open_id": "", "source": "", "status": "not_found"})
+
+    return success_response(data={"synced": len([r for r in results if r["status"] == "updated"]), "failed": len([r for r in results if r["status"] == "not_found"]), "details": results})
+
+
+# ─── Training Teams ───
+
+
+def get_team_repo(session: AsyncSession = Depends(get_db)) -> TrainingTeamRepository:
+    return TrainingTeamRepository(session)
+
+
+@router.get("/training-teams", summary="自定义受训班组列表")
+async def list_training_teams(
+    factory: str = Query("old", description="厂区: old=旧厂, new=新厂"),
+    repo: TrainingTeamRepository = Depends(get_team_repo),
+):
+    teams = await repo.list_by_factory(factory)
+    data = [
+        {
+            "id": str(t.id),
+            "name": t.name,
+            "factory": t.factory,
+            "department": t.department,
+            "specialist_employee_number": t.specialist_employee_number,
+            "specialist_name": t.specialist_name,
+            "employee_names": t.employee_names or [],
+            "employee_numbers": t.employee_numbers or [],
+        }
+        for t in teams
+    ]
+    return success_response(data=data)
+
+
+@router.post("/training-teams", summary="新增自定义受训班组")
+async def create_training_team(
+    payload: TrainingTeamCreate,
+    repo: TrainingTeamRepository = Depends(get_team_repo),
+):
+    t = await repo.create(payload)
+    return success_response(
+        data={"id": str(t.id), "name": t.name, "factory": t.factory},
+        message="班组已创建",
+    )
+
+
+@router.put("/training-teams/{team_id}", summary="编辑自定义受训班组")
+async def update_training_team(
+    team_id: UUID,
+    payload: TrainingTeamUpdate,
+    repo: TrainingTeamRepository = Depends(get_team_repo),
+):
+    t = await repo.update(team_id, payload)
+    return success_response(
+        data={"id": str(t.id), "name": t.name},
+        message="班组已更新",
+    )
+
+
+@router.delete("/training-teams/{team_id}", summary="删除自定义受训班组")
+async def delete_training_team(
+    team_id: UUID,
+    repo: TrainingTeamRepository = Depends(get_team_repo),
+):
+    await repo.delete(team_id)
+    return success_response(message="班组已删除")
+
+
+# ─── Pre-job Training Plan Templates ───
+
+
+def get_prejob_template_repo(
+    session: AsyncSession = Depends(get_db),
+) -> PrejobTemplateRepository:
+    return PrejobTemplateRepository(session)
+
+
+@router.get(
+    "/prejob-training-templates",
+    summary="获取部门岗前培训计划模板",
+)
+async def get_prejob_template(
+    department: str = Query(..., description="部门名称"),
+    factory: str = Query("old", description="厂区: old=旧厂, new=新厂"),
+    repo: PrejobTemplateRepository = Depends(get_prejob_template_repo),
+):
+    """获取指定部门+厂区的岗前培训计划模板。若没有保存过模板则返回 null。"""
+    template = await repo.get_by_dept_factory(department, factory)
+    if template:
+        return success_response(
+            data=PrejobTemplateResponse.model_validate(template).model_dump()
+        )
+    return success_response(data=None)
+
+
+@router.put(
+    "/prejob-training-templates",
+    summary="保存部门岗前培训计划模板",
+)
+async def save_prejob_template(
+    payload: PrejobTemplateCreate,
+    repo: PrejobTemplateRepository = Depends(get_prejob_template_repo),
+):
+    """保存（新增或覆盖）指定部门+厂区的岗前培训计划模板。"""
+    items = [item.model_dump() for item in payload.items]
+    template = await repo.upsert(payload.department, payload.factory, items)
+    return success_response(
+        data=PrejobTemplateResponse.model_validate(template).model_dump(),
+        message="岗前培训计划模板已保存",
+    )
+
+
+# ─── System Settings ───
+
+ENV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")
+SETTING_KEYS = [
+    "FEISHU_APP_ID", "FEISHU_APP_SECRET",
+    "FEISHU_VEHICLE_APP_ID", "FEISHU_VEHICLE_APP_SECRET",
+    "FEISHU_TRAINING_APP_ID", "FEISHU_TRAINING_APP_SECRET",
+    "AI_BASE_URL", "AI_API_KEY", "AI_MODEL",
+    "AILY_APP_ID",
+]
+
+
+@router.get("/system-settings", summary="获取系统设置")
+async def get_system_settings(
+    session: AsyncSession = Depends(get_db),
+):
+    """获取所有系统配置。secret 类字段仅返回尾部 4 位。"""
+    result = {}
+    _settings = get_settings()
+    from sqlalchemy import text as sql_text
+    r = await session.execute(sql_text("SELECT key, value FROM hr.system_settings"))
+    db_settings = {row[0]: row[1] for row in r.fetchall()}
+
+    for key in SETTING_KEYS:
+        val = db_settings.get(key) or os.environ.get(key, "") or getattr(_settings, key, "")
+        result[key] = val
+
+    return success_response(data=result)
+
+
+@router.put("/system-settings", summary="保存系统设置")
+async def save_system_settings(
+    payload: dict = Body(...),
+    session: AsyncSession = Depends(get_db),
+):
+    """批量保存系统配置到 DB，同时写入 .env 文件。"""
+    from sqlalchemy import text as sql_text
+
+    updated = []
+    for key, value in payload.items():
+        if key not in SETTING_KEYS:
+            continue
+        await session.execute(
+            sql_text(
+                "INSERT INTO hr.system_settings (key, value, updated_at) VALUES (:k, :v, now()) "
+                "ON CONFLICT (key) DO UPDATE SET value = :v, updated_at = now()"
+            ),
+            {"k": key, "v": value},
+        )
+        updated.append(key)
+    await session.commit()
+
+    # Write to .env file
+    try:
+        if os.path.exists(ENV_PATH):
+            with open(ENV_PATH, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        else:
+            lines = []
+        existing_keys = {}
+        for i, line in enumerate(lines):
+            m = re.match(r"^(\w+)=.*", line.strip())
+            if m:
+                existing_keys[m.group(1)] = i
+
+        for key, value in payload.items():
+            if key not in SETTING_KEYS:
+                continue
+            new_line = f"{key}={value}\n"
+            if key in existing_keys:
+                lines[existing_keys[key]] = new_line
+            else:
+                lines.append(new_line)
+
+        with open(ENV_PATH, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except Exception as e:
+        logger.warning("Failed to write .env: %s", e)
+
+    return success_response(data={"updated": updated}, message=f"已保存 {len(updated)} 项设置")

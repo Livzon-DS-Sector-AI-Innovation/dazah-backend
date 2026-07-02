@@ -54,7 +54,7 @@ DEPT_CONTENT_MAP: dict[str, list[str]] = {
 }
 
 
-def _generate_old(employee: Employee) -> BytesIO:
+def _generate_old(employee: Employee, items: list[dict] | None = None) -> BytesIO:
     """Fill the old factory pre-job training plan xlsx template."""
     template_path = _find_old_template()
     wb = openpyxl.load_workbook(str(template_path))
@@ -67,12 +67,20 @@ def _generate_old(employee: Employee) -> BytesIO:
     ws["I6"] = str(employee.hire_date) if employee.hire_date else ""
     ws["C7"] = employee.position or ""
 
-    # Part 2: Training content (auto-fill by department)
-    content_list = DEPT_CONTENT_MAP.get(employee.department or "", [])
-    for i, content in enumerate(content_list):
-        row = 11 + i
-        if row <= 20:
-            ws[f"B{row}"] = content
+    # Part 2: Training content — use provided items or fallback to department map
+    if items:
+        for item in items:
+            seq = item.get("seq", 0)
+            if 1 <= seq <= 10:
+                # Only fill content column for old factory (B column)
+                row = 10 + seq  # seq 1 → row 11, seq 10 → row 20
+                ws[f"B{row}"] = item.get("content", "")
+    else:
+        content_list = DEPT_CONTENT_MAP.get(employee.department or "", [])
+        for i, content in enumerate(content_list):
+            row = 11 + i
+            if row <= 20:
+                ws[f"B{row}"] = content
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -80,7 +88,7 @@ def _generate_old(employee: Employee) -> BytesIO:
     return buffer
 
 
-def _generate_new(employee: Employee) -> BytesIO:
+def _generate_new(employee: Employee, items: list[dict] | None = None) -> BytesIO:
     """Fill the new factory pre-job training plan docx template."""
     template_path = _find_new_template()
     doc = Document(str(template_path))
@@ -91,7 +99,6 @@ def _generate_new(employee: Employee) -> BytesIO:
     table = doc.tables[0]
 
     # Row 1: [姓名] [姓名] [] [] [部门] []
-    # cells[0] and cells[1] are merged (label), cells[2] and cells[3] are merged (value), cells[4] is label, cells[5] is value
     table.rows[1].cells[2].text = employee.name or ""
     table.rows[1].cells[5].text = employee.department or ""
 
@@ -109,17 +116,39 @@ def _generate_new(employee: Employee) -> BytesIO:
     table.rows[4].cells[2].text = hire_date_str
     table.rows[4].cells[5].text = employee.position or ""
 
+    # Part 2: Training plan rows (rows 6-15 in the template table, 10 rows)
+    if items:
+        for item in items:
+            seq = item.get("seq", 0)
+            if 1 <= seq <= 10:
+                row_idx = 5 + seq  # seq 1 → row 6
+                row = table.rows[row_idx]
+                # Assuming cell layout: [seq, content, deadline, trainer]
+                if len(row.cells) >= 4:
+                    row.cells[1].text = item.get("content", "")
+                    row.cells[2].text = item.get("deadline", "")
+                    row.cells[3].text = item.get("trainer", "")
+
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     return buffer
 
 
-def generate_prejob_training_plan(employee: Employee, factory: str = "old") -> BytesIO:
+def generate_prejob_training_plan(
+    employee: Employee, factory: str = "old", items: list[dict] | None = None
+) -> BytesIO:
     """Fill the pre-job training plan template with employee data.
+
+    Args:
+        employee: Employee record to pre-fill.
+        factory: 'old' or 'new'.
+        items: Optional list of {seq, content, deadline, trainer} dicts.
+               When provided, fills the training plan table from these items.
+               When None, falls back to DEPT_CONTENT_MAP.
 
     Returns a BytesIO buffer containing the generated document.
     """
     if factory == "new":
-        return _generate_new(employee)
-    return _generate_old(employee)
+        return _generate_new(employee, items)
+    return _generate_old(employee, items)

@@ -17,6 +17,7 @@ from app.modules.hr.models import (
     Employee,
     OffboardingRecord,
     OnboardingRecord,
+    PrejobTrainingPlanTemplate,
     Team,
     TrainingLedger,
     TrainingLedgerPage,
@@ -1116,6 +1117,62 @@ class TrainingSpecialistRepository:
             await self.session.flush()
 
 
+class TrainingTeamRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def list_by_factory(self, factory: str) -> list:
+        from app.modules.hr.models import TrainingTeam
+        result = await self.session.execute(
+            select(TrainingTeam).where(
+                TrainingTeam.factory == factory,
+                TrainingTeam.is_deleted.is_(False),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def get_by_id(self, team_id: UUID):
+        from app.modules.hr.models import TrainingTeam
+        result = await self.session.execute(
+            select(TrainingTeam).where(
+                TrainingTeam.id == team_id,
+                TrainingTeam.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def create(self, data) -> "TrainingTeam":
+        from app.modules.hr.models import TrainingTeam
+        obj = TrainingTeam(
+            name=data.name,
+            factory=data.factory,
+            department=data.department,
+            specialist_employee_number=data.specialist_employee_number,
+            specialist_name=data.specialist_name,
+            employee_names=data.employee_names or [],
+            employee_numbers=data.employee_numbers or [],
+        )
+        self.session.add(obj)
+        await self.session.flush()
+        return obj
+
+    async def update(self, team_id: UUID, data) -> "TrainingTeam":
+        obj = await self.get_by_id(team_id)
+        if not obj:
+            raise ValueError(f"TrainingTeam {team_id} not found")
+        update_data = data.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(obj, key, value)
+        await self.session.flush()
+        return obj
+
+    async def delete(self, team_id: UUID) -> None:
+        obj = await self.get_by_id(team_id)
+        if obj:
+            await self.session.delete(obj)
+            await self.session.flush()
+
+
 class CandidateRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -1258,3 +1315,44 @@ class CandidateRepository:
     async def soft_delete(self, candidate: Candidate) -> None:
         candidate.is_deleted = True
         await self.session.flush()
+
+
+class PrejobTemplateRepository:
+    """岗前培训计划模板仓库。"""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_dept_factory(
+        self, department: str, factory: str
+    ) -> PrejobTrainingPlanTemplate | None:
+        result = await self.session.execute(
+            select(PrejobTrainingPlanTemplate).where(
+                PrejobTrainingPlanTemplate.department == department,
+                PrejobTrainingPlanTemplate.factory == factory,
+                PrejobTrainingPlanTemplate.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert(
+        self,
+        department: str,
+        factory: str,
+        items: list[dict],
+    ) -> PrejobTrainingPlanTemplate:
+        existing = await self.get_by_dept_factory(department, factory)
+        if existing:
+            existing.items = items
+            await self.session.flush()
+            await self.session.refresh(existing)
+            return existing
+        obj = PrejobTrainingPlanTemplate(
+            department=department,
+            factory=factory,
+            items=items,
+        )
+        self.session.add(obj)
+        await self.session.flush()
+        await self.session.refresh(obj)
+        return obj

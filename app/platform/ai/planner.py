@@ -18,7 +18,9 @@ from app.platform.ai.schemas import PlanStep, QueryPlan, SubQuery
 
 logger = logging.getLogger(__name__)
 
-_PLANNER_MODEL = "kimi-k2.5"
+def _get_model() -> str:
+    from app.core.config import get_settings
+    return get_settings().AI_MODEL or "kimi-k2.5"
 
 _PLANNER_SYSTEM_PROMPT = """你是工厂人事管理系统的「查询规划助手」。
 
@@ -189,7 +191,7 @@ async def generate_plan(
     for attempt in range(3):
         try:
             response = await client.chat.completions.create(
-                model=_PLANNER_MODEL,
+                model=_get_model(),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},

@@ -908,6 +908,42 @@ class TrainingSpecialistResponse(BaseModel):
     employee_number: str
     employee_name: str
     factory: str
+    feishu_open_id: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+# ─── Training Team Schemas ───
+
+class TrainingTeamCreate(BaseModel):
+    name: str = Field(..., max_length=128, description="班组名称")
+    factory: str = Field("old", max_length=8, description="厂区: old=旧厂, new=新厂")
+    department: str = Field(..., max_length=64, description="所属部门")
+    specialist_employee_number: str = Field(..., max_length=32, description="培训专员工号")
+    specialist_name: str = Field(..., max_length=64, description="培训专员姓名")
+    employee_names: list[str] = Field(default_factory=list, description="受训人员姓名列表")
+    employee_numbers: list[str] = Field(default_factory=list, description="受训人员工号列表")
+
+
+class TrainingTeamUpdate(BaseModel):
+    name: str | None = Field(None, max_length=128)
+    department: str | None = Field(None, max_length=64)
+    specialist_employee_number: str | None = Field(None, max_length=32)
+    specialist_name: str | None = Field(None, max_length=64)
+    employee_names: list[str] | None = Field(None)
+    employee_numbers: list[str] | None = Field(None)
+
+
+class TrainingTeamResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    name: str
+    factory: str
+    department: str
+    specialist_employee_number: str
+    specialist_name: str
+    employee_names: list | None = None
+    employee_numbers: list | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -962,3 +998,34 @@ class CandidateUpdate(BaseModel):
     major: str | None = Field(None, max_length=64, description="专业")
     match_report: str | None = Field(None, description="候选人匹配度报告")
     recommendation_level: str | None = Field(None, max_length=16, description="推荐等级")
+
+
+# ─── Pre-job Training Plan Template Schemas ───
+
+
+class PrejobTemplateItem(BaseModel):
+    """岗前培训计划单行条目（共10行）。"""
+    seq: int = Field(..., description="序号 1-10")
+    content: str = Field("", max_length=256, description="培训内容")
+    deadline: str = Field("", max_length=64, description="完成期限")
+    trainer: str = Field("", max_length=64, description="培训师")
+
+
+class PrejobTemplateCreate(BaseModel):
+    """保存部门岗前培训计划模板。"""
+    department: str = Field(..., max_length=64, description="部门名称")
+    factory: str = Field("old", max_length=8, description="厂区: old=旧厂, new=新厂")
+    items: list[PrejobTemplateItem] = Field(
+        default_factory=list, description="10行培训计划条目"
+    )
+
+
+class PrejobTemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    department: str
+    factory: str
+    items: list[PrejobTemplateItem]
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

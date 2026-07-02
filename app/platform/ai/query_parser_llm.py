@@ -19,7 +19,9 @@ from app.platform.ai.query_parser import EmployeeQueryCriteria
 
 logger = logging.getLogger(__name__)
 
-_INTENT_MODEL = "kimi-k2.5"
+def _get_model() -> str:
+    from app.core.config import get_settings
+    return get_settings().AI_MODEL or "kimi-k2.5"
 
 _INTENT_SYSTEM_PROMPT = """你是工厂人事管理系统的「意图识别助手」。你的唯一任务是从用户的自然语言消息中提取数据库查询条件。
 
@@ -113,7 +115,7 @@ async def parse_with_llm(
 
     try:
         response = await client.chat.completions.create(
-            model=_INTENT_MODEL,
+            model=_get_model(),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

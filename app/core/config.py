@@ -70,7 +70,8 @@ class Settings(BaseSettings):
     AILY_APP_ID: str = ""
 
     # AI
-    MOONSHOT_API_KEY: str = ""
+    AI_BASE_URL: str = "https://api.moonshot.cn/v1"
+    AI_API_KEY: str = ""
     AI_MODEL: str = "kimi-k2.5"
     AI_SYSTEM_PROMPT: str = (
         "你是「小H」，原料药工厂人事管理助手。"

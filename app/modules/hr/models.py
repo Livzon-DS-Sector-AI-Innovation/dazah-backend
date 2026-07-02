@@ -493,6 +493,38 @@ class TrainingSpecialist(BaseModel):
     factory: Mapped[str] = mapped_column(
         String(8), nullable=False, default="old", server_default="old", comment="厂区: old=旧厂, new=新厂"
     )
+    feishu_open_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, comment="飞书 user open_id"
+    )
+
+
+class TrainingTeam(BaseModel):
+    """自定义培训受训班组 — 替代培训场次中的受训部门选择."""
+
+    __tablename__ = "training_teams"
+    __table_args__ = {"schema": "hr"}
+
+    name: Mapped[str] = mapped_column(
+        String(128), nullable=False, comment="班组名称"
+    )
+    factory: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="old", server_default="old", comment="厂区: old=旧厂, new=新厂"
+    )
+    department: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="所属部门"
+    )
+    specialist_employee_number: Mapped[str] = mapped_column(
+        String(32), nullable=False, comment="培训专员工号"
+    )
+    specialist_name: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="培训专员姓名"
+    )
+    employee_names: Mapped[list | None] = mapped_column(
+        JSON, nullable=True, comment="受训人员姓名列表"
+    )
+    employee_numbers: Mapped[list | None] = mapped_column(
+        JSON, nullable=True, comment="受训人员工号列表"
+    )
 
 
 class OnboardingRecord(BaseModel):
@@ -878,4 +910,37 @@ class Candidate(BaseModel):
     )
     feishu_sync_error: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="飞书同步失败原因"
+    )
+
+
+class PrejobTrainingPlanTemplate(BaseModel):
+    """岗前培训计划模板 — 按部门+厂区保存培训计划内容。"""
+
+    __tablename__ = "prejob_training_plan_templates"
+    __table_args__ = (
+        Index(
+            "ix_prejob_template_dept_factory",
+            "department",
+            "factory",
+            unique=True,
+        ),
+        {"schema": "hr"},
+    )
+
+    department: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="部门名称"
+    )
+    factory: Mapped[str] = mapped_column(
+        String(8),
+        nullable=False,
+        default="old",
+        server_default="old",
+        comment="厂区: old=旧厂, new=新厂",
+    )
+    items: Mapped[list[dict]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        server_default="[]",
+        comment="培训计划条目列表 [{seq, content, deadline, trainer}]",
     )

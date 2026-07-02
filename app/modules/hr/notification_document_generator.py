@@ -26,19 +26,20 @@ def _find_template(factory: str = "old") -> Path:
     """Locate the docx template by factory."""
     if factory == "new":
         template_name = "SOP-GN-2002 Q 培训通知.docx"
+        dir_name = "新厂人员培训管理规程"
     else:
         template_name = "培训通知.docx"
+        dir_name = "旧厂员工培训教育管理规程"
+    base = Path(__file__).resolve().parent.parent.parent.parent
     candidates = [
-        Path(f"员工培训教育管理规程/{template_name}"),
-        Path(f"../员工培训教育管理规程/{template_name}"),
-        Path(__file__).resolve().parent.parent.parent.parent
-        / "员工培训教育管理规程"
-        / template_name,
+        Path(dir_name) / template_name,
+        Path("..") / dir_name / template_name,
+        base / dir_name / template_name,
     ]
     for p in candidates:
         if p.exists():
             return p
-    raise FileNotFoundError(f"模板文件未找到: {template_name}")
+    raise FileNotFoundError(f"模板文件未找到: {dir_name}/{template_name}")
 
 
 def _find_underlined_groups(paragraph) -> list[list[int]]:
@@ -65,7 +66,11 @@ def _remove_empty_space_runs(paragraph) -> None:
 
 
 def _fill_first_underlined_run(paragraph, text: str) -> None:
-    """在下划线区域填入内容：写入第一个下划线 run，删除其余下划线 runs 及多余空格 run."""
+    """在下划线区域内居中填入文字，保留原下划线总宽度。
+
+    若文字长度 >= 下划线总宽：文字直接填入（自然延展下划线）。
+    若文字长度 < 下划线总宽：左右填充空格使文字居中，保持原下划线宽度不变。
+    """
     underlined = [r for r in paragraph.runs if r.font.underline]
     if not underlined:
         if not paragraph.runs:
@@ -76,10 +81,17 @@ def _fill_first_underlined_run(paragraph, text: str) -> None:
         run.font.underline = True
         return
 
+    total_width = sum(len(r.text) for r in underlined)
+    text_len = len(text) if text else 0
+
     first = underlined[0]
-    # 如果原 run 以空格开头，保留一个空格前缀让排版自然
-    prefix = " " if first.text and first.text.startswith(" ") else ""
-    first.text = prefix + (text or "")
+    if text_len >= total_width:
+        first.text = text or ""
+    else:
+        total_pad = total_width - text_len
+        left_pad = total_pad // 2
+        right_pad = total_pad - left_pad
+        first.text = " " * left_pad + (text or "") + " " * right_pad
     first.font.underline = True
 
     # 删除其余下划线 runs
@@ -88,6 +100,30 @@ def _fill_first_underlined_run(paragraph, text: str) -> None:
 
     # 删除纯空格且无下划线的尾随空 run
     _remove_empty_space_runs(paragraph)
+
+
+def _center_fill_group(paragraph, group_indices: list[int], text: str) -> None:
+    """对 paragraph 中指定索引的一组下划线 run 居中填入文字。
+
+    计算该组所有 run 的总字符宽度，将文字居中填入第一个下划线 run，
+    不足部分用空格填充，保持原下划线总宽度不变。超长时直接填入。
+    """
+    total_width = sum(len(paragraph.runs[i].text) for i in group_indices)
+    text_len = len(text) if text else 0
+
+    first = paragraph.runs[group_indices[0]]
+    if text_len >= total_width:
+        first.text = text or ""
+    else:
+        total_pad = total_width - text_len
+        left_pad = total_pad // 2
+        right_pad = total_pad - left_pad
+        first.text = " " * left_pad + (text or "") + " " * right_pad
+    first.font.underline = True
+
+    # 删除该组其余下划线 runs（从后往前避免索引错位）
+    for idx in reversed(group_indices[1:]):
+        paragraph._p.remove(paragraph.runs[idx]._r)
 
 
 def generate_training_notification(data: TrainingNotificationInput, factory: str = "old") -> BytesIO:
@@ -101,50 +137,19 @@ def generate_training_notification(data: TrainingNotificationInput, factory: str
     # groups2 = [[0,1], [3,4,5], [7,8,9], [11,12,13], [15,16,17], [19,20,21]]
     # 对应: 段首缩进 | 部门 | 年 | 月 | 日 | 主题
     if len(groups2) >= 6:
-        # 段首缩进 runs[0-1] 保留模板原样
-        # 先保存固定文字 run 引用，再删除下划线 runs，避免索引错位
-        # 固定文字: 主办部门(2) / 于(6) / 年(10) / 月(14) / 举行(18) / 培训(22)
-        run_dept_label = p2.runs[2]
-        run_yu = p2.runs[6]
-        run_nian = p2.runs[10]
-        run_yue = p2.runs[14]
-        run_juxing = p2.runs[18]
-        run_peixun = p2.runs[22]
+        # 段首缩进 runs[0-1] 不动
 
-        # 修正固定文字
-        run_dept_label.text = ""
-        run_yu.text = "将于"
-        run_nian.text = "年"
-        run_yue.text = "月"
-        run_juxing.text = "日举行"
-        run_peixun.text = "的培训"
+        # 居中填充各下划线组（从后往前处理避免索引错位）
+        _center_fill_group(p2, groups2[5], data.subject or "")        # 主题
+        _center_fill_group(p2, groups2[4], data.training_date.strftime("%d"))  # 日
+        _center_fill_group(p2, groups2[3], data.training_date.strftime("%m"))  # 月
+        _center_fill_group(p2, groups2[2], data.training_date.strftime("%Y"))  # 年
+        _center_fill_group(p2, groups2[1], data.department)            # 部门
 
-        # 从后往前删除多余下划线 runs 并写入内容
-        # 主题
-        p2.runs[groups2[5][0]].text = data.subject or ""
-        p2.runs[groups2[5][0]].font.underline = True
-        for idx in reversed(groups2[5][1:]):
-            p2._p.remove(p2.runs[idx]._r)
-        # 日
-        p2.runs[groups2[4][0]].text = data.training_date.strftime("%d")
-        p2.runs[groups2[4][0]].font.underline = True
-        for idx in reversed(groups2[4][1:]):
-            p2._p.remove(p2.runs[idx]._r)
-        # 月
-        p2.runs[groups2[3][0]].text = data.training_date.strftime("%m")
-        p2.runs[groups2[3][0]].font.underline = True
-        for idx in reversed(groups2[3][1:]):
-            p2._p.remove(p2.runs[idx]._r)
-        # 年
-        p2.runs[groups2[2][0]].text = data.training_date.strftime("%Y")
-        p2.runs[groups2[2][0]].font.underline = True
-        for idx in reversed(groups2[2][1:]):
-            p2._p.remove(p2.runs[idx]._r)
-        # 部门
-        p2.runs[groups2[1][0]].text = data.department
-        p2.runs[groups2[1][0]].font.underline = True
-        for idx in reversed(groups2[1][1:]):
-            p2._p.remove(p2.runs[idx]._r)
+        # 修正固定文字（运行时索引已因 center_fill 删除 run 而改变）
+        p2.runs[2].text = ""           # 清空原"主办部门"标签
+        p2.runs[4].text = "部门将于"    # 原 run[6] "于"，前缀"部门"无下划线
+        p2.runs[10].text = "日举行"      # 原 run[18] "举行"
 
     # ── P3: 培训时间 ──
     time_parts = []
@@ -179,29 +184,12 @@ def generate_training_notification(data: TrainingNotificationInput, factory: str
     p13 = doc.paragraphs[13]
     groups13 = _find_underlined_groups(p13)
     # groups13 = [[1,2,3], [5,6,7], [9,10]] 对应 年 | 月 | 日
+    # 固定文字 runs[4]="年"/[8]="月"/[11]="日" 保留原样不动
     issue_date = data.issue_date or data.training_date
     if len(groups13) >= 3:
-        # 先保存固定文字引用
-        run_nian2 = p13.runs[4]
-        run_yue2 = p13.runs[8]
-        run_ri2 = p13.runs[11]
-        run_nian2.text = "年"
-        run_yue2.text = "月"
-        run_ri2.text = "日"
-
-        # 从后往前删除多余下划线 runs
-        p13.runs[groups13[2][0]].text = issue_date.strftime("%d")
-        p13.runs[groups13[2][0]].font.underline = True
-        for idx in reversed(groups13[2][1:]):
-            p13._p.remove(p13.runs[idx]._r)
-        p13.runs[groups13[1][0]].text = issue_date.strftime("%m")
-        p13.runs[groups13[1][0]].font.underline = True
-        for idx in reversed(groups13[1][1:]):
-            p13._p.remove(p13.runs[idx]._r)
-        p13.runs[groups13[0][0]].text = issue_date.strftime("%Y")
-        p13.runs[groups13[0][0]].font.underline = True
-        for idx in reversed(groups13[0][1:]):
-            p13._p.remove(p13.runs[idx]._r)
+        _center_fill_group(p13, groups13[2], issue_date.strftime("%d"))  # 日
+        _center_fill_group(p13, groups13[1], issue_date.strftime("%m"))  # 月
+        _center_fill_group(p13, groups13[0], issue_date.strftime("%Y"))  # 年
 
     buffer = BytesIO()
     doc.save(buffer)

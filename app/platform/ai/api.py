@@ -507,12 +507,13 @@ def _extract_text_from_file(file_bytes: bytes, file_type: str) -> str:
 async def _call_moonshot_for_exam(
     client: openai.AsyncOpenAI,
     file_content: str,
+    model: str = "kimi-k2.5",
 ) -> ExamGenerateResponse:
-    """调用 Moonshot API 根据文件内容生成题目."""
+    """调用 AI API 根据文件内容生成题目."""
     prompt = build_generate_prompt(file_content)
 
     response = await client.chat.completions.create(
-        model="kimi-k2.5",
+        model=model,
         messages=[
             {"role": "system", "content": "你是一个专业的培训考核出题专家，只输出JSON格式内容。"},
             {"role": "user", "content": prompt},
@@ -613,7 +614,7 @@ async def generate_exam_questions(
         raise HTTPException(status_code=400, detail="文件内容过短，无法生成题目")
 
     try:
-        result = await _call_moonshot_for_exam(service.client, file_content)
+        result = await _call_moonshot_for_exam(service.client, file_content, service.model)
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=500, detail=f"AI 返回格式解析失败: {exc}"
